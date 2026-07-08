@@ -1,7 +1,8 @@
 {
   "id": "betterinv",
   "title": "Better Inventory",
-  "version": "0.1.0",
+  "description": "A lightweight inventory organizer with custom categories for Foundry VTT.",
+  "version": "0.1.2",
   "compatibility": {
     "minimum": "13",
     "verified": "14"
