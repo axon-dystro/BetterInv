@@ -1,0 +1,16 @@
+{
+  "id": "betterinv",
+  "title": "Better Inventory",
+  "version": "0.1.0",
+  "compatibility": {
+    "minimum": "13",
+    "verified": "14"
+  },
+  "authors": [
+    {
+      "name": "Marvin"
+    }
+  ],
+  "scripts": ["scripts/main.js"],
+  "styles": ["styles/style.css"]
+}
