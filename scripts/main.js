@@ -4,6 +4,7 @@ const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 let betterInvPopup = null;
 let betterInvState = {
+  actorId: null,
   containerId: null,
   search: "",
   scale: 1
@@ -123,7 +124,41 @@ function ensureBetterInvButton() {
 }
 
 function getCurrentActor() {
-  return canvas?.tokens?.controlled?.[0]?.actor ?? game.user.character ?? null;
+  const selected = canvas?.tokens?.controlled?.[0]?.actor;
+  if (selected) return selected;
+  if (betterInvState.actorId) return game.actors?.get(betterInvState.actorId) ?? null;
+  return game.user.character ?? null;
+}
+
+function getSelectablePlayerActors() {
+  const playerUsers = game.users?.filter(u => !u.isGM) ?? [];
+  const userCharacterIds = new Set(playerUsers.map(u => u.character?.id).filter(Boolean));
+  const actors = game.actors?.filter(actor => {
+    if (actor.type !== "character") return false;
+    if (userCharacterIds.has(actor.id)) return true;
+    return playerUsers.some(user => {
+      const level = actor.ownership?.[user.id] ?? actor.permission?.[user.id] ?? 0;
+      return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+    });
+  }) ?? [];
+  return [...new Map(actors.map(a => [a.id, a])).values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function actorChooserHtml(actors) {
+  if (!actors.length) return `<p class="betterinv-hint">Keine Spieler-Charaktere mit Owner-Rechten gefunden.</p>`;
+  return `
+    <div class="betterinv-gm-chooser">
+      <h3>Charakter auswählen</h3>
+      <p class="betterinv-hint">Wähle einen Spielercharakter, dessen Inventar du verwalten möchtest.</p>
+      <div class="betterinv-gm-actor-grid">
+        ${actors.map(actor => `
+          <button type="button" class="betterinv-gm-actor" data-actor-id="${escapeAttr(actor.id)}">
+            <img src="${escapeAttr(actor.img || "icons/svg/mystery-man.svg")}" alt="">
+            <span>${escapeHtml(actor.name)}</span>
+          </button>
+        `).join("")}
+      </div>
+    </div>`;
 }
 
 function refreshIfCurrentActor(actor) {
@@ -231,6 +266,88 @@ async function setCategories(actor, categories, containerId = null) {
   await actor.setFlag(MODULE_ID, "categoriesByContext", all);
 }
 
+async function getSubcategories(actor, parentCategory, containerId = null) {
+  if (!actor || !parentCategory || parentCategory === "__unsorted") return [];
+  const all = actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {};
+  const ctx = getContextKey(containerId);
+  const list = all?.[ctx]?.[parentCategory];
+  return Array.isArray(list) ? list.map(c => sanitizePlainText(c, { max: 48 })).filter(Boolean) : [];
+}
+
+async function setSubcategories(actor, parentCategory, subcategories, containerId = null) {
+  if (!actor || !parentCategory || parentCategory === "__unsorted") return;
+  const all = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {});
+  const ctx = getContextKey(containerId);
+  all[ctx] ??= {};
+  all[ctx][parentCategory] = [...new Set(subcategories.map(c => sanitizePlainText(c, { max: 48 })).filter(Boolean))];
+  await actor.setFlag(MODULE_ID, "subcategoriesByContext", all);
+}
+
+function makeSubcategoryId(parent, sub) { return `${parent}::${sub}`; }
+function parseCategoryId(id) {
+  const value = String(id ?? "__unsorted");
+  if (!value.includes("::")) return { parent: value, sub: null };
+  const [parent, ...rest] = value.split("::");
+  return { parent, sub: rest.join("::") || null };
+}
+function displayCategoryName(id) {
+  if (id === "__unsorted") return "Unsortiert";
+  const parsed = parseCategoryId(id);
+  return parsed.sub ? parsed.sub : parsed.parent;
+}
+
+async function getCategoryOptions(actor, categories, containerId = null) {
+  const options = ["__unsorted"];
+  for (const category of categories) {
+    options.push(category);
+    const subs = await getSubcategories(actor, category, containerId);
+    for (const sub of subs) options.push(makeSubcategoryId(category, sub));
+  }
+  return options;
+}
+
+function categoryOptionLabel(id) {
+  if (id === "__unsorted") return "Unsortiert";
+  const parsed = parseCategoryId(id);
+  return parsed.sub ? `${parsed.parent} / ${parsed.sub}` : parsed.parent;
+}
+
+async function addSubcategory(actor, parentCategory, subName, containerId = null) {
+  subName = sanitizePlainText(subName, { max: 48 });
+  if (!subName || !actor || parentCategory === "__unsorted") return;
+  const subs = await getSubcategories(actor, parentCategory, containerId);
+  if (subs.includes(subName)) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return; }
+  await setSubcategories(actor, parentCategory, [...subs, subName], containerId);
+}
+
+async function renameSubcategory(actor, parentCategory, oldSub, newSub, containerId = null) {
+  newSub = sanitizePlainText(newSub, { max: 48 });
+  if (!newSub || !actor || parentCategory === "__unsorted") return;
+  const subs = await getSubcategories(actor, parentCategory, containerId);
+  if (subs.includes(newSub) && newSub !== oldSub) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return; }
+  await setSubcategories(actor, parentCategory, subs.map(s => s === oldSub ? newSub : s), containerId);
+  const oldId = makeSubcategoryId(parentCategory, oldSub);
+  const newId = makeSubcategoryId(parentCategory, newSub);
+  for (const item of getInventoryItems(actor)) {
+    if (itemCategory(item, containerId) === oldId) await setItemCategory(item, newId, containerId);
+  }
+}
+
+async function deleteSubcategory(actor, parentCategory, subName, containerId = null) {
+  if (!actor || parentCategory === "__unsorted") return;
+  const confirmed = await Dialog.confirm({
+    title: "Unterkategorie löschen",
+    content: `<p>Unterkategorie <strong>${escapeHtml(subName)}</strong> löschen? Items darin werden nach <strong>${escapeHtml(parentCategory)}</strong> verschoben.</p>`
+  });
+  if (!confirmed) return;
+  const subs = (await getSubcategories(actor, parentCategory, containerId)).filter(s => s !== subName);
+  await setSubcategories(actor, parentCategory, subs, containerId);
+  const oldId = makeSubcategoryId(parentCategory, subName);
+  for (const item of getInventoryItems(actor)) {
+    if (itemCategory(item, containerId) === oldId) await setItemCategory(item, parentCategory, containerId);
+  }
+}
+
 async function getCategoryOrder(actor, containerId = null, categories = null) {
   const ctx = getContextKey(containerId);
   const all = actor?.getFlag(MODULE_ID, "categoryOrderByContext") ?? {};
@@ -260,8 +377,20 @@ async function renameCategory(actor, oldName, newName, containerId = null) {
   await setCategories(actor, renamed, containerId);
   const order = await getCategoryOrder(actor, containerId, renamed);
   await setCategoryOrder(actor, order.map(id => id === oldName ? newName : id), containerId);
+
+  const allSubs = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {});
+  const ctx = getContextKey(containerId);
+  const subs = allSubs?.[ctx]?.[oldName] ?? [];
+  if (allSubs?.[ctx]) {
+    delete allSubs[ctx][oldName];
+    allSubs[ctx][newName] = subs;
+    await actor.setFlag(MODULE_ID, "subcategoriesByContext", allSubs);
+  }
+
   for (const item of getInventoryItems(actor)) {
-    if (itemCategory(item, containerId) === oldName) await setItemCategory(item, newName, containerId);
+    const cat = itemCategory(item, containerId);
+    if (cat === oldName) await setItemCategory(item, newName, containerId);
+    else if (cat.startsWith(`${oldName}::`)) await setItemCategory(item, `${newName}::${cat.slice(oldName.length + 2)}`, containerId);
   }
 }
 
@@ -275,8 +404,17 @@ async function deleteCategory(actor, categoryName, containerId = null) {
   const categories = (await getCategories(actor, containerId)).filter(c => c !== categoryName);
   await setCategories(actor, categories, containerId);
   await setCategoryOrder(actor, (await getCategoryOrder(actor, containerId, categories)).filter(id => id !== categoryName), containerId);
+
+  const allSubs = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {});
+  const ctx = getContextKey(containerId);
+  if (allSubs?.[ctx]?.[categoryName]) {
+    delete allSubs[ctx][categoryName];
+    await actor.setFlag(MODULE_ID, "subcategoriesByContext", allSubs);
+  }
+
   for (const item of getInventoryItems(actor)) {
-    if (itemCategory(item, containerId) === categoryName) await setItemCategory(item, "__unsorted", containerId);
+    const cat = itemCategory(item, containerId);
+    if (cat === categoryName || cat.startsWith(`${categoryName}::`)) await setItemCategory(item, "__unsorted", containerId);
   }
 }
 
@@ -445,6 +583,21 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   }
   windowEl.style.setProperty("--bi-content-scale", String(betterInvState.scale || 1));
 
+  if (!actor && game.user.isGM) {
+    const actors = getSelectablePlayerActors();
+    windowEl.innerHTML = baseShellHtml(actorChooserHtml(actors));
+    activateWindowListeners(windowEl, null, null);
+    windowEl.querySelectorAll(".betterinv-gm-actor").forEach(btn => {
+      btn.addEventListener("click", () => {
+        betterInvState.actorId = btn.dataset.actorId;
+        betterInvState.containerId = null;
+        betterInvState.search = "";
+        renderBetterInvWindow({ preserveScroll: false });
+      });
+    });
+    return;
+  }
+
   if (!actor) {
     windowEl.innerHTML = baseShellHtml(`
       <p>Kein Token ausgewählt und kein Charakter deinem User zugeordnet.</p>
@@ -462,6 +615,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const visibleItems = query ? allVisibleItems.filter(item => itemMatchesSearch(item, query)) : allVisibleItems;
   const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor));
   const categories = await getCategories(actor, activeContainer?.id ?? null);
+  const categoryOptions = await getCategoryOptions(actor, categories, activeContainer?.id ?? null);
 
   const topContainerHtml = !activeContainer ? await renderContainerCards(actor, containers) : renderContainerBreadcrumb(actor, activeContainer);
   const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
@@ -469,22 +623,50 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
   const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
 
-  const sectionHtml = sections.map(section => {
-    const items = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === section.id);
-    const rows = items.length
-      ? items.map(item => itemRowHtml(item, categories, activeContainer?.id ?? null)).join("")
+  const sectionHtmlParts = [];
+  for (const section of sections) {
+    const directItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === section.id);
+    const rows = directItems.length
+      ? directItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, section.id)).join("")
       : `<p class="betterinv-empty">Leer</p>`;
-    return `
+
+    let subcategoryHtml = "";
+    if (section.id !== "__unsorted") {
+      const subs = await getSubcategories(actor, section.id, activeContainer?.id ?? null);
+      subcategoryHtml = subs.map(sub => {
+        const subId = makeSubcategoryId(section.id, sub);
+        const subItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === subId);
+        const subRows = subItems.length
+          ? subItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, subId)).join("")
+          : `<p class="betterinv-empty">Leer</p>`;
+        return `
+          <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
+            <summary>
+              <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
+              <span class="betterinv-sub-indent">↳</span>
+              <span class="betterinv-category-name">${escapeHtml(sub)}</span>
+              <span class="betterinv-category-count">${subItems.length}</span>
+              <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
+            </summary>
+            <div class="betterinv-items betterinv-subitems">${subRows}</div>
+          </details>`;
+      }).join("");
+    }
+
+    sectionHtmlParts.push(`
       <details class="betterinv-category" open draggable="true" data-category="${escapeAttr(section.id)}">
         <summary>
           <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
           <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
-          <span class="betterinv-category-count">${items.length}</span>
+          <span class="betterinv-category-count">${directItems.length}</span>
+          ${section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
           <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
         </summary>
         <div class="betterinv-items">${rows}</div>
-      </details>`;
-  }).join("");
+        ${subcategoryHtml}
+      </details>`);
+  }
+  const sectionHtml = sectionHtmlParts.join("");
 
   windowEl.innerHTML = baseShellHtml(`
     <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
@@ -492,6 +674,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <strong>${activeContainer ? escapeHtml(getContainerAlias(actor, activeContainer)) : "Rucksäcke"}</strong>
         <span>
           ${activeContainer ? "Inhalt" : "Körper / Rucksäcke"} · ${visibleItems.length} Items
+          ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
           ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
         </span>
       </div>
@@ -699,15 +882,15 @@ function renderContainerBreadcrumb(actor, container) {
     </div>`;
 }
 
-function itemRowHtml(item, categories, containerId) {
+function itemRowHtml(item, categoryOptions, containerId) {
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = foundry.utils.getProperty(item, "system.quantity") ?? 1;
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
-  const options = [`<option value="__unsorted" ${current === "__unsorted" ? "selected" : ""}>Unsortiert</option>`]
-    .concat(categories.map(cat => `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(cat)}</option>`))
-    .join("");
+  const options = (categoryOptions ?? ["__unsorted"]).map(cat =>
+    `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(categoryOptionLabel(cat))}</option>`
+  ).join("");
 
   return `
     <article class="betterinv-item" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
@@ -750,6 +933,15 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     await setContainerLayerCount(actor, next);
     renderBetterInvWindow();
   });
+  windowEl.querySelector(".betterinv-change-actor")?.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    betterInvState.actorId = null;
+    betterInvState.containerId = null;
+    betterInvState.search = "";
+    renderBetterInvWindow({ preserveScroll: false });
+  });
+
   windowEl.querySelector(".betterinv-active-container-rename")?.addEventListener("click", async event => {
     event.preventDefault();
     event.stopPropagation();
@@ -825,6 +1017,62 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
   });
 
 
+  windowEl.querySelectorAll(".betterinv-add-subcategory").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const section = event.currentTarget.closest(".betterinv-category");
+      const parentCategory = section?.dataset?.category;
+      if (!parentCategory || parentCategory === "__unsorted") return;
+      const name = await new Promise(resolve => {
+        new Dialog({
+          title: "Unterkategorie erstellen",
+          content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" placeholder="z.B. Vortex Warp" autofocus></div></form>`,
+          buttons: {
+            create: { label: "Erstellen", callback: html => resolve(sanitizePlainText(html.find('[name="name"]').val(), { max: 48 })) },
+            cancel: { label: "Abbrechen", callback: () => resolve(null) }
+          },
+          default: "create",
+          close: () => resolve(null)
+        }).render(true);
+        setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+      });
+      if (!name) return;
+      await addSubcategory(actor, parentCategory, name, activeContainer?.id ?? null);
+      renderBetterInvWindow();
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-subcategory-settings").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const section = event.currentTarget.closest(".betterinv-subcategory");
+      const parentCategory = section?.dataset?.parentCategory;
+      const currentName = section?.dataset?.subcategory;
+      if (!parentCategory || !currentName) return;
+      const choice = await new Promise(resolve => {
+        new Dialog({
+          title: "Unterkategorie bearbeiten",
+          content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" value="${escapeAttr(currentName)}" autofocus></div></form>`,
+          buttons: {
+            rename: { label: "Umbenennen", callback: html => resolve({ action: "rename", name: sanitizePlainText(html.find('[name="name"]').val(), { max: 48 }) }) },
+            delete: { label: "Löschen", callback: () => resolve({ action: "delete" }) },
+            cancel: { label: "Abbrechen", callback: () => resolve(null) }
+          },
+          default: "rename",
+          close: () => resolve(null)
+        }).render(true);
+        setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+      });
+      if (!choice) return;
+      const containerId = activeContainer?.id ?? null;
+      if (choice.action === "rename") await renameSubcategory(actor, parentCategory, currentName, choice.name, containerId);
+      if (choice.action === "delete") await deleteSubcategory(actor, parentCategory, currentName, containerId);
+      renderBetterInvWindow();
+    });
+  });
+
   windowEl.querySelectorAll(".betterinv-category-settings").forEach(button => {
     button.addEventListener("click", async event => {
       event.preventDefault();
@@ -870,6 +1118,7 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
+  enableSubcategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
   enableCategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
   enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
 
@@ -1061,6 +1310,78 @@ async function moveItemToContainer(item, targetContainer = null) {
   ui.notifications.warn("Item konnte nicht automatisch in den Container verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
 }
 
+
+function enableSubcategoryDragSorting(windowEl, actor, containerId = null) {
+  const subcats = Array.from(windowEl.querySelectorAll(".betterinv-subcategory"));
+
+  subcats.forEach(subEl => {
+    subEl.addEventListener("dragstart", event => {
+      if (event.target.closest(".betterinv-item, select, input, textarea, a, .betterinv-subcategory-settings")) {
+        event.preventDefault();
+        return;
+      }
+      subEl.classList.add("betterinv-subcategory-dragging");
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("application/x-betterinv-subcategory", subEl.dataset.subcategory);
+      event.stopPropagation();
+    });
+
+    subEl.addEventListener("dragend", async event => {
+      event.stopPropagation();
+      const indicator = windowEl.querySelector(".betterinv-drop-indicator");
+      const oldParentName = subEl.dataset.parentCategory;
+      const targetParent = indicator?.closest(".betterinv-category");
+      const targetParentName = targetParent?.dataset?.category;
+
+      if (indicator?.parentNode && targetParentName === oldParentName) {
+        indicator.parentNode.insertBefore(subEl, indicator);
+      }
+      clearDropIndicator(windowEl);
+      subEl.classList.remove("betterinv-subcategory-dragging");
+
+      const parentEl = windowEl.querySelector(`.betterinv-category[data-category="${CSS.escape(oldParentName ?? "")}"]`);
+      if (parentEl) {
+        const order = Array.from(parentEl.querySelectorAll(":scope > .betterinv-subcategory"))
+          .map(el => el.dataset.subcategory)
+          .filter(Boolean);
+        await setSubcategories(actor, oldParentName, order, containerId);
+      }
+      renderBetterInvWindow();
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-category").forEach(categoryEl => {
+    categoryEl.addEventListener("dragover", event => {
+      const dragging = windowEl.querySelector(".betterinv-subcategory-dragging");
+      if (!dragging) return;
+      if (dragging.dataset.parentCategory !== categoryEl.dataset.category) return;
+      if (event.target.closest(".betterinv-item")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      categoryEl.open = true;
+      const indicator = ensureDropIndicator(windowEl);
+      const afterElement = getSubcategoryAfterElement(categoryEl, event.clientY);
+      if (afterElement == null) categoryEl.appendChild(indicator);
+      else categoryEl.insertBefore(indicator, afterElement);
+    });
+    categoryEl.addEventListener("drop", event => {
+      if (!windowEl.querySelector(".betterinv-subcategory-dragging")) return;
+      event.preventDefault();
+      event.stopPropagation();
+    });
+  });
+}
+
+function getSubcategoryAfterElement(categoryEl, y) {
+  const draggableElements = [...categoryEl.querySelectorAll(":scope > .betterinv-subcategory:not(.betterinv-subcategory-dragging)")];
+  return draggableElements.reduce((closest, child) => {
+    const box = child.getBoundingClientRect();
+    const offset = y - box.top - box.height / 2;
+    if (offset < 0 && offset > closest.offset) return { offset, element: child };
+    return closest;
+  }, { offset: Number.NEGATIVE_INFINITY }).element;
+}
+
 function enableCategoryDragSorting(windowEl, actor, containerId = null) {
   const body = windowEl.querySelector(".betterinv-body");
   const categories = Array.from(windowEl.querySelectorAll(".betterinv-category"));
@@ -1069,7 +1390,7 @@ function enableCategoryDragSorting(windowEl, actor, containerId = null) {
       // If the drag started from an item row inside this category, the item
       // sorter owns the drag. Otherwise the category sorter would also fire
       // because dragstart bubbles through the <details> element.
-      if (event.target.closest(".betterinv-item")) return;
+      if (event.target.closest(".betterinv-item, .betterinv-subcategory")) return;
       categoryEl.classList.add("betterinv-dragging");
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("application/x-betterinv-category", categoryEl.dataset.category);
@@ -1128,7 +1449,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
       event.stopPropagation();
       const indicator = windowEl.querySelector(".betterinv-drop-indicator");
       const targetList = indicator?.closest(".betterinv-items");
-      const targetCategory = targetList?.closest(".betterinv-category")?.dataset.category;
+      const targetCategory = targetList?.closest(".betterinv-subcategory, .betterinv-category")?.dataset.category;
       if (indicator?.parentNode) indicator.parentNode.insertBefore(row, indicator);
       clearDropIndicator(windowEl);
       row.classList.remove("betterinv-item-dragging");
@@ -1172,7 +1493,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
   // Allow dropping an item on a category header/body too. This is important when
   // a category is empty or collapsed: the item still gets a clear white target
   // line inside that category.
-  windowEl.querySelectorAll(".betterinv-category").forEach(categoryEl => {
+  windowEl.querySelectorAll(".betterinv-category, .betterinv-subcategory").forEach(categoryEl => {
     categoryEl.addEventListener("dragover", event => {
       const dragging = windowEl.querySelector(".betterinv-item-dragging");
       if (!dragging) return;
