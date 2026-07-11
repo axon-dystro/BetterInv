@@ -2539,39 +2539,82 @@
   to { transform: rotate(360deg); }
 }
 
-/* Four actions stay readable by using a full-width grid below the caption. */
+/* Phase 4.8.1: keep currency actions compact so the money section stays a feature, not the main focus. */
 .betterinv-currency-actions {
-  align-items: stretch;
+  align-items: flex-start;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
 }
 
 .betterinv-currency-buttons {
-  width: 100%;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: auto;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+}
+
+.betterinv-currency-action,
+.betterinv-currency-remove,
+.betterinv-currency-exchange-down,
+.betterinv-currency-exchange-up {
+  width: auto;
+  min-width: 0;
+  min-height: 26px;
+  height: 26px;
+  padding: 0 8px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .betterinv-currency-action {
-  width: 100%;
-  min-width: 0;
-  min-height: 30px;
-  height: auto;
-  padding: 5px 7px;
-  line-height: 1.15;
-  white-space: normal;
+  font-size: 9px;
+  letter-spacing: .03em;
+}
+
+.betterinv-currency-action > i {
+  font-size: 9px;
 }
 
 @supports (container-type: inline-size) {
-  @container (max-width: 720px) {
+  @container (max-width: 560px) {
     .betterinv-currency-buttons {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 3px;
+    }
+
+    .betterinv-currency-action,
+    .betterinv-currency-remove,
+    .betterinv-currency-exchange-down,
+    .betterinv-currency-exchange-up {
+      min-height: 24px;
+      height: 24px;
+      padding: 0 7px;
+      font-size: 8px;
+    }
+  }
+
+  @container (max-width: 420px) {
+    .betterinv-currency-buttons {
+      width: 100%;
+    }
+
+    .betterinv-currency-action,
+    .betterinv-currency-remove,
+    .betterinv-currency-exchange-down,
+    .betterinv-currency-exchange-up {
+      white-space: normal;
     }
   }
 
   @container (max-width: 360px) {
-    .betterinv-currency-buttons {
-      grid-template-columns: 1fr;
+    .betterinv-currency-action,
+    .betterinv-currency-remove,
+    .betterinv-currency-exchange-down,
+    .betterinv-currency-exchange-up {
+      width: 100%;
+      justify-content: center;
     }
   }
 }
