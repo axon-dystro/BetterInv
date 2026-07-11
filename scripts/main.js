@@ -942,51 +942,108 @@ function getBetterInvContainerCapacity(actor, container) {
 
   const capacity = foundry.utils.getProperty(container, "system.capacity");
   const capacityObject = capacity && typeof capacity === "object" ? capacity : {};
-  const rawType = String(capacityObject.type ?? "weight").toLowerCase();
-  const type = ["items", "item", "count", "quantity"].includes(rawType) ? "items" : rawType;
   const contents = getVisibleItems(actor, container);
 
-  let current = firstFiniteNumber(
-    capacityObject.used,
-    capacityObject.current,
-    capacityObject.valueUsed,
-    foundry.utils.getProperty(container, "system.contentsWeight"),
-    foundry.utils.getProperty(container, "system.weight.contents"),
-    foundry.utils.getProperty(container, "system.weight.contentsWeight")
+  // D&D5e 5.x / Foundry V14 stores container limits in nested fields:
+  // capacity.count, capacity.weight.value and capacity.volume.value.
+  // Older system versions used capacity.type + capacity.value, so both
+  // formats remain supported here.
+  const countMaximum = firstFiniteNumber(capacityObject.count);
+  const weightMaximum = firstFiniteNumber(
+    foundry.utils.getProperty(capacityObject, "weight.value"),
+    typeof capacityObject.weight !== "object" ? capacityObject.weight : null
   );
-
-  if (current === null) {
-    current = type === "items"
-      ? contents.reduce((sum, item) => sum + getItemQuantityData(item).value, 0)
-      : contents.reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
-  }
-
-  const maximum = firstFiniteNumber(
+  const volumeMaximum = firstFiniteNumber(
+    foundry.utils.getProperty(capacityObject, "volume.value"),
+    typeof capacityObject.volume !== "object" ? capacityObject.volume : null
+  );
+  const legacyMaximum = firstFiniteNumber(
     capacityObject.value,
     capacityObject.max,
     capacityObject.maximum
   );
 
-  let unit = String(capacityObject.units ?? capacityObject.unit ?? "").trim();
-  if (!unit) {
-    if (type === "items") unit = "Items";
-    else if (type === "volume") unit = "Vol.";
-    else if (type === "currency") unit = "Münzen";
-    else unit = getBetterInvWeightUnit();
+  let type = "weight";
+  let maximum = null;
+  let unit = "";
+
+  if (countMaximum !== null && countMaximum > 0) {
+    type = "items";
+    maximum = countMaximum;
+    unit = game.i18n?.localize?.("DND5E.Items") ?? "Items";
+  } else if (weightMaximum !== null && weightMaximum > 0) {
+    type = "weight";
+    maximum = weightMaximum;
+    const unitKey = String(foundry.utils.getProperty(capacityObject, "weight.units") ?? "").trim();
+    const unitConfig = CONFIG?.DND5E?.weightUnits?.[unitKey];
+    const unitLabel = unitConfig?.abbreviation ?? unitConfig?.label ?? unitKey;
+    unit = unitLabel ? (game.i18n?.localize?.(unitLabel) ?? unitLabel) : getBetterInvWeightUnit();
+  } else if (volumeMaximum !== null && volumeMaximum > 0) {
+    type = "volume";
+    maximum = volumeMaximum;
+    const unitKey = String(foundry.utils.getProperty(capacityObject, "volume.units") ?? "").trim();
+    const unitConfig = CONFIG?.DND5E?.volumeUnits?.[unitKey];
+    const unitLabel = unitConfig?.abbreviation ?? unitConfig?.label ?? unitKey;
+    unit = unitLabel ? (game.i18n?.localize?.(unitLabel) ?? unitLabel) : "Vol.";
+  } else if (legacyMaximum !== null && legacyMaximum > 0) {
+    const rawType = String(capacityObject.type ?? "weight").toLowerCase();
+    type = ["items", "item", "count", "quantity"].includes(rawType) ? "items" : rawType;
+    maximum = legacyMaximum;
+    unit = String(capacityObject.units ?? capacityObject.unit ?? "").trim();
   }
 
-  const hasMaximum = maximum !== null && maximum > 0;
-  const safeCurrent = Math.max(0, current ?? 0);
-  const percentage = hasMaximum ? Math.max(0, Math.min(100, (safeCurrent / maximum) * 100)) : 0;
+  if (maximum === null || maximum <= 0) return {
+    current: 0,
+    maximum: null,
+    unit: unit || getBetterInvWeightUnit(),
+    percentage: 0,
+    overCapacity: false,
+    contentCount: contents.length,
+    hasCapacity: false
+  };
+
+  let current = null;
+  if (type === "items") {
+    current = firstFiniteNumber(
+      foundry.utils.getProperty(container, "system.contentsCount"),
+      foundry.utils.getProperty(container, "system.capacity.used"),
+      foundry.utils.getProperty(container, "system.capacity.current")
+    );
+    if (current === null) current = contents.reduce((sum, item) => sum + getItemQuantityData(item).value, 0);
+    if (!unit) unit = game.i18n?.localize?.("DND5E.Items") ?? "Items";
+  } else if (type === "volume") {
+    current = firstFiniteNumber(
+      foundry.utils.getProperty(container, "system.contentsVolume"),
+      foundry.utils.getProperty(container, "system.volume.contents"),
+      foundry.utils.getProperty(container, "system.capacity.used"),
+      foundry.utils.getProperty(container, "system.capacity.current")
+    );
+    if (current === null) current = 0;
+    if (!unit) unit = "Vol.";
+  } else {
+    current = firstFiniteNumber(
+      foundry.utils.getProperty(container, "system.contentsWeight"),
+      foundry.utils.getProperty(container, "system.weight.contents"),
+      foundry.utils.getProperty(container, "system.weight.contentsWeight"),
+      foundry.utils.getProperty(container, "system.capacity.used"),
+      foundry.utils.getProperty(container, "system.capacity.current"),
+      foundry.utils.getProperty(container, "system.capacity.valueUsed")
+    );
+    if (current === null) current = contents.reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+    if (!unit) unit = getBetterInvWeightUnit();
+  }
+
+  const safeCurrent = Math.max(0, Number(current) || 0);
+  const percentage = Math.max(0, Math.min(100, (safeCurrent / maximum) * 100));
 
   return {
     current: safeCurrent,
-    maximum: hasMaximum ? maximum : null,
+    maximum,
     unit,
     percentage,
-    overCapacity: hasMaximum && safeCurrent > maximum,
+    overCapacity: safeCurrent > maximum,
     contentCount: contents.length,
-    hasCapacity: hasMaximum
+    hasCapacity: true
   };
 }
 
