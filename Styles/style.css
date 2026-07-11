@@ -2621,3 +2621,102 @@
 
 /* Phase 4.8.4: keep the four actions in the left column at normal inventory widths.
    Only very narrow windows move them above the currency fields. */
+
+/* Phase 4.8.5: cleaner currency layout.
+   - Only the two exchange buttons stay in the former left label column.
+   - Add/remove move below the currency inputs.
+   - All money buttons become smaller so the money feature stays visually secondary. */
+.betterinv-currency {
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.betterinv-currency-heading.betterinv-currency-heading-actions {
+  width: 104px;
+  min-width: 0;
+  padding: 0 8px 0 0;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: start;
+  gap: 5px;
+  border-right: 1px solid rgba(200,168,90,.22);
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: normal;
+  text-transform: none;
+  white-space: normal;
+}
+
+.betterinv-currency-main {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.betterinv-currency-actions-row {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.betterinv-currency-heading-actions .betterinv-currency-action,
+.betterinv-currency-actions-row .betterinv-currency-action {
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+  height: auto;
+  margin: 0;
+  padding: 4px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 8px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: .025em;
+  white-space: normal;
+}
+
+.betterinv-currency-heading-actions .betterinv-currency-action > i,
+.betterinv-currency-actions-row .betterinv-currency-action > i {
+  font-size: 8px;
+}
+
+.betterinv-currency-heading-actions .betterinv-currency-exchange-down,
+.betterinv-currency-heading-actions .betterinv-currency-exchange-up,
+.betterinv-currency-actions-row .betterinv-currency-add,
+.betterinv-currency-actions-row .betterinv-currency-remove {
+  min-width: 0;
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 560px) {
+    .betterinv-currency {
+      grid-template-columns: 1fr;
+    }
+
+    .betterinv-currency-heading.betterinv-currency-heading-actions {
+      width: auto;
+      padding: 0 0 6px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      border-right: 0;
+      border-bottom: 1px solid rgba(200,168,90,.18);
+    }
+  }
+
+  @container (max-width: 420px) {
+    .betterinv-currency-actions-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @container (max-width: 340px) {
+    .betterinv-currency-heading.betterinv-currency-heading-actions {
+      grid-template-columns: 1fr;
+    }
+  }
+}

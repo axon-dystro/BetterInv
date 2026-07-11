@@ -1205,24 +1205,6 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
       <div class="betterinv-currency-heading betterinv-currency-heading-actions">
         <button
           type="button"
-          class="betterinv-currency-action betterinv-currency-add"
-          title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
-          ${editable ? "" : "disabled"}
-        >
-          <i class="fas fa-plus" aria-hidden="true"></i>
-          <span>Hinzufügen</span>
-        </button>
-        <button
-          type="button"
-          class="betterinv-currency-action betterinv-currency-remove"
-          title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
-          ${editable ? "" : "disabled"}
-        >
-          <i class="fas fa-minus" aria-hidden="true"></i>
-          <span>Bezahlen / Entfernen</span>
-        </button>
-        <button
-          type="button"
           class="betterinv-currency-action betterinv-currency-exchange-down"
           title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 1 GP in 10 SP"
           ${editable ? "" : "disabled"}
@@ -1262,6 +1244,26 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
                 ${editable ? "" : "disabled"}
               >
             </div>`).join("")}
+        </div>
+        <div class="betterinv-currency-actions-row">
+          <button
+            type="button"
+            class="betterinv-currency-action betterinv-currency-add"
+            title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
+            ${editable ? "" : "disabled"}
+          >
+            <i class="fas fa-plus" aria-hidden="true"></i>
+            <span>Hinzufügen</span>
+          </button>
+          <button
+            type="button"
+            class="betterinv-currency-action betterinv-currency-remove"
+            title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
+            ${editable ? "" : "disabled"}
+          >
+            <i class="fas fa-minus" aria-hidden="true"></i>
+            <span>Bezahlen / Entfernen</span>
+          </button>
         </div>
       </div>
     </section>`;
