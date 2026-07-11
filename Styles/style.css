@@ -1448,3 +1448,38 @@
     align-self: center;
   }
 }
+
+
+/* Phase 1.5: create a new actor item directly from Axon's Inventory */
+.betterinv-toolbar {
+  grid-template-columns: minmax(0, 1fr) auto auto !important;
+}
+.betterinv-add-item {
+  min-width: 74px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.betterinv-add-item i {
+  pointer-events: none;
+  font-size: 12px;
+}
+.betterinv-add-item:disabled {
+  opacity: .55;
+  cursor: wait;
+}
+@media (max-width: 560px) {
+  .betterinv-toolbar {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  }
+  .betterinv-toolbar .betterinv-search {
+    grid-column: 1 / -1;
+  }
+  .betterinv-toolbar .betterinv-add-item,
+  .betterinv-toolbar .betterinv-add-category {
+    width: 100%;
+    min-width: 0;
+  }
+}

@@ -683,6 +683,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       ${topContainerHtml}
       <div class="betterinv-toolbar">
         <input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">
+        <button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>
         <button type="button" class="betterinv-add-category">+ Kategorie</button>
       </div>
       ${searchContainersHtml}
@@ -938,6 +939,99 @@ async function deleteBetterInvItem(item) {
   ui.notifications.info(`${item.name} wurde gelöscht.`);
 }
 
+function getBetterInvCreatableItemTypes() {
+  const preferred = ["loot", "weapon", "equipment", "consumable", "tool", "container", "backpack"];
+  const configured = new Set([
+    ...(Array.isArray(game.system?.documentTypes?.Item) ? game.system.documentTypes.Item : []),
+    ...Object.keys(CONFIG.Item?.dataModels ?? {}),
+    ...Object.keys(CONFIG.Item?.typeLabels ?? {})
+  ]);
+  const supported = preferred.filter(type => configured.has(type));
+  return supported.length ? supported : preferred;
+}
+
+function getBetterInvItemTypeLabel(type) {
+  const key = CONFIG.Item?.typeLabels?.[type] ?? `TYPES.Item.${type}`;
+  const localized = game.i18n?.localize?.(key);
+  if (localized && localized !== key) return localized;
+  return String(type ?? "Item").replace(/(^|[-_\s])([a-z])/g, (_match, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
+}
+
+async function promptNewBetterInvItem() {
+  const types = getBetterInvCreatableItemTypes();
+  const defaultType = types.includes("loot") ? "loot" : types[0];
+  const options = types.map(type => `<option value="${escapeAttr(type)}" ${type === defaultType ? "selected" : ""}>${escapeHtml(getBetterInvItemTypeLabel(type))}</option>`).join("");
+
+  return await new Promise(resolve => {
+    let settled = false;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const dialog = new Dialog({
+      title: "Neues Item erstellen",
+      content: `
+        <form class="betterinv-new-item-form">
+          <div class="form-group">
+            <label>Itemname</label>
+            <input name="name" type="text" value="Neues Item" maxlength="120" autofocus>
+          </div>
+          <div class="form-group">
+            <label>Itemtyp</label>
+            <select name="type">${options}</select>
+          </div>
+          <p class="notes">Das normale Foundry-Itemfenster öffnet sich direkt nach dem Erstellen.</p>
+        </form>`,
+      buttons: {
+        create: {
+          label: "Erstellen",
+          callback: html => {
+            const name = sanitizePlainText(html.find('[name="name"]').val(), { max: 120 }) || "Neues Item";
+            const type = String(html.find('[name="type"]').val() ?? defaultType);
+            done({ name, type: types.includes(type) ? type : defaultType });
+          }
+        },
+        cancel: { label: "Abbrechen", callback: () => done(null) }
+      },
+      default: "create",
+      close: () => done(null)
+    });
+    dialog.render(true);
+    setTimeout(() => {
+      bringFoundryDialogsToFront({ avoidOverlap: false });
+      const el = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
+      const input = el?.querySelector?.('input[name="name"]');
+      if (input) {
+        ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
+          input.addEventListener(type, event => event.stopPropagation(), { capture: true });
+        });
+        input.focus();
+        input.select();
+      }
+    }, 50);
+  });
+}
+
+async function createBetterInvItem(actor, activeContainer = null) {
+  if (!actor) return null;
+  const input = await promptNewBetterInvItem();
+  if (!input) return null;
+
+  const created = await actor.createEmbeddedDocuments("Item", [{
+    name: input.name,
+    type: input.type
+  }]);
+  const item = created?.[0] ?? null;
+  if (!item) throw new Error("Foundry returned no created item document.");
+
+  if (activeContainer) await moveItemToContainer(item, activeContainer);
+  await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
+  ui.notifications.info(`${item.name} wurde erstellt.`);
+  openItemSheet(item);
+  return item;
+}
+
 function openBetterInvItemActionMenu(button, actor, item) {
   closeBetterInvItemActionMenu();
   if (!button || !actor || !item) return;
@@ -1138,6 +1232,22 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
       windowEl._betterInvSearchTimer = setTimeout(() => renderBetterInvWindow(), 120);
     });
   }
+
+  windowEl.querySelector(".betterinv-add-item")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const button = event.currentTarget;
+    if (!actor || button.disabled) return;
+    button.disabled = true;
+    try {
+      await createBetterInvItem(actor, activeContainer);
+    } catch (error) {
+      console.error("Better Inventory | Item konnte nicht erstellt werden", error);
+      ui.notifications.error("Das Item konnte nicht erstellt werden.");
+    } finally {
+      button.disabled = false;
+    }
+  });
 
   windowEl.querySelector(".betterinv-add-category")?.addEventListener("click", async () => {
     const name = await promptCategoryName();
