@@ -1088,11 +1088,11 @@ function betterInvItemPriceHtml(item, { unidentified = false } = {}) {
 }
 
 const BETTER_INV_CURRENCIES = [
-  { key: "pp", aliases: ["pp", "platinum", "platin"], name: "Platin", abbreviation: "PP" },
-  { key: "gp", aliases: ["gp", "gold"], name: "Gold", abbreviation: "GP" },
-  { key: "ep", aliases: ["ep", "electrum", "elektrum"], name: "Elektrum", abbreviation: "EP" },
-  { key: "sp", aliases: ["sp", "silver", "silber"], name: "Silber", abbreviation: "SP" },
-  { key: "cp", aliases: ["cp", "copper", "kupfer"], name: "Kupfer", abbreviation: "CP" }
+  { key: "pp", aliases: ["pp", "platinum", "platin"], name: "Platin", abbreviation: "PP", copperValue: 1000 },
+  { key: "gp", aliases: ["gp", "gold"], name: "Gold", abbreviation: "GP", copperValue: 100 },
+  { key: "ep", aliases: ["ep", "electrum", "elektrum"], name: "Elektrum", abbreviation: "EP", copperValue: 50 },
+  { key: "sp", aliases: ["sp", "silver", "silber"], name: "Silber", abbreviation: "SP", copperValue: 10 },
+  { key: "cp", aliases: ["cp", "copper", "kupfer"], name: "Kupfer", abbreviation: "CP", copperValue: 1 }
 ];
 
 const BETTER_INV_CURRENCY_SOURCE_PATHS = [
@@ -1277,6 +1277,36 @@ function getBetterInvCurrencyAdditionDraft() {
   }).filter(currency => currency.amount > 0);
 }
 
+function getBetterInvCurrencyTotalInCopper(currencies, amountProperty = "value") {
+  let total = 0;
+  for (const currency of Array.from(currencies ?? [])) {
+    const rawAmount = Number(currency?.[amountProperty] ?? 0);
+    const amount = Number.isFinite(rawAmount) ? Math.max(0, Math.trunc(rawAmount)) : 0;
+    const copperValue = Number(currency?.copperValue ?? 0);
+    const part = amount * copperValue;
+    if (!Number.isSafeInteger(part) || !Number.isSafeInteger(total + part)) {
+      throw new Error("Der berechnete Gesamtwert der Münzen ist zu groß.");
+    }
+    total += part;
+  }
+  return total;
+}
+
+function formatBetterInvCopperTotal(totalCopper) {
+  let remaining = Math.max(0, Math.trunc(Number(totalCopper) || 0));
+  if (!remaining) return "0 CP";
+
+  const parts = [];
+  for (const currency of BETTER_INV_CURRENCIES) {
+    const copperValue = Number(currency.copperValue) || 1;
+    const amount = Math.floor(remaining / copperValue);
+    if (!amount) continue;
+    parts.push(`${formatBetterInvNumber(amount)} ${currency.abbreviation}`);
+    remaining -= amount * copperValue;
+  }
+  return parts.join(" · ");
+}
+
 async function addBetterInvCurrency(actor) {
   if (!actor || actor.isOwner === false) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
@@ -1334,10 +1364,32 @@ async function removeBetterInvCurrency(actor) {
     return false;
   }
 
+  const wallet = BETTER_INV_CURRENCIES.map(currency => {
+    const storage = getBetterInvCurrencyStorage(actor, currency);
+    if (!storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
+    }
+    return { ...currency, storage, value: storage.current };
+  });
+
+  // Phase 4.4 compares the complete purse in a shared copper base before it
+  // checks whether the exact entered denominations are already available.
+  const availableCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  const requestedCopper = getBetterInvCurrencyTotalInCopper(removals, "amount");
+  if (availableCopper < requestedCopper) {
+    ui.notifications.warn(
+      `Nicht genug Gesamtvermögen. Benötigt: ${formatBetterInvCopperTotal(requestedCopper)} · ` +
+      `Vorhanden: ${formatBetterInvCopperTotal(availableCopper)}`
+    );
+    return false;
+  }
+
+  const walletByKey = new Map(wallet.map(currency => [currency.key, currency]));
   const updateData = {};
   const insufficient = [];
   for (const removal of removals) {
-    const storage = getBetterInvCurrencyStorage(actor, removal);
+    const walletCurrency = walletByKey.get(removal.key);
+    const storage = walletCurrency?.storage;
     if (!storage?.updatePath) {
       throw new Error(`Kein Speicherpfad für ${removal.key} gefunden.`);
     }
@@ -1348,13 +1400,16 @@ async function removeBetterInvCurrency(actor) {
     updateData[storage.updatePath] = storage.current - removal.amount;
   }
 
-  // Phase 4.3 removes the entered denominations exactly. Automatic payment from
-  // the total wealth and breaking higher coins are deliberately added later.
+  // Automatic breaking is intentionally still deferred to Phase 4.5. This
+  // message now distinguishes a genuinely empty purse from missing coin types.
   if (insufficient.length) {
     const details = insufficient.map(currency =>
       `${currency.name}: ${formatBetterInvNumber(currency.current)} vorhanden, ${formatBetterInvNumber(currency.amount)} benötigt`
     ).join(" · ");
-    ui.notifications.warn(`Nicht genug Münzen in der eingegebenen Währung. ${details}`);
+    ui.notifications.warn(
+      `Das Gesamtvermögen reicht aus, aber nicht in den eingegebenen Münzarten. ${details}. ` +
+      "Automatisches Aufbrechen und Verrechnen folgt ab Phase 4.5."
+    );
     return false;
   }
 
