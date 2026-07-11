@@ -2,6 +2,7 @@
 
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
+const USES_PER_ITEM_FLAG = "usesPerItemMax";
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
 let betterInvActionMenuButton = null;
@@ -959,6 +960,105 @@ function getItemQuantityData(item) {
   };
 }
 
+/**
+ * Read the native item-use data and keep the system's own fields as source of
+ * truth. Axon's Inventory only remembers how many uses one physical item has,
+ * so stacked items can expose a combined counter without creating a second
+ * resource system.
+ */
+function getRawItemUsesData(item) {
+  if (!item) return { supported: false };
+
+  const roots = ["system.uses", "system.charges"];
+  for (const root of roots) {
+    const data = foundry.utils.getProperty(item, root);
+    if (!data || typeof data !== "object") continue;
+
+    const maxKey = ["max", "maximum", "total"].find(key => Number.isFinite(Number(data[key])));
+    if (!maxKey) continue;
+    const rawMax = Math.max(0, Math.floor(Number(data[maxKey])));
+
+    for (const key of ["value", "current", "remaining"]) {
+      const rawValue = Number(data[key]);
+      if (!Number.isFinite(rawValue)) continue;
+      const cleanValue = Math.max(0, Math.min(rawMax, Math.floor(rawValue)));
+      return {
+        supported: rawMax > 0,
+        root,
+        rawMax,
+        rawValue: cleanValue,
+        spent: Math.max(0, rawMax - cleanValue),
+        maxPath: `${root}.${maxKey}`,
+        updatePath: `${root}.${key}`,
+        mode: "remaining",
+        autoDestroyPath: Object.prototype.hasOwnProperty.call(data, "autoDestroy") ? `${root}.autoDestroy` : null,
+        autoDestroy: data.autoDestroy === true
+      };
+    }
+
+    const rawSpent = Number(data.spent);
+    if (Number.isFinite(rawSpent)) {
+      const cleanSpent = Math.max(0, Math.min(rawMax, Math.floor(rawSpent)));
+      return {
+        supported: rawMax > 0,
+        root,
+        rawMax,
+        rawValue: Math.max(0, rawMax - cleanSpent),
+        spent: cleanSpent,
+        maxPath: `${root}.${maxKey}`,
+        updatePath: `${root}.spent`,
+        mode: "spent",
+        autoDestroyPath: Object.prototype.hasOwnProperty.call(data, "autoDestroy") ? `${root}.autoDestroy` : null,
+        autoDestroy: data.autoDestroy === true
+      };
+    }
+  }
+
+  return { supported: false };
+}
+
+function getItemUsesData(item) {
+  const raw = getRawItemUsesData(item);
+  const flaggedBase = Number(item?.getFlag?.(MODULE_ID, USES_PER_ITEM_FLAG));
+  const baseMax = Number.isFinite(flaggedBase) && flaggedBase > 0
+    ? Math.max(1, Math.floor(flaggedBase))
+    : (raw.supported ? raw.rawMax : 0);
+
+  if (!raw.supported && baseMax <= 0) {
+    return { supported: false, value: 0, max: 0, baseMax: 0, spent: 0 };
+  }
+
+  const quantity = getItemQuantityData(item).value;
+  const totalMax = Math.max(0, baseMax * quantity);
+  const spent = Math.max(0, Math.min(totalMax, raw.supported ? raw.spent : 0));
+
+  return {
+    ...raw,
+    supported: true,
+    baseMax,
+    max: totalMax,
+    value: Math.max(0, totalMax - spent),
+    spent
+  };
+}
+
+function buildUsesStateUpdate(item, { quantity, remaining, baseMax, restoreAutoDestroy } = {}) {
+  const raw = getRawItemUsesData(item);
+  const current = getItemUsesData(item);
+  const cleanBase = Math.max(1, Math.floor(Number(baseMax ?? current.baseMax ?? raw.rawMax ?? 1)));
+  const cleanQuantity = Math.max(0, Math.floor(Number(quantity ?? getItemQuantityData(item).value)));
+  const totalMax = cleanBase * cleanQuantity;
+  const cleanRemaining = Math.max(0, Math.min(totalMax, Math.floor(Number(remaining ?? current.value ?? totalMax))));
+  const update = {
+    [`flags.${MODULE_ID}.${USES_PER_ITEM_FLAG}`]: cleanBase
+  };
+
+  if (raw.maxPath) update[raw.maxPath] = totalMax;
+  if (raw.updatePath) update[raw.updatePath] = raw.mode === "spent" ? totalMax - cleanRemaining : cleanRemaining;
+  if (raw.autoDestroyPath && restoreAutoDestroy !== undefined) update[raw.autoDestroyPath] = Boolean(restoreAutoDestroy);
+  return update;
+}
+
 async function setItemQuantity(item, value) {
   if (!item) return;
   const quantity = getItemQuantityData(item);
@@ -966,7 +1066,17 @@ async function setItemQuantity(item, value) {
   if (!Number.isFinite(parsed)) return;
   const next = Math.max(0, Math.floor(parsed));
   if (next === quantity.value) return;
-  await item.update({ [quantity.updatePath]: next });
+
+  const uses = getItemUsesData(item);
+  const update = { [quantity.updatePath]: next };
+  if (uses.supported) {
+    Object.assign(update, buildUsesStateUpdate(item, {
+      quantity: next,
+      remaining: Math.max(0, (uses.baseMax * next) - uses.spent),
+      baseMax: uses.baseMax
+    }));
+  }
+  await item.update(update);
 }
 
 async function changeItemQuantity(item, delta) {
@@ -975,66 +1085,31 @@ async function changeItemQuantity(item, delta) {
   await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
-/**
- * Read an item's native limited-use / charge counter without inventing a
- * module-specific resource. D&D5e commonly uses system.uses.value/max, while
- * some systems or versions store a spent counter or a charges object.
- */
-function getItemUsesData(item) {
-  if (!item) return { supported: false, value: 0, max: 0, updatePath: null, mode: null };
+async function normalizeItemUses(item) {
+  const raw = getRawItemUsesData(item);
+  const uses = getItemUsesData(item);
+  if (!raw.supported || !uses.supported) return uses;
 
-  const roots = ["system.uses", "system.charges"];
-  for (const root of roots) {
-    const data = foundry.utils.getProperty(item, root);
-    if (!data || typeof data !== "object") continue;
+  const hasBaseFlag = Number(item.getFlag?.(MODULE_ID, USES_PER_ITEM_FLAG)) > 0;
+  if (hasBaseFlag && raw.rawMax === uses.max) return uses;
 
-    const max = Number(data.max ?? data.maximum ?? data.total);
-    if (!Number.isFinite(max) || max <= 0) continue;
-    const cleanMax = Math.max(0, Math.floor(max));
-
-    for (const key of ["value", "current", "remaining"]) {
-      const raw = Number(data[key]);
-      if (!Number.isFinite(raw)) continue;
-      return {
-        supported: true,
-        value: Math.max(0, Math.min(cleanMax, Math.floor(raw))),
-        max: cleanMax,
-        updatePath: `${root}.${key}`,
-        mode: "remaining"
-      };
-    }
-
-    const spent = Number(data.spent);
-    if (Number.isFinite(spent)) {
-      return {
-        supported: true,
-        value: Math.max(0, Math.min(cleanMax, cleanMax - Math.floor(spent))),
-        max: cleanMax,
-        updatePath: `${root}.spent`,
-        mode: "spent"
-      };
-    }
-  }
-
-  return { supported: false, value: 0, max: 0, updatePath: null, mode: null };
+  await item.update(buildUsesStateUpdate(item, {
+    quantity: getItemQuantityData(item).value,
+    remaining: uses.value,
+    baseMax: uses.baseMax
+  }));
+  return getItemUsesData(item);
 }
 
-async function setItemUsesRemaining(item, value) {
-  const uses = getItemUsesData(item);
-  if (!item || !uses.supported || !uses.updatePath) return;
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return;
-  const next = Math.max(0, Math.min(uses.max, Math.floor(parsed)));
-  if (next === uses.value) return;
-  const storedValue = uses.mode === "spent" ? uses.max - next : next;
-  await item.update({ [uses.updatePath]: storedValue });
-}
-
-async function changeItemUsesRemaining(item, delta) {
-  if (!item || !Number.isFinite(delta)) return;
-  const uses = getItemUsesData(item);
-  if (!uses.supported) return;
-  await setItemUsesRemaining(item, uses.value + Math.trunc(delta));
+async function setItemUsesAndQuantity(item, { remaining, quantity, baseMax, restoreAutoDestroy } = {}) {
+  if (!item) return;
+  const quantityData = getItemQuantityData(item);
+  const cleanQuantity = Math.max(0, Math.floor(Number(quantity ?? quantityData.value)));
+  const update = {
+    [quantityData.updatePath]: cleanQuantity,
+    ...buildUsesStateUpdate(item, { quantity: cleanQuantity, remaining, baseMax, restoreAutoDestroy })
+  };
+  await item.update(update);
 }
 
 function getItemEquippedData(item) {
@@ -1326,20 +1401,22 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
         <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
       </div>
       <div class="betterinv-item-resources">
-        <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
-          <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
-          <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
-          <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen">+</button>
+        <div class="betterinv-resource-block betterinv-quantity-resource" aria-label="Anzahl ändern">
+          <span class="betterinv-resource-label">Anzahl</span>
+          <div class="betterinv-quantity-controls">
+            <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen"><i class="fas fa-chevron-up" aria-hidden="true"></i></button>
+            <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
+            <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+          </div>
         </div>
         ${uses.supported ? `
-          <div class="betterinv-uses-controls" aria-label="Ladungen ändern" title="Verbleibende Ladungen / maximale Ladungen">
-            <button type="button" class="betterinv-uses-minus" title="Eine Ladung verbrauchen" aria-label="Ladung verringern">−</button>
-            <span class="betterinv-uses-counter">
-              <input type="number" class="betterinv-uses-value" min="0" max="${escapeAttr(String(uses.max))}" step="1" inputmode="numeric" value="${escapeAttr(String(uses.value))}" data-original-value="${escapeAttr(String(uses.value))}" aria-label="Verbleibende Ladungen direkt ändern">
+          <div class="betterinv-resource-block betterinv-uses-resource" title="Verbleibende Ladungen / gesamte Ladungen aller vorhandenen Items">
+            <span class="betterinv-resource-label">Ladungen</span>
+            <span class="betterinv-uses-counter" aria-label="${escapeAttr(`${uses.value} von ${uses.max} Ladungen`)}">
+              <span class="betterinv-uses-value">${escapeHtml(String(uses.value))}</span>
               <span aria-hidden="true">/</span>
               <span class="betterinv-uses-max">${escapeHtml(String(uses.max))}</span>
             </span>
-            <button type="button" class="betterinv-uses-plus" title="Eine Ladung wiederherstellen" aria-label="Ladung erhöhen">+</button>
           </div>` : ""}
       </div>
       <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
@@ -1689,74 +1766,7 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
-  windowEl.querySelectorAll(".betterinv-uses-minus, .betterinv-uses-plus").forEach(button => {
-    button.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (button.disabled) return;
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      if (!item) return;
-      button.disabled = true;
-      try {
-        const delta = event.currentTarget.classList.contains("betterinv-uses-plus") ? 1 : -1;
-        await changeItemUsesRemaining(item, delta);
-      } catch (error) {
-        console.error("Better Inventory | Ladungen konnten nicht geändert werden", error);
-        ui.notifications.error("Die Ladungen konnten nicht geändert werden.");
-      } finally {
-        button.disabled = false;
-      }
-    });
-  });
 
-  windowEl.querySelectorAll(".betterinv-uses-value").forEach(input => {
-    input.addEventListener("click", event => event.stopPropagation());
-    input.addEventListener("focus", event => {
-      event.stopPropagation();
-      event.currentTarget.dataset.originalValue = event.currentTarget.value;
-      event.currentTarget.select();
-    });
-    input.addEventListener("keydown", event => {
-      event.stopPropagation();
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.currentTarget.blur();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
-        event.currentTarget.dataset.cancelled = "true";
-        event.currentTarget.blur();
-      }
-    });
-    input.addEventListener("blur", async event => {
-      event.stopPropagation();
-      const field = event.currentTarget;
-      if (field.dataset.cancelled === "true") {
-        delete field.dataset.cancelled;
-        return;
-      }
-      const row = field.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      if (!item) return;
-      const uses = getItemUsesData(item);
-      if (!uses.supported) return;
-      const parsed = Number(field.value);
-      const next = Number.isFinite(parsed) ? Math.max(0, Math.min(uses.max, Math.floor(parsed))) : uses.value;
-      field.value = String(next);
-      field.disabled = true;
-      try {
-        await setItemUsesRemaining(item, next);
-        field.dataset.originalValue = String(next);
-      } catch (error) {
-        field.value = String(uses.value);
-        console.error("Better Inventory | Ladungen konnten nicht direkt geändert werden", error);
-        ui.notifications.error("Die Ladungen konnten nicht geändert werden.");
-      } finally {
-        field.disabled = false;
-      }
-    });
-  });
 }
 
 function ensureDropIndicator(windowEl) {
@@ -2046,7 +2056,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
   const rows = Array.from(windowEl.querySelectorAll(".betterinv-item:not(.betterinv-favorite-view)"));
   rows.forEach(row => {
     row.addEventListener("dragstart", event => {
-      if (event.target.closest("select, input, textarea, a, button, .betterinv-edit-item, .betterinv-open-item, .betterinv-quantity-controls")) {
+      if (event.target.closest("select, input, textarea, a, button, .betterinv-edit-item, .betterinv-open-item, .betterinv-item-resources")) {
         event.preventDefault();
         return;
       }
@@ -2136,8 +2146,26 @@ function getItemAfterElement(list, y) {
 async function useOrOpenItem(item, event) {
   if (!item) return;
 
-  // Prefer the native dnd5e usage flow. This is what opens the normal consume/use
-  // dialog for consumables and rolls tools/spells where the system supports it.
+  const actor = item.parent;
+  const itemId = item.id;
+  const originalData = item.toObject();
+  const quantityBefore = getItemQuantityData(item).value;
+  let usesBefore = getItemUsesData(item);
+  const rawBefore = getRawItemUsesData(item);
+  const originalAutoDestroy = rawBefore.autoDestroy;
+
+  // Normalize stacked charges before Foundry performs its native consumption.
+  // Temporarily disable auto-destroy so the document remains available at 0.
+  if (usesBefore.supported) {
+    usesBefore = await normalizeItemUses(item);
+    const normalizedRaw = getRawItemUsesData(item);
+    if (normalizedRaw.autoDestroyPath && normalizedRaw.autoDestroy) {
+      await item.update({ [normalizedRaw.autoDestroyPath]: false });
+    }
+  }
+
+  // Prefer the native dnd5e usage flow. This opens the normal consume/use
+  // dialog and preserves system/module automation.
   const attempts = [
     async () => typeof item.use === "function" ? item.use({ event, configureDialog: true }) : null,
     async () => {
@@ -2153,13 +2181,48 @@ async function useOrOpenItem(item, event) {
     try {
       const result = await attempt();
       elevateRecentFoundryApps();
-      if (result !== null && result !== undefined) return;
+      if (result === null || result === undefined) continue;
+
+      let current = actor?.items?.get(itemId) ?? null;
+      if (!current && actor) {
+        // A foreign/system workflow still deleted the last item. Recreate the
+        // same document at quantity 0 instead of losing notes and categories.
+        const recreatedData = foundry.utils.deepClone(originalData);
+        foundry.utils.setProperty(recreatedData, getItemQuantityData(item).updatePath, 0);
+        const created = await actor.createEmbeddedDocuments("Item", [recreatedData], { keepId: true });
+        current = created?.[0] ?? actor.items?.get(itemId) ?? null;
+      }
+
+      if (current && usesBefore.supported) {
+        const usesAfter = getItemUsesData(current);
+        // Keep Foundry's own consumption when it changed the counter. If the
+        // native workflow did not consume item uses, spend exactly one charge.
+        const remaining = usesAfter.value < usesBefore.value
+          ? usesAfter.value
+          : Math.max(0, usesBefore.value - 1);
+        const nextQuantity = remaining > 0 ? Math.ceil(remaining / usesBefore.baseMax) : 0;
+        await setItemUsesAndQuantity(current, {
+          remaining,
+          quantity: Math.min(quantityBefore, nextQuantity),
+          baseMax: usesBefore.baseMax,
+          restoreAutoDestroy: originalAutoDestroy
+        });
+      } else if (current && rawBefore.autoDestroyPath && originalAutoDestroy) {
+        await current.update({ [rawBefore.autoDestroyPath]: true });
+      }
+      return;
     } catch (err) {
       console.warn("Better Inventory | native item use failed, trying fallback", err);
     }
   }
 
-  item.sheet?.render(true);
+  // The dialog was cancelled or the item has no native use action.
+  const current = actor?.items?.get(itemId) ?? item;
+  const currentRaw = getRawItemUsesData(current);
+  if (currentRaw.autoDestroyPath && originalAutoDestroy && !currentRaw.autoDestroy) {
+    await current.update({ [currentRaw.autoDestroyPath]: true });
+  }
+  current.sheet?.render(true);
   elevateRecentFoundryApps();
 }
 

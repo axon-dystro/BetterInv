@@ -1721,3 +1721,178 @@
     height: 20px;
   }
 }
+
+/* Phase 2.4.1: compact vertical quantity control and read-only stacked charges */
+.betterinv-item-resources {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  min-width: 0;
+}
+
+.betterinv-resource-block {
+  display: inline-grid;
+  justify-items: center;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.betterinv-resource-label {
+  color: #a99a76;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.betterinv-quantity-controls {
+  min-width: 34px;
+  display: inline-grid;
+  grid-template-columns: 34px;
+  grid-template-rows: 14px 26px 14px;
+  align-items: center;
+  justify-items: stretch;
+  gap: 1px;
+}
+
+.betterinv-quantity-minus,
+.betterinv-quantity-plus {
+  width: 34px;
+  height: 14px;
+  min-height: 0;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(158,139,83,.27);
+  border-radius: 3px;
+  background: #111115;
+  color: #d8c795;
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.betterinv-quantity-minus i,
+.betterinv-quantity-plus i {
+  pointer-events: none;
+  font-size: 9px;
+  line-height: 1;
+}
+
+.betterinv-quantity-minus:hover,
+.betterinv-quantity-plus:hover {
+  border-color: var(--bi-gold);
+  background: #25252b;
+  color: #fff;
+}
+
+.betterinv-quantity-value {
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 26px;
+  padding: 0 3px;
+  border: 1px solid rgba(158,139,83,.34);
+  border-radius: 3px;
+  background: #0d0d10;
+  color: #f2e6ca;
+  font-size: 12px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  cursor: text;
+}
+
+.betterinv-uses-resource {
+  min-width: 48px;
+}
+
+.betterinv-uses-counter {
+  min-width: 48px;
+  height: 26px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: 1px solid rgba(116,79,151,.42);
+  border-radius: 3px;
+  background: #0f0c13;
+  color: #c9b9da;
+  font-size: 11px;
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.betterinv-uses-value {
+  width: auto;
+  min-width: 0;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #efe6f6;
+  font: inherit;
+  text-align: right;
+}
+
+.betterinv-uses-max {
+  color: #a997b9;
+}
+
+/* Resource controls get one compact column before the three action buttons. */
+.betterinv-item {
+  grid-template-columns: 18px 42px minmax(90px, 1fr) auto 32px 32px 32px !important;
+}
+
+@media (max-width: 720px) {
+  .betterinv-item-resources {
+    gap: 5px;
+  }
+  .betterinv-resource-label {
+    font-size: 8px;
+  }
+  .betterinv-quantity-controls {
+    grid-template-columns: 31px;
+    grid-template-rows: 13px 24px 13px;
+  }
+  .betterinv-quantity-minus,
+  .betterinv-quantity-plus,
+  .betterinv-quantity-value {
+    width: 31px;
+    min-width: 31px;
+    max-width: 31px;
+  }
+  .betterinv-quantity-minus,
+  .betterinv-quantity-plus {
+    height: 13px;
+  }
+  .betterinv-quantity-value,
+  .betterinv-uses-counter {
+    height: 24px;
+  }
+  .betterinv-uses-resource,
+  .betterinv-uses-counter {
+    min-width: 44px;
+  }
+}
+
+@media (max-width: 560px) {
+  .betterinv-item {
+    grid-template-columns: 18px 38px minmax(0, 1fr) 30px 30px 30px !important;
+    grid-template-rows: auto auto;
+  }
+  .betterinv-item > .betterinv-item-resources {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
+    margin-top: 3px;
+  }
+}
