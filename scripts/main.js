@@ -4,6 +4,7 @@ const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
+let betterInvActionMenuButton = null;
 let betterInvState = {
   actorId: null,
   containerId: null,
@@ -1062,8 +1063,15 @@ async function createBetterInvItem(actor, activeContainer = null) {
 }
 
 function openBetterInvItemActionMenu(button, actor, item) {
+  const existingMenu = document.getElementById("betterinv-item-action-menu");
+  if (existingMenu && betterInvActionMenuButton === button) {
+    closeBetterInvItemActionMenu();
+    return;
+  }
+
   closeBetterInvItemActionMenu();
   if (!button || !actor || !item) return;
+  betterInvActionMenuButton = button;
 
   const menu = document.createElement("div");
   menu.id = "betterinv-item-action-menu";
@@ -1097,6 +1105,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
     window.removeEventListener("resize", close);
     window.removeEventListener("scroll", close, true);
     if (betterInvActionMenuCleanup === close) betterInvActionMenuCleanup = null;
+    if (betterInvActionMenuButton === button) betterInvActionMenuButton = null;
   };
   const onOutsidePointerDown = event => {
     if (menu.contains(event.target) || button.contains(event.target)) return;
