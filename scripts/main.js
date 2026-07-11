@@ -890,6 +890,125 @@ async function promptCategoryName() {
   });
 }
 
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "") continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function formatBetterInvNumber(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return "0";
+  const rounded = Math.round(parsed * 100) / 100;
+  return new Intl.NumberFormat(game.i18n?.lang ?? "de-DE", {
+    maximumFractionDigits: 2
+  }).format(rounded);
+}
+
+function getBetterInvWeightUnit() {
+  try {
+    if (game.system?.id === "dnd5e" && game.settings?.get?.("dnd5e", "metricWeightUnits")) return "kg";
+  } catch (_) {
+    // The setting is not available in every system/version.
+  }
+  return game.system?.id === "dnd5e" ? "lb" : "Gewicht";
+}
+
+function getBetterInvItemWeight(item) {
+  if (!item) return 0;
+
+  // Prefer values which are already calculated for the complete stack.
+  const completeStack = firstFiniteNumber(
+    foundry.utils.getProperty(item, "system.totalWeight"),
+    foundry.utils.getProperty(item, "system.weight.total"),
+    foundry.utils.getProperty(item, "system.weight.computed")
+  );
+  if (completeStack !== null) return Math.max(0, completeStack);
+
+  const rawWeight = foundry.utils.getProperty(item, "system.weight");
+  const unitWeight = firstFiniteNumber(
+    typeof rawWeight === "object" && rawWeight !== null ? rawWeight.value : rawWeight,
+    foundry.utils.getProperty(item, "system.weight.value")
+  ) ?? 0;
+  return Math.max(0, unitWeight) * getItemQuantityData(item).value;
+}
+
+function getBetterInvContainerCapacity(actor, container) {
+  if (!actor || !container) return null;
+
+  const capacity = foundry.utils.getProperty(container, "system.capacity");
+  const capacityObject = capacity && typeof capacity === "object" ? capacity : {};
+  const rawType = String(capacityObject.type ?? "weight").toLowerCase();
+  const type = ["items", "item", "count", "quantity"].includes(rawType) ? "items" : rawType;
+  const contents = getVisibleItems(actor, container);
+
+  let current = firstFiniteNumber(
+    capacityObject.used,
+    capacityObject.current,
+    capacityObject.valueUsed,
+    foundry.utils.getProperty(container, "system.contentsWeight"),
+    foundry.utils.getProperty(container, "system.weight.contents"),
+    foundry.utils.getProperty(container, "system.weight.contentsWeight")
+  );
+
+  if (current === null) {
+    current = type === "items"
+      ? contents.reduce((sum, item) => sum + getItemQuantityData(item).value, 0)
+      : contents.reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+  }
+
+  const maximum = firstFiniteNumber(
+    capacityObject.value,
+    capacityObject.max,
+    capacityObject.maximum
+  );
+
+  let unit = String(capacityObject.units ?? capacityObject.unit ?? "").trim();
+  if (!unit) {
+    if (type === "items") unit = "Items";
+    else if (type === "volume") unit = "Vol.";
+    else if (type === "currency") unit = "Münzen";
+    else unit = getBetterInvWeightUnit();
+  }
+
+  const hasMaximum = maximum !== null && maximum > 0;
+  const safeCurrent = Math.max(0, current ?? 0);
+  const percentage = hasMaximum ? Math.max(0, Math.min(100, (safeCurrent / maximum) * 100)) : 0;
+
+  return {
+    current: safeCurrent,
+    maximum: hasMaximum ? maximum : null,
+    unit,
+    percentage,
+    overCapacity: hasMaximum && safeCurrent > maximum,
+    contentCount: contents.length,
+    hasCapacity: hasMaximum
+  };
+}
+
+function betterInvContainerCapacityHtml(capacity, { compact = false } = {}) {
+  if (!capacity?.hasCapacity) return "";
+  const current = formatBetterInvNumber(capacity.current);
+  const maximum = formatBetterInvNumber(capacity.maximum);
+  const stateClass = capacity.overCapacity ? " betterinv-container-capacity-over" : "";
+  const title = `Kapazität: ${current} / ${maximum} ${capacity.unit}`;
+
+  return `
+    <div class="betterinv-container-capacity${compact ? " betterinv-container-capacity-compact" : ""}${stateClass}" title="${escapeAttr(title)}">
+      <div class="betterinv-container-capacity-line">
+        <span>Kapazität</span>
+        <strong>${escapeHtml(current)} / ${escapeHtml(maximum)} ${escapeHtml(capacity.unit)}</strong>
+      </div>
+      <span class="betterinv-container-capacity-bar" aria-hidden="true">
+        <span style="width:${Math.round(capacity.percentage)}%"></span>
+      </span>
+    </div>`;
+}
+
 async function renderContainerCards(actor, containers) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
@@ -923,14 +1042,18 @@ async function renderContainerCards(actor, containers) {
     <div class="betterinv-containers" data-layer-count="${layerCount}">
       ${rows.map((row, rowIndex) => `
         <div class="betterinv-container-row ${row.length ? "" : "betterinv-container-row-empty"}" data-row-index="${rowIndex}">
-          ${row.map(container => `
-            <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(getContainerAlias(actor, container))} öffnen">
-              <button type="button" class="betterinv-container-rename" data-container-id="${container.id}" title="UI-Name ändern">✎</button>
-              <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
-              <span>${escapeHtml(getContainerAlias(actor, container))}</span>
-              ${getContainerAlias(actor, container) !== container.name ? `<small>${escapeHtml(container.name)}</small>` : ""}
-            </div>
-          `).join("")}
+          ${row.map(container => {
+            const alias = getContainerAlias(actor, container);
+            const capacity = getBetterInvContainerCapacity(actor, container);
+            return `
+              <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
+                <button type="button" class="betterinv-container-rename" data-container-id="${container.id}" title="UI-Name ändern">✎</button>
+                <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
+                <span>${escapeHtml(alias)}</span>
+                ${alias !== container.name ? `<small>${escapeHtml(container.name)}</small>` : ""}
+                ${betterInvContainerCapacityHtml(capacity, { compact: true })}
+              </div>`;
+          }).join("")}
         </div>
       `).join("")}
     </div>`;
@@ -938,12 +1061,17 @@ async function renderContainerCards(actor, containers) {
 
 function renderContainerBreadcrumb(actor, container) {
   const count = getVisibleItems(actor, container).length;
+  const capacity = getBetterInvContainerCapacity(actor, container);
   return `
     <div class="betterinv-container-view">
       <button type="button" class="betterinv-back">← Alle Rucksäcke</button>
       <div class="betterinv-container-title">
         <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
-        <div><strong>${escapeHtml(getContainerAlias(actor, container))}</strong><small>${count} Inhalt(e)</small></div>
+        <div class="betterinv-container-title-copy">
+          <strong>${escapeHtml(getContainerAlias(actor, container))}</strong>
+          <small>${count} Inhalt(e)</small>
+          ${betterInvContainerCapacityHtml(capacity)}
+        </div>
       </div>
       <div class="betterinv-remove-from-container" title="Item hier ablegen, um es zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
     </div>`;

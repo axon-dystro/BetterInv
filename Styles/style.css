@@ -1755,3 +1755,96 @@
     margin-top: 3px;
   }
 }
+
+/* Phase 2.5: container capacity */
+.betterinv-container-title-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.betterinv-container-capacity {
+  width: min(250px, 42vw);
+  margin-top: 6px;
+  color: var(--bi-muted);
+  font-size: 10px;
+  line-height: 1.15;
+}
+.betterinv-container-capacity-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  white-space: nowrap;
+}
+.betterinv-container-capacity-line > span {
+  color: #b7a476;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+}
+.betterinv-container-capacity-line > strong {
+  color: #e5d8ba;
+  font-size: 10px;
+  font-weight: 850;
+}
+.betterinv-container-capacity-bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin-top: 4px;
+  overflow: hidden;
+  border: 1px solid rgba(200,168,90,.2);
+  border-radius: 999px;
+  background: #09090c;
+}
+.betterinv-container-capacity-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #756335, #c8a85a);
+}
+.betterinv-container-capacity-over .betterinv-container-capacity-line > strong {
+  color: #ff9d9d;
+}
+.betterinv-container-capacity-over .betterinv-container-capacity-bar {
+  border-color: rgba(211,75,75,.55);
+}
+.betterinv-container-capacity-over .betterinv-container-capacity-bar > span {
+  background: linear-gradient(90deg, #7b1f25, #d64c55);
+}
+.betterinv-container-capacity-compact {
+  width: 100%;
+  max-width: 126px;
+  margin-top: 0;
+}
+.betterinv-container-capacity-compact .betterinv-container-capacity-line > span {
+  display: none;
+}
+.betterinv-container-capacity-compact .betterinv-container-capacity-line {
+  justify-content: center;
+}
+.betterinv-container-capacity-compact .betterinv-container-capacity-line > strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.betterinv-container-card:has(.betterinv-container-capacity-compact) {
+  min-height: 116px !important;
+}
+
+@media (max-width: 620px) {
+  .betterinv-container-view {
+    align-items: stretch;
+    flex-wrap: wrap;
+  }
+  .betterinv-container-title {
+    flex: 1 1 230px;
+  }
+  .betterinv-container-capacity {
+    width: 100%;
+    max-width: 240px;
+  }
+  .betterinv-remove-from-container {
+    flex: 1 1 100%;
+  }
+}
