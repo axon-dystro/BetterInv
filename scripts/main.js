@@ -975,6 +975,68 @@ async function changeItemQuantity(item, delta) {
   await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
+/**
+ * Read an item's native limited-use / charge counter without inventing a
+ * module-specific resource. D&D5e commonly uses system.uses.value/max, while
+ * some systems or versions store a spent counter or a charges object.
+ */
+function getItemUsesData(item) {
+  if (!item) return { supported: false, value: 0, max: 0, updatePath: null, mode: null };
+
+  const roots = ["system.uses", "system.charges"];
+  for (const root of roots) {
+    const data = foundry.utils.getProperty(item, root);
+    if (!data || typeof data !== "object") continue;
+
+    const max = Number(data.max ?? data.maximum ?? data.total);
+    if (!Number.isFinite(max) || max <= 0) continue;
+    const cleanMax = Math.max(0, Math.floor(max));
+
+    for (const key of ["value", "current", "remaining"]) {
+      const raw = Number(data[key]);
+      if (!Number.isFinite(raw)) continue;
+      return {
+        supported: true,
+        value: Math.max(0, Math.min(cleanMax, Math.floor(raw))),
+        max: cleanMax,
+        updatePath: `${root}.${key}`,
+        mode: "remaining"
+      };
+    }
+
+    const spent = Number(data.spent);
+    if (Number.isFinite(spent)) {
+      return {
+        supported: true,
+        value: Math.max(0, Math.min(cleanMax, cleanMax - Math.floor(spent))),
+        max: cleanMax,
+        updatePath: `${root}.spent`,
+        mode: "spent"
+      };
+    }
+  }
+
+  return { supported: false, value: 0, max: 0, updatePath: null, mode: null };
+}
+
+async function setItemUsesRemaining(item, value) {
+  const uses = getItemUsesData(item);
+  if (!item || !uses.supported || !uses.updatePath) return;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return;
+  const next = Math.max(0, Math.min(uses.max, Math.floor(parsed)));
+  if (next === uses.value) return;
+  const storedValue = uses.mode === "spent" ? uses.max - next : next;
+  await item.update({ [uses.updatePath]: storedValue });
+}
+
+async function changeItemUsesRemaining(item, delta) {
+  if (!item || !Number.isFinite(delta)) return;
+  const uses = getItemUsesData(item);
+  if (!uses.supported) return;
+  await setItemUsesRemaining(item, uses.value + Math.trunc(delta));
+}
+
 function getItemEquippedData(item) {
   if (!item) return { supported: false, value: false, updatePath: null };
 
@@ -1245,6 +1307,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
 function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false } = {}) {
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
+  const uses = getItemUsesData(item);
   const equipped = getItemEquippedData(item);
   const unidentified = isBetterInvUnidentified(item);
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
@@ -1262,10 +1325,22 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
         <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
       </div>
-      <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
-        <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
-        <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
-        <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen">+</button>
+      <div class="betterinv-item-resources">
+        <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
+          <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
+          <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
+          <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen">+</button>
+        </div>
+        ${uses.supported ? `
+          <div class="betterinv-uses-controls" aria-label="Ladungen ändern" title="Verbleibende Ladungen / maximale Ladungen">
+            <button type="button" class="betterinv-uses-minus" title="Eine Ladung verbrauchen" aria-label="Ladung verringern">−</button>
+            <span class="betterinv-uses-counter">
+              <input type="number" class="betterinv-uses-value" min="0" max="${escapeAttr(String(uses.max))}" step="1" inputmode="numeric" value="${escapeAttr(String(uses.value))}" data-original-value="${escapeAttr(String(uses.value))}" aria-label="Verbleibende Ladungen direkt ändern">
+              <span aria-hidden="true">/</span>
+              <span class="betterinv-uses-max">${escapeHtml(String(uses.max))}</span>
+            </span>
+            <button type="button" class="betterinv-uses-plus" title="Eine Ladung wiederherstellen" aria-label="Ladung erhöhen">+</button>
+          </div>` : ""}
       </div>
       <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
       <span class="betterinv-category-picker" title="Kategorie ändern">
@@ -1608,6 +1683,75 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
         field.value = String(oldValue);
         console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
         ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+      } finally {
+        field.disabled = false;
+      }
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-uses-minus, .betterinv-uses-plus").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      const row = event.currentTarget.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      if (!item) return;
+      button.disabled = true;
+      try {
+        const delta = event.currentTarget.classList.contains("betterinv-uses-plus") ? 1 : -1;
+        await changeItemUsesRemaining(item, delta);
+      } catch (error) {
+        console.error("Better Inventory | Ladungen konnten nicht geändert werden", error);
+        ui.notifications.error("Die Ladungen konnten nicht geändert werden.");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-uses-value").forEach(input => {
+    input.addEventListener("click", event => event.stopPropagation());
+    input.addEventListener("focus", event => {
+      event.stopPropagation();
+      event.currentTarget.dataset.originalValue = event.currentTarget.value;
+      event.currentTarget.select();
+    });
+    input.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
+        event.currentTarget.dataset.cancelled = "true";
+        event.currentTarget.blur();
+      }
+    });
+    input.addEventListener("blur", async event => {
+      event.stopPropagation();
+      const field = event.currentTarget;
+      if (field.dataset.cancelled === "true") {
+        delete field.dataset.cancelled;
+        return;
+      }
+      const row = field.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      if (!item) return;
+      const uses = getItemUsesData(item);
+      if (!uses.supported) return;
+      const parsed = Number(field.value);
+      const next = Number.isFinite(parsed) ? Math.max(0, Math.min(uses.max, Math.floor(parsed))) : uses.value;
+      field.value = String(next);
+      field.disabled = true;
+      try {
+        await setItemUsesRemaining(item, next);
+        field.dataset.originalValue = String(next);
+      } catch (error) {
+        field.value = String(uses.value);
+        console.error("Better Inventory | Ladungen konnten nicht direkt geändert werden", error);
+        ui.notifications.error("Die Ladungen konnten nicht geändert werden.");
       } finally {
         field.disabled = false;
       }
