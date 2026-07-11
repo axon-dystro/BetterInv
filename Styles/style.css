@@ -2316,7 +2316,7 @@
 .betterinv-currency-cp > strong { color: #ce8e68; }
 
 @supports (container-type: inline-size) {
-  @container (max-width: 620px) {
+  @container (max-width: 460px) {
     .betterinv-currency {
       grid-template-columns: 1fr;
       gap: 6px;
@@ -2524,7 +2524,7 @@
 
 /* Phase 4.8.1–4.8.2: buttons use the former label column and stay stacked vertically. */
 @supports (container-type: inline-size) {
-  @container (max-width: 620px) {
+  @container (max-width: 460px) {
     .betterinv-currency-buttons {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -2598,7 +2598,7 @@
 }
 
 @supports (container-type: inline-size) {
-  @container (max-width: 620px) {
+  @container (max-width: 460px) {
     .betterinv-currency {
       grid-template-columns: 1fr;
     }
@@ -2618,3 +2618,6 @@
     }
   }
 }
+
+/* Phase 4.8.4: keep the four actions in the left column at normal inventory widths.
+   Only very narrow windows move them above the currency fields. */
