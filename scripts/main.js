@@ -882,9 +882,27 @@ function renderContainerBreadcrumb(actor, container) {
     </div>`;
 }
 
+function getItemQuantityData(item) {
+  const raw = foundry.utils.getProperty(item, "system.quantity");
+  const nested = foundry.utils.getProperty(item, "system.quantity.value");
+  const value = Number(typeof raw === "object" && raw !== null ? nested : raw);
+  return {
+    value: Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 1,
+    updatePath: typeof raw === "object" && raw !== null ? "system.quantity.value" : "system.quantity"
+  };
+}
+
+async function changeItemQuantity(item, delta) {
+  if (!item || !Number.isFinite(delta)) return;
+  const quantity = getItemQuantityData(item);
+  const next = Math.max(0, quantity.value + Math.trunc(delta));
+  if (next === quantity.value) return;
+  await item.update({ [quantity.updatePath]: next });
+}
+
 function itemRowHtml(item, categoryOptions, containerId) {
   const img = item.img || "icons/svg/item-bag.svg";
-  const qty = foundry.utils.getProperty(item, "system.quantity") ?? 1;
+  const qty = getItemQuantityData(item).value;
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
@@ -898,7 +916,12 @@ function itemRowHtml(item, categoryOptions, containerId) {
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
-        <small>${escapeHtml(item.type)} · Anzahl: ${escapeHtml(String(qty))} · Gewicht: ${escapeHtml(String(weight))}</small>
+        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}</small>
+      </div>
+      <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
+        <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
+        <span class="betterinv-quantity-value" title="Aktuelle Anzahl">${escapeHtml(String(qty))}</span>
+        <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen">+</button>
       </div>
       <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
       <select class="betterinv-category-select" title="Kategorie wählen">${options}</select>
@@ -1146,6 +1169,27 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
       const row = event.currentTarget.closest(".betterinv-item");
       const item = actor?.items?.get(row?.dataset?.itemId);
       openItemSheet(item);
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-quantity-minus, .betterinv-quantity-plus").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (button.disabled) return;
+      const row = event.currentTarget.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      if (!item) return;
+      button.disabled = true;
+      try {
+        const delta = event.currentTarget.classList.contains("betterinv-quantity-plus") ? 1 : -1;
+        await changeItemQuantity(item, delta);
+      } catch (error) {
+        console.error("Better Inventory | Menge konnte nicht geändert werden", error);
+        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+      } finally {
+        button.disabled = false;
+      }
     });
   });
 }
@@ -1437,7 +1481,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
   const rows = Array.from(windowEl.querySelectorAll(".betterinv-item"));
   rows.forEach(row => {
     row.addEventListener("dragstart", event => {
-      if (event.target.closest("select, input, textarea, a, .betterinv-edit-item, .betterinv-open-item")) {
+      if (event.target.closest("select, input, textarea, a, button, .betterinv-edit-item, .betterinv-open-item, .betterinv-quantity-controls")) {
         event.preventDefault();
         return;
       }
@@ -1594,7 +1638,7 @@ function openBetterInvPopup(windowEl) {
   popup.document.write(`<!doctype html><html><head><title>Better Inventory</title><link rel="stylesheet" href="/modules/betterinv/styles/style.css"><style>
     body{margin:0;min-height:100vh;background:#06080b;color:#eef3f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:auto;padding:18px}
     .betterinv-popup-shell{max-width:820px;margin:0 auto}.betterinv-popup-title{margin:0 0 12px;font-size:22px;font-weight:900;letter-spacing:.02em}.betterinv-note{color:rgba(238,243,247,.62);margin-bottom:14px}
-    .betterinv-toolbar,.betterinv-category-select,.betterinv-edit-item{display:none!important}.betterinv-item{grid-template-columns:46px minmax(0,1fr)!important}
+    .betterinv-toolbar,.betterinv-category-select,.betterinv-edit-item,.betterinv-quantity-controls{display:none!important}.betterinv-item{grid-template-columns:46px minmax(0,1fr)!important}
   </style></head><body><div class="betterinv-popup-shell"><h1 class="betterinv-popup-title">🎒 Better Inventory</h1><div class="betterinv-note">Popup-Ansicht. Änderungen machst du aktuell im Foundry-Fenster.</div>${bodyHtml}</div></body></html>`);
   popup.document.close();
 }
