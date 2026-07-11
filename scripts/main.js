@@ -658,6 +658,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const categoryOptions = await getCategoryOptions(actor, categories, activeContainer?.id ?? null);
 
   const topContainerHtml = !activeContainer ? await renderContainerCards(actor, containers) : renderContainerBreadcrumb(actor, activeContainer);
+  const actorEncumbranceHtml = !activeContainer ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor)) : "";
   const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
   const order = await getCategoryOrder(actor, activeContainer?.id ?? null, categories);
   const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
@@ -742,6 +743,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
           ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
         </span>
       </div>
+      ${actorEncumbranceHtml}
       ${topContainerHtml}
       <div class="betterinv-toolbar">
         <input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">
@@ -1066,6 +1068,92 @@ function betterInvContainerCapacityHtml(capacity, { compact = false } = {}) {
     </div>`;
 }
 
+function getBetterInvActorEncumbrance(actor) {
+  if (!actor) return null;
+
+  const encumbrance = foundry.utils.getProperty(actor, "system.attributes.encumbrance");
+  const data = encumbrance && typeof encumbrance === "object" ? encumbrance : {};
+
+  // Prefer the system-calculated value. D&D5e already accounts for equipped
+  // items, item quantities, containers, container weight rules and the
+  // backpack's own weight in this value.
+  let current = firstFiniteNumber(
+    data.value,
+    data.current,
+    data.total,
+    data.weight,
+    foundry.utils.getProperty(actor, "system.attributes.carrying.value")
+  );
+  let maximum = firstFiniteNumber(
+    data.max,
+    data.maximum,
+    data.capacity,
+    foundry.utils.getProperty(actor, "system.attributes.carrying.max")
+  );
+
+  // Safe fallback for systems which do not expose a prepared encumbrance
+  // object: sum only top-level stacks. This avoids counting container contents
+  // twice when a prepared container total is available.
+  if (current === null) {
+    current = getInventoryItems(actor)
+      .filter(item => !getItemContainerId(item))
+      .reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+  }
+
+  // D&D5e fallback only. Custom/system-prepared maximums always win above.
+  if ((maximum === null || maximum <= 0) && game.system?.id === "dnd5e") {
+    const strength = firstFiniteNumber(
+      foundry.utils.getProperty(actor, "system.abilities.str.value"),
+      foundry.utils.getProperty(actor, "system.abilities.str.total")
+    );
+    if (strength !== null && strength > 0) maximum = strength * 15;
+  }
+
+  const safeCurrent = Math.max(0, Number(current) || 0);
+  const safeMaximum = maximum !== null && Number(maximum) > 0 ? Number(maximum) : null;
+  const rawPercentage = firstFiniteNumber(data.pct, data.percentage);
+  const percentage = safeMaximum
+    ? Math.max(0, Math.min(100, rawPercentage ?? ((safeCurrent / safeMaximum) * 100)))
+    : 0;
+
+  const unitKey = String(data.units ?? data.unit ?? "").trim();
+  const unitConfig = CONFIG?.DND5E?.weightUnits?.[unitKey];
+  const unitLabel = unitConfig?.abbreviation ?? unitConfig?.label ?? unitKey;
+  const unit = unitLabel ? (game.i18n?.localize?.(unitLabel) ?? unitLabel) : getBetterInvWeightUnit();
+
+  return {
+    current: safeCurrent,
+    maximum: safeMaximum,
+    unit,
+    percentage,
+    overCapacity: safeMaximum !== null && safeCurrent > safeMaximum,
+    hasCapacity: safeMaximum !== null
+  };
+}
+
+function betterInvActorEncumbranceHtml(encumbrance) {
+  if (!encumbrance) return "";
+  const current = formatBetterInvNumber(encumbrance.current);
+  const maximum = encumbrance.hasCapacity ? formatBetterInvNumber(encumbrance.maximum) : null;
+  const amount = maximum
+    ? `${current} / ${maximum} ${encumbrance.unit}`
+    : `${current} ${encumbrance.unit}`;
+  const stateClass = encumbrance.overCapacity ? " betterinv-actor-encumbrance-over" : "";
+  const title = `Gesamttraglast inklusive der Rucksäcke: ${amount}`;
+
+  return `
+    <section class="betterinv-actor-encumbrance${stateClass}" title="${escapeAttr(title)}">
+      <div class="betterinv-actor-encumbrance-line">
+        <span><i class="fas fa-weight-hanging" aria-hidden="true"></i> Traglast</span>
+        <strong>${escapeHtml(amount)}</strong>
+      </div>
+      ${encumbrance.hasCapacity ? `
+        <span class="betterinv-actor-encumbrance-bar" aria-hidden="true">
+          <span style="width:${Math.round(encumbrance.percentage)}%"></span>
+        </span>` : ""}
+    </section>`;
+}
+
 async function renderContainerCards(actor, containers) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
@@ -1122,13 +1210,15 @@ function renderContainerBreadcrumb(actor, container) {
   return `
     <div class="betterinv-container-view">
       <button type="button" class="betterinv-back">← Alle Rucksäcke</button>
-      <div class="betterinv-container-title">
-        <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
-        <div class="betterinv-container-title-copy">
-          <strong>${escapeHtml(getContainerAlias(actor, container))}</strong>
-          <small>${count} Inhalt(e)</small>
-          ${betterInvContainerCapacityHtml(capacity)}
+      <div class="betterinv-container-main">
+        <div class="betterinv-container-title">
+          <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
+          <div class="betterinv-container-title-copy">
+            <strong>${escapeHtml(getContainerAlias(actor, container))}</strong>
+            <small>${count} Inhalt(e)</small>
+          </div>
         </div>
+        ${betterInvContainerCapacityHtml(capacity)}
       </div>
       <div class="betterinv-remove-from-container" title="Item hier ablegen, um es zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
     </div>`;

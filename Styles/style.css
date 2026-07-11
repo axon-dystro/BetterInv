@@ -1848,3 +1848,178 @@
     flex: 1 1 100%;
   }
 }
+
+/* Phase 3.1: stable capacity layout and actor encumbrance */
+.betterinv-actor-encumbrance {
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--bi-border-soft);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #18181d, #101014);
+  color: var(--bi-muted);
+}
+.betterinv-actor-encumbrance-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.2;
+}
+.betterinv-actor-encumbrance-line > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #b7a476;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  letter-spacing: .055em;
+}
+.betterinv-actor-encumbrance-line > span i {
+  margin-right: 5px;
+}
+.betterinv-actor-encumbrance-line > strong {
+  min-width: 0;
+  color: #eee1c3;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+.betterinv-actor-encumbrance-bar {
+  display: block;
+  width: 100%;
+  height: 5px;
+  margin-top: 6px;
+  overflow: hidden;
+  border: 1px solid rgba(200,168,90,.22);
+  border-radius: 999px;
+  background: #09090c;
+}
+.betterinv-actor-encumbrance-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #756335, #c8a85a);
+}
+.betterinv-actor-encumbrance-over .betterinv-actor-encumbrance-line > strong {
+  color: #ff9d9d;
+}
+.betterinv-actor-encumbrance-over .betterinv-actor-encumbrance-bar {
+  border-color: rgba(211,75,75,.55);
+}
+.betterinv-actor-encumbrance-over .betterinv-actor-encumbrance-bar > span {
+  background: linear-gradient(90deg, #7b1f25, #d64c55);
+}
+
+/* The container header uses a real grid, so the capacity can never slide
+   underneath the back button or the drop target. */
+.betterinv-container-view {
+  display: grid !important;
+  grid-template-columns: minmax(108px, auto) minmax(0, 1fr) minmax(138px, 166px);
+  align-items: center !important;
+  gap: 10px !important;
+  min-width: 0;
+  overflow: hidden;
+}
+.betterinv-container-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+.betterinv-container-title {
+  width: 100%;
+  min-width: 0;
+}
+.betterinv-container-title-copy {
+  min-width: 0;
+  overflow: hidden;
+}
+.betterinv-container-title-copy strong,
+.betterinv-container-title-copy small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.betterinv-container-main > .betterinv-container-capacity {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0;
+  margin-top: 3px;
+}
+.betterinv-container-main .betterinv-container-capacity-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  min-width: 0;
+}
+.betterinv-container-main .betterinv-container-capacity-line > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.betterinv-container-main .betterinv-container-capacity-line > strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.betterinv-container-view > .betterinv-back,
+.betterinv-container-view > .betterinv-remove-from-container {
+  min-width: 0;
+  max-width: 100%;
+}
+.betterinv-container-view > .betterinv-back {
+  white-space: normal;
+  line-height: 1.15;
+}
+.betterinv-container-view > .betterinv-remove-from-container {
+  min-height: 52px;
+  padding: 7px 9px;
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Component-width fallback: the Foundry window can be narrow even when the
+   browser viewport is wide, so this rule must not depend on viewport width. */
+@supports (container-type: inline-size) {
+  .betterinv-window {
+    container-type: inline-size;
+  }
+  @container (max-width: 560px) {
+    .betterinv-container-view {
+      grid-template-columns: minmax(100px, auto) minmax(0, 1fr) !important;
+      grid-template-areas:
+        "back main"
+        "remove remove";
+      align-items: stretch !important;
+    }
+    .betterinv-container-view > .betterinv-back { grid-area: back; }
+    .betterinv-container-view > .betterinv-container-main { grid-area: main; }
+    .betterinv-container-view > .betterinv-remove-from-container { grid-area: remove; min-height: 38px; }
+  }
+  @container (max-width: 430px) {
+    .betterinv-container-view {
+      grid-template-columns: 1fr !important;
+      grid-template-areas:
+        "main"
+        "back"
+        "remove";
+    }
+    .betterinv-actor-encumbrance-line {
+      grid-template-columns: 1fr;
+      gap: 3px;
+    }
+    .betterinv-actor-encumbrance-line > strong {
+      text-align: left;
+    }
+  }
+}
