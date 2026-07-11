@@ -892,12 +892,20 @@ function getItemQuantityData(item) {
   };
 }
 
+async function setItemQuantity(item, value) {
+  if (!item) return;
+  const quantity = getItemQuantityData(item);
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return;
+  const next = Math.max(0, Math.floor(parsed));
+  if (next === quantity.value) return;
+  await item.update({ [quantity.updatePath]: next });
+}
+
 async function changeItemQuantity(item, delta) {
   if (!item || !Number.isFinite(delta)) return;
   const quantity = getItemQuantityData(item);
-  const next = Math.max(0, quantity.value + Math.trunc(delta));
-  if (next === quantity.value) return;
-  await item.update({ [quantity.updatePath]: next });
+  await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
 function itemRowHtml(item, categoryOptions, containerId) {
@@ -920,7 +928,7 @@ function itemRowHtml(item, categoryOptions, containerId) {
       </div>
       <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
         <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
-        <span class="betterinv-quantity-value" title="Aktuelle Anzahl">${escapeHtml(String(qty))}</span>
+        <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
         <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen">+</button>
       </div>
       <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
@@ -1189,6 +1197,53 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
         ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
       } finally {
         button.disabled = false;
+      }
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-quantity-value").forEach(input => {
+    input.addEventListener("click", event => event.stopPropagation());
+    input.addEventListener("focus", event => {
+      event.stopPropagation();
+      event.currentTarget.dataset.originalValue = event.currentTarget.value;
+      event.currentTarget.select();
+    });
+    input.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
+        event.currentTarget.dataset.cancelled = "true";
+        event.currentTarget.blur();
+      }
+    });
+    input.addEventListener("blur", async event => {
+      event.stopPropagation();
+      const field = event.currentTarget;
+      if (field.dataset.cancelled === "true") {
+        delete field.dataset.cancelled;
+        return;
+      }
+      const row = field.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      if (!item) return;
+      const oldValue = getItemQuantityData(item).value;
+      const parsed = Number(field.value);
+      const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
+      field.value = String(next);
+      field.disabled = true;
+      try {
+        await setItemQuantity(item, next);
+        field.dataset.originalValue = String(next);
+      } catch (error) {
+        field.value = String(oldValue);
+        console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
+        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+      } finally {
+        field.disabled = false;
       }
     });
   });

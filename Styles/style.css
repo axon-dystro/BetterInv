@@ -1209,7 +1209,26 @@
   font-size: 13px;
   font-weight: 850;
   font-variant-numeric: tabular-nums;
-  user-select: none;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+  cursor: text;
+}
+.betterinv-quantity-value::-webkit-outer-spin-button,
+.betterinv-quantity-value::-webkit-inner-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+.betterinv-quantity-value:focus {
+  outline: none;
+  border-color: var(--bi-gold);
+  background: #18181d;
+  color: #fff;
+  box-shadow: 0 0 0 1px rgba(216,199,149,.22);
+}
+.betterinv-quantity-value:disabled {
+  opacity: .65;
+  cursor: wait;
 }
 @media (max-width: 720px) {
   .betterinv-item {
