@@ -1112,6 +1112,82 @@ async function setItemUsesAndQuantity(item, { remaining, quantity, baseMax, rest
   await item.update(update);
 }
 
+function wait(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function getItemResourceSnapshot(item) {
+  if (!item) return "missing";
+  const quantity = getItemQuantityData(item).value;
+  const raw = getRawItemUsesData(item);
+  return JSON.stringify({
+    quantity,
+    rawMax: raw.supported ? raw.rawMax : null,
+    rawValue: raw.supported ? raw.rawValue : null,
+    spent: raw.supported ? raw.spent : null
+  });
+}
+
+/**
+ * dnd5e can finish the activity dialog before every embedded Item update has
+ * reached the client. Wait until quantity/uses stop changing so our final
+ * stacked-charge state is not overwritten by a delayed native update.
+ */
+async function waitForItemResourcesToSettle(actor, itemId, { timeout = 900, interval = 60 } = {}) {
+  const started = Date.now();
+  let previous = null;
+  let stableChecks = 0;
+
+  while ((Date.now() - started) < timeout) {
+    await wait(interval);
+    const current = actor?.items?.get(itemId) ?? null;
+    const snapshot = getItemResourceSnapshot(current);
+    if (snapshot === previous) stableChecks += 1;
+    else stableChecks = 0;
+    previous = snapshot;
+    if (stableChecks >= 2) return current;
+  }
+
+  return actor?.items?.get(itemId) ?? null;
+}
+
+async function enforceConsumedStackState(actor, itemId, { remaining, quantity, baseMax, restoreAutoDestroy }) {
+  let current = actor?.items?.get(itemId) ?? null;
+  if (!current) return null;
+
+  // Keep auto-destroy disabled while repairing quantity and uses. Restoring it
+  // in the same update can let a system hook remove a zero-quantity document.
+  await setItemUsesAndQuantity(current, {
+    remaining,
+    quantity,
+    baseMax,
+    restoreAutoDestroy: false
+  });
+
+  // One more short settle pass catches late activity-consumption updates.
+  await wait(140);
+  current = actor?.items?.get(itemId) ?? null;
+  if (!current) return null;
+
+  const uses = getItemUsesData(current);
+  const currentQuantity = getItemQuantityData(current).value;
+  if (currentQuantity !== quantity || uses.value !== remaining || uses.max !== (baseMax * quantity)) {
+    await setItemUsesAndQuantity(current, {
+      remaining,
+      quantity,
+      baseMax,
+      restoreAutoDestroy: false
+    });
+    current = actor?.items?.get(itemId) ?? current;
+  }
+
+  const raw = getRawItemUsesData(current);
+  if (raw.autoDestroyPath && restoreAutoDestroy !== undefined && raw.autoDestroy !== Boolean(restoreAutoDestroy)) {
+    await current.update({ [raw.autoDestroyPath]: Boolean(restoreAutoDestroy) });
+  }
+  return current;
+}
+
 function getItemEquippedData(item) {
   if (!item) return { supported: false, value: false, updatePath: null };
 
@@ -2183,7 +2259,10 @@ async function useOrOpenItem(item, event) {
       elevateRecentFoundryApps();
       if (result === null || result === undefined) continue;
 
-      let current = actor?.items?.get(itemId) ?? null;
+      // The native dnd5e activity can perform more than one asynchronous
+      // Item update. Wait for those updates before applying our one-use stack
+      // calculation, otherwise a late update can produce states like 1 / 2.
+      let current = await waitForItemResourcesToSettle(actor, itemId);
       if (!current && actor) {
         // A foreign/system workflow still deleted the last item. Recreate the
         // same document at quantity 0 instead of losing notes and categories.
@@ -2194,14 +2273,13 @@ async function useOrOpenItem(item, event) {
       }
 
       if (current && usesBefore.supported) {
-        const usesAfter = getItemUsesData(current);
-        // Keep Foundry's own consumption when it changed the counter. If the
-        // native workflow did not consume item uses, spend exactly one charge.
-        const remaining = usesAfter.value < usesBefore.value
-          ? usesAfter.value
-          : Math.max(0, usesBefore.value - 1);
+        // A confirmed use always spends exactly one combined charge. Quantity
+        // only falls when the remaining charges no longer need that unit.
+        // Examples: 3 potions at 1 use each -> 2 / 2 after one use;
+        // one 5-shot pack -> 4 / 5 while quantity remains 1.
+        const remaining = Math.max(0, usesBefore.value - 1);
         const nextQuantity = remaining > 0 ? Math.ceil(remaining / usesBefore.baseMax) : 0;
-        await setItemUsesAndQuantity(current, {
+        current = await enforceConsumedStackState(actor, itemId, {
           remaining,
           quantity: Math.min(quantityBefore, nextQuantity),
           baseMax: usesBefore.baseMax,
