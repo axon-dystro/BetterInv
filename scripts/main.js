@@ -683,6 +683,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 
   const topContainerHtml = !activeContainer ? await renderContainerCards(actor, containers) : renderContainerBreadcrumb(actor, activeContainer);
   const actorEncumbranceHtml = !activeContainer ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor)) : "";
+  const actorCurrencyHtml = betterInvActorCurrencyHtml(getBetterInvActorCurrency(actor));
   const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
   const order = await getCategoryOrder(actor, activeContainer?.id ?? null, categories);
   const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
@@ -768,6 +769,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   windowEl.innerHTML = baseShellHtml(`
     <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
       ${actorEncumbranceHtml}
+      ${actorCurrencyHtml}
       <div class="betterinv-actor">
         <strong>${activeContainer ? escapeHtml(getContainerAlias(actor, activeContainer)) : "Rucksäcke"}</strong>
         <div class="betterinv-actor-right">
@@ -1077,6 +1079,81 @@ function betterInvItemPriceHtml(item, { unidentified = false } = {}) {
       <i class="fas fa-coins" aria-hidden="true"></i>
       <span>${escapeHtml(unitValue)}</span>
     </span>`;
+}
+
+const BETTER_INV_CURRENCIES = [
+  { key: "pp", aliases: ["pp", "platinum", "platin"], name: "Platin", abbreviation: "PP" },
+  { key: "gp", aliases: ["gp", "gold"], name: "Gold", abbreviation: "GP" },
+  { key: "ep", aliases: ["ep", "electrum", "elektrum"], name: "Elektrum", abbreviation: "EP" },
+  { key: "sp", aliases: ["sp", "silver", "silber"], name: "Silber", abbreviation: "SP" },
+  { key: "cp", aliases: ["cp", "copper", "kupfer"], name: "Kupfer", abbreviation: "CP" }
+];
+
+function getBetterInvActorCurrencySource(actor) {
+  if (!actor) return null;
+  const candidates = [
+    foundry.utils.getProperty(actor, "system.currency"),
+    foundry.utils.getProperty(actor, "system.currencies"),
+    foundry.utils.getProperty(actor, "system.attributes.currency"),
+    foundry.utils.getProperty(actor, "system.details.currency")
+  ].filter(value => value && typeof value === "object" && !Array.isArray(value));
+
+  const hasKnownCurrency = source => {
+    const keys = new Set(Object.keys(source ?? {}).map(key => String(key).toLowerCase()));
+    return BETTER_INV_CURRENCIES.some(currency => currency.aliases.some(alias => keys.has(alias)));
+  };
+
+  const detected = candidates.find(hasKnownCurrency);
+  if (detected) return detected;
+
+  // D&D5e always uses the five standard denominations. Showing zeroes is more
+  // useful than hiding the complete row on a newly created actor.
+  if (game.system?.id === "dnd5e") return candidates[0] ?? {};
+  return null;
+}
+
+function getBetterInvCurrencyAmount(source, aliases) {
+  if (!source || typeof source !== "object") return 0;
+  const entries = new Map(Object.entries(source).map(([key, value]) => [String(key).toLowerCase(), value]));
+
+  for (const alias of aliases) {
+    if (!entries.has(alias)) continue;
+    const raw = entries.get(alias);
+    const value = raw && typeof raw === "object"
+      ? firstFiniteNumber(raw.value, raw.amount, raw.quantity, raw.current, raw.total)
+      : firstFiniteNumber(raw);
+    if (value !== null) return Math.max(0, value);
+  }
+  return 0;
+}
+
+function getBetterInvActorCurrency(actor) {
+  const source = getBetterInvActorCurrencySource(actor);
+  if (!source) return null;
+  return BETTER_INV_CURRENCIES.map(currency => ({
+    ...currency,
+    value: getBetterInvCurrencyAmount(source, currency.aliases)
+  }));
+}
+
+function betterInvActorCurrencyHtml(currencies) {
+  if (!Array.isArray(currencies) || !currencies.length) return "";
+  const totalCoins = currencies.reduce((sum, currency) => sum + (Number(currency.value) || 0), 0);
+  return `
+    <section class="betterinv-currency" aria-label="Währungen" title="Münzbestand: ${escapeAttr(formatBetterInvNumber(totalCoins))} Münzen">
+      <div class="betterinv-currency-heading">
+        <i class="fas fa-coins" aria-hidden="true"></i>
+        <span>Währungen</span>
+      </div>
+      <div class="betterinv-currency-list">
+        ${currencies.map(currency => `
+          <div class="betterinv-currency-entry betterinv-currency-${escapeAttr(currency.key)}" title="${escapeAttr(`${currency.name}: ${formatBetterInvNumber(currency.value)} ${currency.abbreviation}`)}">
+            <span class="betterinv-currency-name">${escapeHtml(currency.name)}</span>
+            <strong>${escapeHtml(formatBetterInvNumber(currency.value))}</strong>
+            <small>${escapeHtml(currency.abbreviation)}</small>
+          </div>`).join("")}
+      </div>
+    </section>`;
 }
 
 function getBetterInvItemWeight(item) {
