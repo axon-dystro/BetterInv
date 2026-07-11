@@ -2492,6 +2492,21 @@
   color: #ffd0c8;
 }
 
+/* Phase 4.7: manually exchange entered source coins one step downward. */
+.betterinv-currency-exchange-down {
+  min-width: 154px;
+  border: 1px solid rgba(104,145,166,.52);
+  background: linear-gradient(180deg, rgba(42,61,70,.98), rgba(23,35,41,.98));
+  color: #b9d8e5;
+}
+
+.betterinv-currency-exchange-down:hover:not(:disabled),
+.betterinv-currency-exchange-down:focus-visible:not(:disabled) {
+  border-color: rgba(135,185,211,.88);
+  background: linear-gradient(180deg, rgba(54,82,95,.98), rgba(29,46,54,.98));
+  color: #d9f2ff;
+}
+
 .betterinv-currency-action:active:not(:disabled) {
   transform: translateY(1px);
 }
@@ -2510,7 +2525,7 @@
 }
 
 @supports (container-type: inline-size) {
-  @container (max-width: 560px) {
+  @container (max-width: 720px) {
     .betterinv-currency-actions {
       align-items: stretch;
       flex-direction: column;
@@ -2519,15 +2534,16 @@
     .betterinv-currency-buttons {
       width: 100%;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .betterinv-currency-action {
       width: 100%;
       min-width: 0;
+      padding-inline: 7px;
     }
   }
 
-  @container (max-width: 350px) {
+  @container (max-width: 500px) {
     .betterinv-currency-buttons {
       grid-template-columns: 1fr;
     }
