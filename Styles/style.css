@@ -2423,3 +2423,75 @@
     }
   }
 }
+
+/* Phase 4.2: add entered denominations without automatic conversion */
+.betterinv-currency-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.betterinv-currency-actions .betterinv-currency-input-caption {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}
+
+.betterinv-currency-add {
+  flex: 0 0 auto;
+  min-width: 104px;
+  height: 28px;
+  margin: 0;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(200,168,90,.48);
+  border-radius: 3px;
+  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98));
+  color: #f0d994;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 1px 3px rgba(0,0,0,.48);
+}
+
+.betterinv-currency-add:hover:not(:disabled),
+.betterinv-currency-add:focus-visible:not(:disabled) {
+  border-color: var(--bi-gold);
+  background: linear-gradient(180deg, rgba(101,83,41,.98), rgba(52,42,21,.98));
+  color: #fff0bd;
+}
+
+.betterinv-currency-add:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.betterinv-currency-add:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.betterinv-currency-add-busy > i {
+  animation: betterinv-currency-add-spin .8s linear infinite;
+}
+
+@keyframes betterinv-currency-add-spin {
+  to { transform: rotate(360deg); }
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 420px) {
+    .betterinv-currency-actions {
+      align-items: stretch;
+      flex-direction: column;
+      gap: 5px;
+    }
+    .betterinv-currency-add {
+      width: 100%;
+    }
+  }
+}

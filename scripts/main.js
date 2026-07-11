@@ -1095,27 +1095,41 @@ const BETTER_INV_CURRENCIES = [
   { key: "cp", aliases: ["cp", "copper", "kupfer"], name: "Kupfer", abbreviation: "CP" }
 ];
 
-function getBetterInvActorCurrencySource(actor) {
+const BETTER_INV_CURRENCY_SOURCE_PATHS = [
+  "system.currency",
+  "system.currencies",
+  "system.attributes.currency",
+  "system.details.currency"
+];
+
+function getBetterInvActorCurrencySourceInfo(actor) {
   if (!actor) return null;
-  const candidates = [
-    foundry.utils.getProperty(actor, "system.currency"),
-    foundry.utils.getProperty(actor, "system.currencies"),
-    foundry.utils.getProperty(actor, "system.attributes.currency"),
-    foundry.utils.getProperty(actor, "system.details.currency")
-  ].filter(value => value && typeof value === "object" && !Array.isArray(value));
+  const candidates = BETTER_INV_CURRENCY_SOURCE_PATHS.map(path => ({
+    path,
+    source: foundry.utils.getProperty(actor, path)
+  })).filter(entry => entry.source && typeof entry.source === "object" && !Array.isArray(entry.source));
 
   const hasKnownCurrency = source => {
     const keys = new Set(Object.keys(source ?? {}).map(key => String(key).toLowerCase()));
     return BETTER_INV_CURRENCIES.some(currency => currency.aliases.some(alias => keys.has(alias)));
   };
 
-  const detected = candidates.find(hasKnownCurrency);
+  const detected = candidates.find(entry => hasKnownCurrency(entry.source));
   if (detected) return detected;
 
-  // D&D5e always uses the five standard denominations. Showing zeroes is more
-  // useful than hiding the complete row on a newly created actor.
-  if (game.system?.id === "dnd5e") return candidates[0] ?? {};
+  // D&D5e always stores the five standard denominations under system.currency.
+  // Keep the path even when a new actor has not populated every denomination yet.
+  if (game.system?.id === "dnd5e") {
+    return candidates.find(entry => entry.path === "system.currency") ?? {
+      path: "system.currency",
+      source: foundry.utils.getProperty(actor, "system.currency") ?? {}
+    };
+  }
   return null;
+}
+
+function getBetterInvActorCurrencySource(actor) {
+  return getBetterInvActorCurrencySourceInfo(actor)?.source ?? null;
 }
 
 function getBetterInvCurrencyAmount(source, aliases) {
@@ -1196,12 +1210,104 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
               >
             </div>`).join("")}
         </div>
-        <div class="betterinv-currency-input-caption">
-          <i class="fas fa-pen" aria-hidden="true"></i>
-          <span>Änderungsbetrag je Münzart</span>
+        <div class="betterinv-currency-actions">
+          <div class="betterinv-currency-input-caption">
+            <i class="fas fa-pen" aria-hidden="true"></i>
+            <span>Änderungsbetrag je Münzart</span>
+          </div>
+          <button
+            type="button"
+            class="betterinv-currency-add"
+            title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
+            ${editable ? "" : "disabled"}
+          >
+            <i class="fas fa-plus" aria-hidden="true"></i>
+            <span>Hinzufügen</span>
+          </button>
         </div>
       </div>
     </section>`;
+}
+
+function getBetterInvCurrencyStorage(actor, currency) {
+  const info = getBetterInvActorCurrencySourceInfo(actor);
+  if (!info || !currency) return null;
+
+  const entries = Object.entries(info.source ?? {});
+  const matchingEntry = entries.find(([key]) => currency.aliases.includes(String(key).toLowerCase()));
+  const sourceKey = matchingEntry?.[0] ?? currency.key;
+  const raw = matchingEntry?.[1];
+
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    const numericKey = ["value", "amount", "quantity", "current", "total"]
+      .find(key => Object.prototype.hasOwnProperty.call(raw, key));
+    if (numericKey) {
+      return {
+        updatePath: `${info.path}.${sourceKey}.${numericKey}`,
+        current: Math.max(0, firstFiniteNumber(raw[numericKey]) ?? 0)
+      };
+    }
+  }
+
+  return {
+    updatePath: `${info.path}.${sourceKey}`,
+    current: Math.max(0, firstFiniteNumber(raw) ?? 0)
+  };
+}
+
+function getBetterInvCurrencyAdditionDraft() {
+  const draft = betterInvState.currencyDraft && typeof betterInvState.currencyDraft === "object"
+    ? betterInvState.currencyDraft
+    : {};
+  return BETTER_INV_CURRENCIES.map(currency => {
+    const normalized = normalizeBetterInvCurrencyDraftValue(draft[currency.key], { allowBlank: true });
+    const amount = normalized ? Number(normalized) : 0;
+    return { ...currency, amount: Number.isSafeInteger(amount) && amount > 0 ? amount : 0 };
+  }).filter(currency => currency.amount > 0);
+}
+
+async function addBetterInvCurrency(actor) {
+  if (!actor || actor.isOwner === false) {
+    ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
+    return false;
+  }
+
+  const additions = getBetterInvCurrencyAdditionDraft();
+  if (!additions.length) {
+    ui.notifications.warn("Gib mindestens bei einer Währung einen Betrag größer als 0 ein.");
+    return false;
+  }
+
+  const updateData = {};
+  for (const addition of additions) {
+    const storage = getBetterInvCurrencyStorage(actor, addition);
+    if (!storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${addition.key} gefunden.`);
+    }
+    const next = storage.current + addition.amount;
+    if (!Number.isSafeInteger(next)) {
+      throw new Error(`Der neue Betrag für ${addition.key} ist zu groß.`);
+    }
+    updateData[storage.updatePath] = next;
+  }
+
+  // Clear before the Actor update so the updateActor hook cannot briefly render
+  // stale inputs. Restore the draft when Foundry rejects the update.
+  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
+  betterInvState.currencyDraft = {};
+  betterInvState.currencyDraftActorId = actor.id;
+  try {
+    // One Actor update keeps all entered denominations together. No denomination
+    // is converted, combined or automatically exchanged here.
+    await actor.update(updateData);
+  } catch (error) {
+    betterInvState.currencyDraft = previousDraft;
+    throw error;
+  }
+
+  const summary = additions.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
+  ui.notifications.info(`Hinzugefügt: ${summary}`);
+  return true;
 }
 
 function getBetterInvItemWeight(item) {
@@ -2141,6 +2247,25 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
         button.disabled = false;
       }
     });
+  });
+
+  windowEl.querySelector(".betterinv-currency-add")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    const button = event.currentTarget;
+    if (button.disabled) return;
+    button.disabled = true;
+    button.classList.add("betterinv-currency-add-busy");
+    try {
+      const changed = await addBetterInvCurrency(actor);
+      if (changed) renderBetterInvWindow();
+    } catch (error) {
+      console.error("Better Inventory | Währung konnte nicht hinzugefügt werden", error);
+      ui.notifications.error("Die Münzen konnten nicht hinzugefügt werden.");
+    } finally {
+      button.disabled = false;
+      button.classList.remove("betterinv-currency-add-busy");
+    }
   });
 
   windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
