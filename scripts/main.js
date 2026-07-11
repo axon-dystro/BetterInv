@@ -14,6 +14,7 @@ let betterInvState = {
 
 Hooks.once("init", () => {
   registerBetterInvHotkey();
+  registerBetterInvSettings();
 });
 
 Hooks.once("ready", async () => {
@@ -40,6 +41,29 @@ function registerBetterInvHotkey() {
     restricted: false,
     precedence: CONST.KEYBINDING_PRECEDENCE.NORMAL
   });
+}
+
+function registerBetterInvSettings() {
+  if (!game?.settings) return;
+  game.settings.register(MODULE_ID, "showItemValues", {
+    name: "Itemwerte anzeigen",
+    hint: "Zeigt den vom Spielsystem gespeicherten Preis direkt am Item an.",
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: true,
+    onChange: () => {
+      if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+    }
+  });
+}
+
+function betterInvShowsItemValues() {
+  try {
+    return game.settings?.get?.(MODULE_ID, "showItemValues") !== false;
+  } catch (_) {
+    return true;
+  }
 }
 
 
@@ -937,6 +961,124 @@ function getBetterInvWeightUnit() {
   return game.system?.id === "dnd5e" ? "lb" : "Gewicht";
 }
 
+function getBetterInvCurrencyConfig() {
+  const systemId = String(game.system?.id ?? "");
+  const systemKey = systemId.toUpperCase();
+  const roots = [
+    CONFIG?.[systemKey]?.currencies,
+    CONFIG?.[systemKey]?.currency
+  ];
+  if (systemId === "dnd5e") roots.push(CONFIG?.DND5E?.currencies, CONFIG?.DND5E?.currency);
+  return roots.find(root => root && typeof root === "object") ?? {};
+}
+
+function getBetterInvCurrencyLabel(denomination) {
+  const code = String(denomination ?? "").trim();
+  if (!code) return "";
+  const config = getBetterInvCurrencyConfig();
+  const entry = config?.[code] ?? config?.[code.toLowerCase()] ?? config?.[code.toUpperCase()];
+  const raw = entry && typeof entry === "object"
+    ? (entry.abbreviation ?? entry.abbr ?? entry.short ?? entry.label ?? code)
+    : (typeof entry === "string" ? entry : code);
+  const localized = game.i18n?.localize?.(raw) ?? raw;
+  if (localized && localized !== raw) return localized;
+  return String(raw).length <= 5 ? String(raw).toUpperCase() : String(raw);
+}
+
+function parseBetterInvNumericValue(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().replace(",", ".");
+  if (!/^-?\d+(?:\.\d+)?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseBetterInvPrice(raw, depth = 0) {
+  if (raw === null || raw === undefined || depth > 3) return null;
+
+  const directNumber = parseBetterInvNumericValue(raw);
+  if (directNumber !== null) return { parts: [{ value: directNumber, denomination: "" }], text: null };
+
+  if (typeof raw === "string") {
+    const clean = sanitizePlainText(raw, { max: 80 });
+    return clean ? { parts: [], text: clean } : null;
+  }
+
+  if (typeof raw !== "object") return null;
+
+  const denomination = raw.denomination ?? raw.currency ?? raw.unit ?? raw.type ?? raw.denom ?? "";
+  const amount = firstFiniteNumber(raw.value, raw.amount, raw.cost, raw.price, raw.base);
+  if (amount !== null && typeof raw.value !== "object") {
+    return { parts: [{ value: amount, denomination: String(denomination ?? "") }], text: null };
+  }
+
+  const nestedCandidates = [raw.value, raw.amount, raw.cost, raw.price, raw.total];
+  for (const nested of nestedCandidates) {
+    if (!nested || typeof nested !== "object") continue;
+    const parsed = parseBetterInvPrice(nested, depth + 1);
+    if (parsed) return parsed;
+  }
+
+  const currencyConfig = getBetterInvCurrencyConfig();
+  const knownKeys = new Set([
+    ...Object.keys(currencyConfig ?? {}).map(key => key.toLowerCase()),
+    "pp", "gp", "ep", "sp", "cp", "platinum", "gold", "electrum", "silver", "copper"
+  ]);
+  const parts = [];
+  for (const [key, value] of Object.entries(raw)) {
+    if (!knownKeys.has(String(key).toLowerCase())) continue;
+    const numeric = parseBetterInvNumericValue(value);
+    if (numeric === null) continue;
+    parts.push({ value: numeric, denomination: key });
+  }
+  if (parts.length) return { parts, text: null };
+
+  return null;
+}
+
+function getBetterInvItemPrice(item) {
+  if (!item) return null;
+  const candidates = [
+    foundry.utils.getProperty(item, "system.price"),
+    foundry.utils.getProperty(item, "system.cost")
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseBetterInvPrice(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function formatBetterInvPrice(price, multiplier = 1) {
+  if (!price) return "";
+  if (price.text) return price.text;
+  const parts = Array.from(price.parts ?? []);
+  if (!parts.length) return "";
+  return parts.map(part => {
+    const amount = formatBetterInvNumber((Number(part.value) || 0) * multiplier);
+    const label = getBetterInvCurrencyLabel(part.denomination);
+    return label ? `${amount} ${label}` : amount;
+  }).join(" · ");
+}
+
+function betterInvItemPriceHtml(item, { unidentified = false } = {}) {
+  if (!betterInvShowsItemValues() || unidentified) return "";
+  const price = getBetterInvItemPrice(item);
+  const unitValue = formatBetterInvPrice(price);
+  if (!unitValue) return "";
+  const quantity = getItemQuantityData(item).value;
+  const totalValue = quantity > 1 && !price?.text ? formatBetterInvPrice(price, quantity) : "";
+  const title = totalValue
+    ? `Stückwert: ${unitValue} · Gesamtwert bei ${quantity} Stück: ${totalValue}`
+    : `Itemwert: ${unitValue}`;
+  return `
+    <span class="betterinv-item-price" title="${escapeAttr(title)}">
+      <i class="fas fa-coins" aria-hidden="true"></i>
+      <span>${escapeHtml(unitValue)}</span>
+    </span>`;
+}
+
 function getBetterInvItemWeight(item) {
   if (!item) return 0;
 
@@ -1561,7 +1703,10 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
-        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
+        <div class="betterinv-item-meta-row">
+          <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
+          ${betterInvItemPriceHtml(item, { unidentified })}
+        </div>
       </div>
       <div class="betterinv-item-resources">
         <div class="betterinv-resource-block betterinv-quantity-resource" aria-label="Anzahl ändern">
