@@ -1228,7 +1228,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
             <button
               type="button"
               class="betterinv-currency-action betterinv-currency-remove"
-              title="Eingegebene Münzen exakt aus der jeweiligen Währung bezahlen oder entfernen"
+              title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
               ${editable ? "" : "disabled"}
             >
               <i class="fas fa-minus" aria-hidden="true"></i>
@@ -1352,6 +1352,79 @@ async function addBetterInvCurrency(actor) {
 }
 
 
+function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
+  const requested = Math.max(0, Math.trunc(Number(requestedCopper) || 0));
+  if (!Number.isSafeInteger(requested) || requested <= 0) {
+    throw new Error("Der zu zahlende Münzwert ist ungültig.");
+  }
+
+  const balances = new Map();
+  for (const currency of Array.from(wallet ?? [])) {
+    const value = Math.max(0, Math.trunc(Number(currency?.value) || 0));
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`Der Münzbestand für ${currency?.key ?? "eine Währung"} ist zu groß.`);
+    }
+    balances.set(currency.key, { ...currency, value });
+  }
+
+  let remaining = requested;
+  const spent = [];
+
+  // First pay with existing coins without exceeding the requested value. The
+  // entered denominations describe the price; the purse may settle that value
+  // with any equivalent combination of coins.
+  for (const currency of BETTER_INV_CURRENCIES) {
+    const balance = balances.get(currency.key);
+    if (!balance?.value || remaining < currency.copperValue) continue;
+    const amount = Math.min(balance.value, Math.floor(remaining / currency.copperValue));
+    if (!amount) continue;
+    balance.value -= amount;
+    remaining -= amount * currency.copperValue;
+    spent.push({ ...currency, amount });
+  }
+
+  let breakage = null;
+  if (remaining > 0) {
+    // No exact combination was available. Break the smallest remaining coin
+    // which is worth more than the outstanding amount. Phase 4.5 returns the
+    // difference in copper; Phase 4.6 will optimize that change into higher
+    // denominations.
+    const sourceCurrency = [...BETTER_INV_CURRENCIES]
+      .reverse()
+      .find(currency => currency.copperValue > remaining && (balances.get(currency.key)?.value ?? 0) > 0);
+
+    if (!sourceCurrency) {
+      throw new Error("Der Münzwert reicht aus, konnte aber nicht sicher verrechnet werden.");
+    }
+
+    const sourceBalance = balances.get(sourceCurrency.key);
+    sourceBalance.value -= 1;
+    const changeCopper = sourceCurrency.copperValue - remaining;
+    const copperBalance = balances.get("cp");
+    if (!copperBalance) throw new Error("Kein Kupferspeicher für das Rückgeld gefunden.");
+    const nextCopper = copperBalance.value + changeCopper;
+    if (!Number.isSafeInteger(nextCopper)) {
+      throw new Error("Das berechnete Kupfer-Rückgeld ist zu groß.");
+    }
+    copperBalance.value = nextCopper;
+    breakage = {
+      source: sourceCurrency,
+      sourceAmount: 1,
+      paidCopper: remaining,
+      changeCopper
+    };
+    remaining = 0;
+  }
+
+  const finalCopper = getBetterInvCurrencyTotalInCopper([...balances.values()], "value");
+  const initialCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  if (finalCopper !== initialCopper - requested) {
+    throw new Error("Die Münzberechnung war nicht wertgleich und wurde abgebrochen.");
+  }
+
+  return { balances, spent, breakage };
+}
+
 async function removeBetterInvCurrency(actor) {
   if (!actor || actor.isOwner === false) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
@@ -1372,8 +1445,6 @@ async function removeBetterInvCurrency(actor) {
     return { ...currency, storage, value: storage.current };
   });
 
-  // Phase 4.4 compares the complete purse in a shared copper base before it
-  // checks whether the exact entered denominations are already available.
   const availableCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
   const requestedCopper = getBetterInvCurrencyTotalInCopper(removals, "amount");
   if (availableCopper < requestedCopper) {
@@ -1384,41 +1455,24 @@ async function removeBetterInvCurrency(actor) {
     return false;
   }
 
-  const walletByKey = new Map(wallet.map(currency => [currency.key, currency]));
+  // Phase 4.5 settles the entered price by total value. Existing lower coins can
+  // pay a higher denomination, while a larger coin is automatically broken when
+  // no exact combination exists.
+  const payment = calculateBetterInvCurrencyPayment(wallet, requestedCopper);
   const updateData = {};
-  const insufficient = [];
-  for (const removal of removals) {
-    const walletCurrency = walletByKey.get(removal.key);
-    const storage = walletCurrency?.storage;
-    if (!storage?.updatePath) {
-      throw new Error(`Kein Speicherpfad für ${removal.key} gefunden.`);
+  for (const currency of wallet) {
+    const next = payment.balances.get(currency.key)?.value;
+    if (!Number.isSafeInteger(next) || next < 0) {
+      throw new Error(`Der neue Betrag für ${currency.key} ist ungültig.`);
     }
-    if (storage.current < removal.amount) {
-      insufficient.push({ ...removal, current: storage.current });
-      continue;
-    }
-    updateData[storage.updatePath] = storage.current - removal.amount;
-  }
-
-  // Automatic breaking is intentionally still deferred to Phase 4.5. This
-  // message now distinguishes a genuinely empty purse from missing coin types.
-  if (insufficient.length) {
-    const details = insufficient.map(currency =>
-      `${currency.name}: ${formatBetterInvNumber(currency.current)} vorhanden, ${formatBetterInvNumber(currency.amount)} benötigt`
-    ).join(" · ");
-    ui.notifications.warn(
-      `Das Gesamtvermögen reicht aus, aber nicht in den eingegebenen Münzarten. ${details}. ` +
-      "Automatisches Aufbrechen und Verrechnen folgt ab Phase 4.5."
-    );
-    return false;
+    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
   }
 
   const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
   betterInvState.currencyDraft = {};
   betterInvState.currencyDraftActorId = actor.id;
   try {
-    // Keep the payment atomic: either every entered denomination is removed in
-    // one Actor update or the complete draft is restored when Foundry rejects it.
+    // Every affected denomination is stored in one atomic Actor update.
     await actor.update(updateData);
   } catch (error) {
     betterInvState.currencyDraft = previousDraft;
@@ -1426,7 +1480,16 @@ async function removeBetterInvCurrency(actor) {
   }
 
   const summary = removals.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
-  ui.notifications.info(`Bezahlt / entfernt: ${summary}`);
+  if (payment.breakage) {
+    const source = payment.breakage.source;
+    const change = formatBetterInvCopperTotal(payment.breakage.changeCopper);
+    ui.notifications.info(
+      `Bezahlt / entfernt: ${summary} · ${source.abbreviation} automatisch aufgebrochen` +
+      (payment.breakage.changeCopper ? ` · Rest: ${change}` : "")
+    );
+  } else {
+    ui.notifications.info(`Bezahlt / entfernt: ${summary}`);
+  }
   return true;
 }
 
