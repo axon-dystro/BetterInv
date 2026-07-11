@@ -743,13 +743,22 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 
   windowEl.innerHTML = baseShellHtml(`
     <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
+      ${actorEncumbranceHtml}
       <div class="betterinv-actor">
         <strong>${activeContainer ? escapeHtml(getContainerAlias(actor, activeContainer)) : "Rucksäcke"}</strong>
-        <span>
-          ${activeContainer ? "Inhalt" : "Körper / Rucksäcke"} · ${visibleItems.length} Items
-          ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-          ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
-        </span>
+        <div class="betterinv-actor-right">
+          <span class="betterinv-actor-meta">
+            ${activeContainer ? "Inhalt" : "Körper / Rucksäcke"} · ${visibleItems.length} Items
+            ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
+            ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
+          </span>
+          ${!activeContainer ? `
+            <div class="betterinv-container-tools betterinv-container-tools-inline" aria-label="Rucksack-Layer einstellen">
+              <span>Layer</span>
+              <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
+              <button type="button" class="betterinv-layer-plus" title="Layer hinzufügen">+</button>
+            </div>` : ""}
+        </div>
       </div>
       ${topContainerHtml}
       <div class="betterinv-toolbar">
@@ -758,7 +767,6 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <button type="button" class="betterinv-add-category">+ Kategorie</button>
       </div>
       ${searchContainersHtml}
-      ${actorEncumbranceHtml}
       ${favoritesHtml}
       ${unknownHtml}
       ${sectionHtml}
@@ -1202,11 +1210,6 @@ async function renderContainerCards(actor, containers) {
   }
 
   return `
-    <div class="betterinv-container-tools">
-      <span>Rucksack-Layer</span>
-      <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
-      <button type="button" class="betterinv-layer-plus" title="Layer hinzufügen">+</button>
-    </div>
     <div class="betterinv-containers" data-layer-count="${layerCount}">
       ${rows.map((row, rowIndex) => `
         <div class="betterinv-container-row ${row.length ? "" : "betterinv-container-row-empty"}" data-row-index="${rowIndex}">
@@ -1215,7 +1218,6 @@ async function renderContainerCards(actor, containers) {
             const capacity = getBetterInvContainerCapacity(actor, container);
             return `
               <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
-                <button type="button" class="betterinv-container-rename" data-container-id="${container.id}" title="UI-Name ändern">✎</button>
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
                 <span>${escapeHtml(alias)}</span>
                 ${alias !== container.name ? `<small>${escapeHtml(container.name)}</small>` : ""}
