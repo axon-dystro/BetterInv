@@ -1352,6 +1352,38 @@ async function addBetterInvCurrency(actor) {
 }
 
 
+function addBetterInvCurrencyChange(balances, totalCopper) {
+  let remaining = Math.max(0, Math.trunc(Number(totalCopper) || 0));
+  if (!Number.isSafeInteger(remaining)) {
+    throw new Error("Das berechnete Rückgeld ist zu groß.");
+  }
+
+  const change = [];
+  for (const currency of BETTER_INV_CURRENCIES) {
+    if (remaining < currency.copperValue) continue;
+    const amount = Math.floor(remaining / currency.copperValue);
+    if (!amount) continue;
+
+    const balance = balances.get(currency.key);
+    if (!balance) {
+      throw new Error(`Kein Münzspeicher für ${currency.key} gefunden.`);
+    }
+    const next = balance.value + amount;
+    if (!Number.isSafeInteger(next)) {
+      throw new Error(`Das berechnete Rückgeld für ${currency.key} ist zu groß.`);
+    }
+
+    balance.value = next;
+    remaining -= amount * currency.copperValue;
+    change.push({ ...currency, amount });
+  }
+
+  if (remaining !== 0) {
+    throw new Error("Das Rückgeld konnte nicht vollständig aufgeteilt werden.");
+  }
+  return change;
+}
+
 function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
   const requested = Math.max(0, Math.trunc(Number(requestedCopper) || 0));
   if (!Number.isSafeInteger(requested) || requested <= 0) {
@@ -1386,9 +1418,8 @@ function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
   let breakage = null;
   if (remaining > 0) {
     // No exact combination was available. Break the smallest remaining coin
-    // which is worth more than the outstanding amount. Phase 4.5 returns the
-    // difference in copper; Phase 4.6 will optimize that change into higher
-    // denominations.
+    // which is worth more than the outstanding amount. The difference is then
+    // returned greedily from the highest possible denomination down to copper.
     const sourceCurrency = [...BETTER_INV_CURRENCIES]
       .reverse()
       .find(currency => currency.copperValue > remaining && (balances.get(currency.key)?.value ?? 0) > 0);
@@ -1400,18 +1431,13 @@ function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
     const sourceBalance = balances.get(sourceCurrency.key);
     sourceBalance.value -= 1;
     const changeCopper = sourceCurrency.copperValue - remaining;
-    const copperBalance = balances.get("cp");
-    if (!copperBalance) throw new Error("Kein Kupferspeicher für das Rückgeld gefunden.");
-    const nextCopper = copperBalance.value + changeCopper;
-    if (!Number.isSafeInteger(nextCopper)) {
-      throw new Error("Das berechnete Kupfer-Rückgeld ist zu groß.");
-    }
-    copperBalance.value = nextCopper;
+    const change = addBetterInvCurrencyChange(balances, changeCopper);
     breakage = {
       source: sourceCurrency,
       sourceAmount: 1,
       paidCopper: remaining,
-      changeCopper
+      changeCopper,
+      change
     };
     remaining = 0;
   }
@@ -1455,9 +1481,9 @@ async function removeBetterInvCurrency(actor) {
     return false;
   }
 
-  // Phase 4.5 settles the entered price by total value. Existing lower coins can
-  // pay a higher denomination, while a larger coin is automatically broken when
-  // no exact combination exists.
+  // The entered price is settled by total value. Existing lower coins can pay a
+  // higher denomination, while larger coins are broken and their change is
+  // returned in the highest possible denominations.
   const payment = calculateBetterInvCurrencyPayment(wallet, requestedCopper);
   const updateData = {};
   for (const currency of wallet) {
@@ -1482,10 +1508,12 @@ async function removeBetterInvCurrency(actor) {
   const summary = removals.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
   if (payment.breakage) {
     const source = payment.breakage.source;
-    const change = formatBetterInvCopperTotal(payment.breakage.changeCopper);
+    const change = payment.breakage.change
+      .map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`)
+      .join(" · ");
     ui.notifications.info(
       `Bezahlt / entfernt: ${summary} · ${source.abbreviation} automatisch aufgebrochen` +
-      (payment.breakage.changeCopper ? ` · Rest: ${change}` : "")
+      (change ? ` · Rückgeld: ${change}` : "")
     );
   } else {
     ui.notifications.info(`Bezahlt / entfernt: ${summary}`);
