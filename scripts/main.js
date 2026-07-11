@@ -747,17 +747,18 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       <div class="betterinv-actor">
         <strong>${activeContainer ? escapeHtml(getContainerAlias(actor, activeContainer)) : "Rucksäcke"}</strong>
         <div class="betterinv-actor-right">
-          <span class="betterinv-actor-meta">
-            ${activeContainer ? "Inhalt" : "Körper / Rucksäcke"} · ${visibleItems.length} Items
+          ${activeContainer ? `
+            <span class="betterinv-actor-meta">
+              Inhalt · ${visibleItems.length} Items
+              ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
+              <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>
+            </span>` : `
             ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-            ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
-          </span>
-          ${!activeContainer ? `
             <div class="betterinv-container-tools betterinv-container-tools-inline" aria-label="Rucksack-Layer einstellen">
               <span>Layer</span>
               <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
               <button type="button" class="betterinv-layer-plus" title="Layer hinzufügen">+</button>
-            </div>` : ""}
+            </div>`}
         </div>
       </div>
       ${topContainerHtml}
