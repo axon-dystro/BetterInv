@@ -1483,3 +1483,21 @@
     min-width: 0;
   }
 }
+
+/* Phase 2.1: native Foundry equip / unequip state */
+.betterinv-item.betterinv-item-equipped {
+  border-color: rgba(200,168,90,.58);
+  box-shadow: 3px 0 0 rgba(200,168,90,.75) inset;
+}
+.betterinv-equipped-label {
+  color: #d8c795;
+  font-weight: 850;
+}
+.betterinv-item-actions-menu .betterinv-item-action-equipped {
+  color: #e6d39a;
+}
+.betterinv-item-actions-menu .betterinv-item-action-equipped:hover,
+.betterinv-item-actions-menu .betterinv-item-action-equipped:focus-visible {
+  background: #3a3423;
+  color: #fff4c9;
+}

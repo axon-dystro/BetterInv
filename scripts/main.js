@@ -911,6 +911,35 @@ async function changeItemQuantity(item, delta) {
   await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
+function getItemEquippedData(item) {
+  if (!item) return { supported: false, value: false, updatePath: null };
+
+  const direct = foundry.utils.getProperty(item, "system.equipped");
+  if (typeof direct === "boolean") {
+    return { supported: true, value: direct, updatePath: "system.equipped" };
+  }
+
+  if (direct && typeof direct === "object") {
+    for (const key of ["value", "equipped"]) {
+      if (typeof direct[key] === "boolean") {
+        return { supported: true, value: direct[key], updatePath: `system.equipped.${key}` };
+      }
+    }
+  }
+
+  return { supported: false, value: false, updatePath: null };
+}
+
+async function toggleBetterInvItemEquipped(item) {
+  const equipped = getItemEquippedData(item);
+  if (!equipped.supported || !equipped.updatePath) {
+    ui.notifications.warn("Dieses Item unterstützt keinen Ausrüstungsstatus.");
+    return;
+  }
+  await item.update({ [equipped.updatePath]: !equipped.value });
+  ui.notifications.info(`${item.name} wurde ${equipped.value ? "abgelegt" : "ausgerüstet"}.`);
+}
+
 function closeBetterInvItemActionMenu() {
   if (typeof betterInvActionMenuCleanup === "function") {
     betterInvActionMenuCleanup();
@@ -1040,7 +1069,9 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.id = "betterinv-item-action-menu";
   menu.className = "betterinv-item-actions-menu";
   menu.setAttribute("role", "menu");
+  const equipped = getItemEquippedData(item);
   menu.innerHTML = `
+    ${equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -1072,6 +1103,18 @@ function openBetterInvItemActionMenu(button, actor, item) {
     close();
   };
   betterInvActionMenuCleanup = close;
+
+  menu.querySelector(".betterinv-item-action-equipped")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    try {
+      await toggleBetterInvItemEquipped(item);
+    } catch (error) {
+      console.error("Better Inventory | Ausrüstungsstatus konnte nicht geändert werden", error);
+      ui.notifications.error("Der Ausrüstungsstatus konnte nicht geändert werden.");
+    }
+  });
 
   menu.querySelector(".betterinv-item-action-duplicate")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -1105,6 +1148,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
 function itemRowHtml(item, categoryOptions, containerId) {
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
+  const equipped = getItemEquippedData(item);
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
@@ -1113,12 +1157,12 @@ function itemRowHtml(item, categoryOptions, containerId) {
   ).join("");
 
   return `
-    <article class="betterinv-item" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
+    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
       <span class="betterinv-item-grip" title="Gedrückt halten und Item verschieben">☰</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
-        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}</small>
+        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
       </div>
       <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
         <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
