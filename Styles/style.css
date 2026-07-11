@@ -2424,7 +2424,7 @@
   }
 }
 
-/* Phase 4.2: add entered denominations without automatic conversion */
+/* Phase 4.2–4.3: exact add and exact payment/removal actions */
 .betterinv-currency-actions {
   min-width: 0;
   display: flex;
@@ -2438,7 +2438,16 @@
   justify-content: flex-start;
 }
 
-.betterinv-currency-add {
+.betterinv-currency-buttons {
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.betterinv-currency-action {
   flex: 0 0 auto;
   min-width: 104px;
   height: 28px;
@@ -2448,15 +2457,18 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid rgba(200,168,90,.48);
   border-radius: 3px;
-  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98));
-  color: #f0d994;
   font-size: 10px;
   font-weight: 900;
   letter-spacing: .035em;
   text-transform: uppercase;
   box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 1px 3px rgba(0,0,0,.48);
+}
+
+.betterinv-currency-add {
+  border: 1px solid rgba(200,168,90,.48);
+  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98));
+  color: #f0d994;
 }
 
 .betterinv-currency-add:hover:not(:disabled),
@@ -2466,32 +2478,58 @@
   color: #fff0bd;
 }
 
-.betterinv-currency-add:active:not(:disabled) {
+.betterinv-currency-remove {
+  min-width: 154px;
+  border: 1px solid rgba(174,91,78,.52);
+  background: linear-gradient(180deg, rgba(76,39,34,.98), rgba(39,22,20,.98));
+  color: #e8ada4;
+}
+
+.betterinv-currency-remove:hover:not(:disabled),
+.betterinv-currency-remove:focus-visible:not(:disabled) {
+  border-color: rgba(222,118,101,.88);
+  background: linear-gradient(180deg, rgba(103,50,42,.98), rgba(54,28,24,.98));
+  color: #ffd0c8;
+}
+
+.betterinv-currency-action:active:not(:disabled) {
   transform: translateY(1px);
 }
 
-.betterinv-currency-add:disabled {
+.betterinv-currency-action:disabled {
   cursor: not-allowed;
   opacity: .45;
 }
 
-.betterinv-currency-add-busy > i {
-  animation: betterinv-currency-add-spin .8s linear infinite;
+.betterinv-currency-action-busy > i {
+  animation: betterinv-currency-action-spin .8s linear infinite;
 }
 
-@keyframes betterinv-currency-add-spin {
+@keyframes betterinv-currency-action-spin {
   to { transform: rotate(360deg); }
 }
 
 @supports (container-type: inline-size) {
-  @container (max-width: 420px) {
+  @container (max-width: 560px) {
     .betterinv-currency-actions {
       align-items: stretch;
       flex-direction: column;
       gap: 5px;
     }
-    .betterinv-currency-add {
+    .betterinv-currency-buttons {
       width: 100%;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.45fr);
+    }
+    .betterinv-currency-action {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+
+  @container (max-width: 350px) {
+    .betterinv-currency-buttons {
+      grid-template-columns: 1fr;
     }
   }
 }

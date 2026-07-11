@@ -1215,15 +1215,26 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
             <i class="fas fa-pen" aria-hidden="true"></i>
             <span>Änderungsbetrag je Münzart</span>
           </div>
-          <button
-            type="button"
-            class="betterinv-currency-add"
-            title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
-            ${editable ? "" : "disabled"}
-          >
-            <i class="fas fa-plus" aria-hidden="true"></i>
-            <span>Hinzufügen</span>
-          </button>
+          <div class="betterinv-currency-buttons">
+            <button
+              type="button"
+              class="betterinv-currency-action betterinv-currency-add"
+              title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
+              ${editable ? "" : "disabled"}
+            >
+              <i class="fas fa-plus" aria-hidden="true"></i>
+              <span>Hinzufügen</span>
+            </button>
+            <button
+              type="button"
+              class="betterinv-currency-action betterinv-currency-remove"
+              title="Eingegebene Münzen exakt aus der jeweiligen Währung bezahlen oder entfernen"
+              ${editable ? "" : "disabled"}
+            >
+              <i class="fas fa-minus" aria-hidden="true"></i>
+              <span>Bezahlen / Entfernen</span>
+            </button>
+          </div>
         </div>
       </div>
     </section>`;
@@ -1307,6 +1318,60 @@ async function addBetterInvCurrency(actor) {
 
   const summary = additions.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
   ui.notifications.info(`Hinzugefügt: ${summary}`);
+  return true;
+}
+
+
+async function removeBetterInvCurrency(actor) {
+  if (!actor || actor.isOwner === false) {
+    ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
+    return false;
+  }
+
+  const removals = getBetterInvCurrencyAdditionDraft();
+  if (!removals.length) {
+    ui.notifications.warn("Gib mindestens bei einer Währung einen Betrag größer als 0 ein.");
+    return false;
+  }
+
+  const updateData = {};
+  const insufficient = [];
+  for (const removal of removals) {
+    const storage = getBetterInvCurrencyStorage(actor, removal);
+    if (!storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${removal.key} gefunden.`);
+    }
+    if (storage.current < removal.amount) {
+      insufficient.push({ ...removal, current: storage.current });
+      continue;
+    }
+    updateData[storage.updatePath] = storage.current - removal.amount;
+  }
+
+  // Phase 4.3 removes the entered denominations exactly. Automatic payment from
+  // the total wealth and breaking higher coins are deliberately added later.
+  if (insufficient.length) {
+    const details = insufficient.map(currency =>
+      `${currency.name}: ${formatBetterInvNumber(currency.current)} vorhanden, ${formatBetterInvNumber(currency.amount)} benötigt`
+    ).join(" · ");
+    ui.notifications.warn(`Nicht genug Münzen in der eingegebenen Währung. ${details}`);
+    return false;
+  }
+
+  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
+  betterInvState.currencyDraft = {};
+  betterInvState.currencyDraftActorId = actor.id;
+  try {
+    // Keep the payment atomic: either every entered denomination is removed in
+    // one Actor update or the complete draft is restored when Foundry rejects it.
+    await actor.update(updateData);
+  } catch (error) {
+    betterInvState.currencyDraft = previousDraft;
+    throw error;
+  }
+
+  const summary = removals.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
+  ui.notifications.info(`Bezahlt / entfernt: ${summary}`);
   return true;
 }
 
@@ -2249,23 +2314,39 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
+  const runCurrencyAction = async (button, action, { logMessage, errorMessage } = {}) => {
+    if (!button || button.disabled) return;
+    const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
+    actionButtons.forEach(actionButton => { actionButton.disabled = true; });
+    button.classList.add("betterinv-currency-action-busy");
+    try {
+      const changed = await action(actor);
+      if (changed) renderBetterInvWindow();
+    } catch (error) {
+      console.error(logMessage, error);
+      ui.notifications.error(errorMessage);
+    } finally {
+      actionButtons.forEach(actionButton => { actionButton.disabled = actor?.isOwner === false; });
+      button.classList.remove("betterinv-currency-action-busy");
+    }
+  };
+
   windowEl.querySelector(".betterinv-currency-add")?.addEventListener("click", async event => {
     event.preventDefault();
     event.stopPropagation();
-    const button = event.currentTarget;
-    if (button.disabled) return;
-    button.disabled = true;
-    button.classList.add("betterinv-currency-add-busy");
-    try {
-      const changed = await addBetterInvCurrency(actor);
-      if (changed) renderBetterInvWindow();
-    } catch (error) {
-      console.error("Better Inventory | Währung konnte nicht hinzugefügt werden", error);
-      ui.notifications.error("Die Münzen konnten nicht hinzugefügt werden.");
-    } finally {
-      button.disabled = false;
-      button.classList.remove("betterinv-currency-add-busy");
-    }
+    await runCurrencyAction(event.currentTarget, addBetterInvCurrency, {
+      logMessage: "Better Inventory | Währung konnte nicht hinzugefügt werden",
+      errorMessage: "Die Münzen konnten nicht hinzugefügt werden."
+    });
+  });
+
+  windowEl.querySelector(".betterinv-currency-remove")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runCurrencyAction(event.currentTarget, removeBetterInvCurrency, {
+      logMessage: "Better Inventory | Währung konnte nicht entfernt werden",
+      errorMessage: "Die Münzen konnten nicht bezahlt oder entfernt werden."
+    });
   });
 
   windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
