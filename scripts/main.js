@@ -666,7 +666,12 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 
   const sectionHtmlParts = [];
   for (const section of sections) {
-    const directItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === section.id);
+    const contextContainerId = activeContainer?.id ?? null;
+    const directItems = visibleItems.filter(item => itemCategory(item, contextContainerId) === section.id);
+    const categoryItems = visibleItems.filter(item => {
+      const category = itemCategory(item, contextContainerId);
+      return category === section.id || (section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
+    });
     const rows = directItems.length
       ? directItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, section.id)).join("")
       : `<p class="betterinv-empty">Leer</p>`;
@@ -686,6 +691,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
               <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
               <span class="betterinv-sub-indent">↳</span>
               <span class="betterinv-category-name">${escapeHtml(sub)}</span>
+              ${betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht")}
               <span class="betterinv-category-count">${subItems.length}</span>
               <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
             </summary>
@@ -699,6 +705,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <summary>
           <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
           <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
+          ${betterInvCategoryWeightHtml(categoryItems)}
           <span class="betterinv-category-count">${directItems.length}</span>
           ${section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
           <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
@@ -714,6 +721,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       <div class="betterinv-unknown-header">
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
+        ${betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items")}
         <span class="betterinv-category-count">${unknownItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
@@ -743,7 +751,6 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
           ${activeContainer ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>` : ""}
         </span>
       </div>
-      ${actorEncumbranceHtml}
       ${topContainerHtml}
       <div class="betterinv-toolbar">
         <input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">
@@ -751,6 +758,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <button type="button" class="betterinv-add-category">+ Kategorie</button>
       </div>
       ${searchContainersHtml}
+      ${actorEncumbranceHtml}
       ${favoritesHtml}
       ${unknownHtml}
       ${sectionHtml}
@@ -937,6 +945,21 @@ function getBetterInvItemWeight(item) {
     foundry.utils.getProperty(item, "system.weight.value")
   ) ?? 0;
   return Math.max(0, unitWeight) * getItemQuantityData(item).value;
+}
+
+function getBetterInvItemsWeight(items) {
+  return Array.from(items ?? []).reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+}
+
+function betterInvCategoryWeightHtml(items, label = "Kategoriegewicht") {
+  const weight = getBetterInvItemsWeight(items);
+  const unit = getBetterInvWeightUnit();
+  const amount = `${formatBetterInvNumber(weight)} ${unit}`;
+  return `
+    <span class="betterinv-category-weight" title="${escapeAttr(`${label}: ${amount}`)}">
+      <i class="fas fa-weight-hanging" aria-hidden="true"></i>
+      <span>${escapeHtml(amount)}</span>
+    </span>`;
 }
 
 function getBetterInvContainerCapacity(actor, container) {
