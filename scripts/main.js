@@ -670,6 +670,18 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       </details>`);
   }
   const sectionHtml = sectionHtmlParts.join("");
+  const favoriteItems = visibleItems.filter(item => isBetterInvFavorite(item));
+  const favoritesHtml = favoriteItems.length ? `
+    <section class="betterinv-favorites">
+      <div class="betterinv-favorites-header">
+        <span class="betterinv-favorites-icon" aria-hidden="true">★</span>
+        <span class="betterinv-category-name">Favoriten</span>
+        <span class="betterinv-category-count">${favoriteItems.length}</span>
+      </div>
+      <div class="betterinv-items betterinv-favorite-items">
+        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, { favoriteView: true })).join("")}
+      </div>
+    </section>` : "";
 
   windowEl.innerHTML = baseShellHtml(`
     <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
@@ -688,6 +700,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <button type="button" class="betterinv-add-category">+ Kategorie</button>
       </div>
       ${searchContainersHtml}
+      ${favoritesHtml}
       ${sectionHtml}
     </div>
   `);
@@ -941,6 +954,17 @@ async function toggleBetterInvItemEquipped(item) {
   ui.notifications.info(`${item.name} wurde ${equipped.value ? "abgelegt" : "ausgerüstet"}.`);
 }
 
+function isBetterInvFavorite(item) {
+  return item?.getFlag?.(MODULE_ID, "favorite") === true;
+}
+
+async function toggleBetterInvFavorite(item) {
+  if (!item) return;
+  const next = !isBetterInvFavorite(item);
+  await item.setFlag(MODULE_ID, "favorite", next);
+  ui.notifications.info(`${item.name} wurde ${next ? "zu den Favoriten hinzugefügt" : "aus den Favoriten entfernt"}.`);
+}
+
 function closeBetterInvItemActionMenu() {
   if (typeof betterInvActionMenuCleanup === "function") {
     betterInvActionMenuCleanup();
@@ -1078,8 +1102,10 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.className = "betterinv-item-actions-menu";
   menu.setAttribute("role", "menu");
   const equipped = getItemEquippedData(item);
+  const favorite = isBetterInvFavorite(item);
   menu.innerHTML = `
     ${equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
+    <button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -1125,6 +1151,18 @@ function openBetterInvItemActionMenu(button, actor, item) {
     }
   });
 
+  menu.querySelector(".betterinv-item-action-favorite")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    try {
+      await toggleBetterInvFavorite(item);
+    } catch (error) {
+      console.error("Better Inventory | Favoritenstatus konnte nicht geändert werden", error);
+      ui.notifications.error("Der Favoritenstatus konnte nicht geändert werden.");
+    }
+  });
+
   menu.querySelector(".betterinv-item-action-duplicate")?.addEventListener("click", async event => {
     event.preventDefault();
     event.stopPropagation();
@@ -1154,7 +1192,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
   window.addEventListener("scroll", close, { once: true, capture: true });
 }
 
-function itemRowHtml(item, categoryOptions, containerId) {
+function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false } = {}) {
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
   const equipped = getItemEquippedData(item);
@@ -1166,8 +1204,8 @@ function itemRowHtml(item, categoryOptions, containerId) {
   ).join("");
 
   return `
-    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
-      <span class="betterinv-item-grip" title="Gedrückt halten und Item verschieben">☰</span>
+    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
+      <span class="betterinv-item-grip" title="${favoriteView ? "Favorit – das Original bleibt in seiner Kategorie" : "Gedrückt halten und Item verschieben"}">${favoriteView ? "★" : "☰"}</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
@@ -1810,7 +1848,7 @@ function getCategoryAfterElement(windowEl, y) {
 }
 
 function enableItemDragSorting(windowEl, actor, containerId = null) {
-  const rows = Array.from(windowEl.querySelectorAll(".betterinv-item"));
+  const rows = Array.from(windowEl.querySelectorAll(".betterinv-item:not(.betterinv-favorite-view)"));
   rows.forEach(row => {
     row.addEventListener("dragstart", event => {
       if (event.target.closest("select, input, textarea, a, button, .betterinv-edit-item, .betterinv-open-item, .betterinv-quantity-controls")) {
@@ -1840,7 +1878,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
 
       // Save one global visual order for the current actor/container context.
       // Filtering by category later keeps each category's local order stable.
-      const order = Array.from(windowEl.querySelectorAll(".betterinv-item")).map(el => el.dataset.itemId).filter(Boolean);
+      const order = Array.from(windowEl.querySelectorAll(".betterinv-item:not(.betterinv-favorite-view)")).map(el => el.dataset.itemId).filter(Boolean);
       await setItemOrder(actor, order, containerId);
       renderBetterInvWindow();
     });
@@ -1853,7 +1891,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
     else list.insertBefore(indicator, afterElement);
   };
 
-  windowEl.querySelectorAll(".betterinv-items").forEach(list => {
+  windowEl.querySelectorAll(".betterinv-items:not(.betterinv-favorite-items)").forEach(list => {
     list.addEventListener("dragover", event => {
       const dragging = windowEl.querySelector(".betterinv-item-dragging");
       if (!dragging) return;
@@ -1891,7 +1929,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
 }
 
 function getItemAfterElement(list, y) {
-  const draggableElements = [...list.querySelectorAll(".betterinv-item:not(.betterinv-item-dragging)")];
+  const draggableElements = [...list.querySelectorAll(".betterinv-item:not(.betterinv-item-dragging):not(.betterinv-favorite-view)")];
   return draggableElements.reduce((closest, child) => {
     const box = child.getBoundingClientRect();
     const offset = y - box.top - box.height / 2;

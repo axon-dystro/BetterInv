@@ -1501,3 +1501,49 @@
   background: #3a3423;
   color: #fff4c9;
 }
+
+/* Phase 2.2: favorites as a quick-access mirror above the normal categories */
+.betterinv-favorites {
+  margin: 8px 0 12px;
+  overflow: hidden;
+  border: 1px solid rgba(200,168,90,.5);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(70,57,26,.28), #111115 38%);
+  box-shadow: 3px 0 0 rgba(200,168,90,.68) inset;
+}
+.betterinv-favorites-header {
+  min-height: 38px;
+  padding: 0 8px;
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  color: #fff1c5;
+  background: linear-gradient(180deg, #30291b, #1d1a14);
+  border-bottom: 1px solid rgba(200,168,90,.35);
+}
+.betterinv-favorites-icon {
+  color: #e4bf58;
+  font-size: 15px;
+  text-align: center;
+  text-shadow: 0 0 8px rgba(228,191,88,.38);
+}
+.betterinv-favorite-items {
+  padding-bottom: 1px;
+}
+.betterinv-item.betterinv-favorite-view {
+  border-color: rgba(200,168,90,.34);
+}
+.betterinv-item.betterinv-favorite-view .betterinv-item-grip {
+  color: #e4bf58;
+  cursor: default;
+  text-shadow: 0 0 7px rgba(228,191,88,.36);
+}
+.betterinv-item-actions-menu .betterinv-item-action-favorite {
+  color: #ead58d;
+}
+.betterinv-item-actions-menu .betterinv-item-action-favorite:hover,
+.betterinv-item-actions-menu .betterinv-item-action-favorite:focus-visible {
+  background: #3a3423;
+  color: #fff4c9;
+}
