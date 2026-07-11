@@ -1105,6 +1105,15 @@ const BETTER_INV_CURRENCY_DOWN_TARGETS = {
   sp: "cp"
 };
 
+// Upward exchange mirrors the practical downward ladder. Silver goes directly
+// to gold, while electrum can still be exchanged independently at 2 EP -> 1 GP.
+const BETTER_INV_CURRENCY_UP_TARGETS = {
+  gp: "pp",
+  ep: "gp",
+  sp: "gp",
+  cp: "sp"
+};
+
 const BETTER_INV_CURRENCY_SOURCE_PATHS = [
   "system.currency",
   "system.currencies",
@@ -1252,6 +1261,15 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
             >
               <i class="fas fa-arrow-down" aria-hidden="true"></i>
               <span>Nach unten wechseln</span>
+            </button>
+            <button
+              type="button"
+              class="betterinv-currency-action betterinv-currency-exchange-up"
+              title="Eingegebene Münzen in die nächsthöhere praktische Währung wechseln, zum Beispiel 10 SP in 1 GP"
+              ${editable ? "" : "disabled"}
+            >
+              <i class="fas fa-arrow-up" aria-hidden="true"></i>
+              <span>Nach oben wechseln</span>
             </button>
           </div>
         </div>
@@ -1593,6 +1611,161 @@ async function exchangeBetterInvCurrencyDown(actor) {
   try {
     // Source and target denominations are always stored together in one Actor
     // update so a failed update cannot leave only half of an exchange behind.
+    await actor.update(updateData);
+  } catch (error) {
+    betterInvState.currencyDraft = previousDraft;
+    throw error;
+  }
+
+  const summary = result.conversions.map(conversion =>
+    `${formatBetterInvNumber(conversion.amount)} ${conversion.source.abbreviation} → ` +
+    `${formatBetterInvNumber(conversion.receivedAmount)} ${conversion.target.abbreviation}`
+  ).join(" · ");
+  ui.notifications.info(`Gewechselt: ${summary}`);
+  return true;
+}
+
+function calculateBetterInvCurrencyUpExchange(wallet, exchanges) {
+  const balances = new Map();
+  for (const currency of Array.from(wallet ?? [])) {
+    const value = Math.max(0, Math.trunc(Number(currency?.value) || 0));
+    if (!Number.isSafeInteger(value)) {
+      throw new Error(`Der Münzbestand für ${currency?.key ?? "eine Währung"} ist zu groß.`);
+    }
+    balances.set(currency.key, { ...currency, value });
+  }
+
+  // Every requested source is validated against the original purse. Coins made
+  // by one conversion are not silently consumed by another conversion during
+  // the same click, which keeps multi-denomination exchanges predictable.
+  const conversions = [];
+  for (const exchange of Array.from(exchanges ?? [])) {
+    const amount = Math.max(0, Math.trunc(Number(exchange?.amount) || 0));
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      throw new Error("Der Wechselbetrag ist ungültig.");
+    }
+
+    const source = BETTER_INV_CURRENCIES.find(currency => currency.key === exchange.key);
+    const targetKey = source ? BETTER_INV_CURRENCY_UP_TARGETS[source.key] : null;
+    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === targetKey);
+    if (!source || !target) {
+      throw new Error(`${source?.name ?? "Diese Währung"} kann nicht weiter nach oben gewechselt werden.`);
+    }
+
+    const sourceBalance = balances.get(source.key);
+    const targetBalance = balances.get(target.key);
+    if (!sourceBalance || !targetBalance) {
+      throw new Error("Der Münzbestand konnte nicht vollständig gelesen werden.");
+    }
+    if (sourceBalance.value < amount) {
+      throw new Error(
+        `Nicht genug ${source.name}. Benötigt: ${formatBetterInvNumber(amount)} ${source.abbreviation} · ` +
+        `Vorhanden: ${formatBetterInvNumber(sourceBalance.value)} ${source.abbreviation}`
+      );
+    }
+
+    const rate = target.copperValue / source.copperValue;
+    if (!Number.isSafeInteger(rate) || rate <= 1) {
+      throw new Error(`Für ${source.name} wurde kein gültiger Wechselkurs gefunden.`);
+    }
+    if (amount % rate !== 0) {
+      throw new Error(
+        `${source.name} kann nur in Gruppen von ${formatBetterInvNumber(rate)} ${source.abbreviation} ` +
+        `nach oben gewechselt werden.`
+      );
+    }
+
+    const receivedAmount = amount / rate;
+    if (!Number.isSafeInteger(receivedAmount) || receivedAmount <= 0) {
+      throw new Error(`Der Wechselbetrag für ${target.name} ist ungültig.`);
+    }
+    conversions.push({ source, target, amount, receivedAmount, rate });
+  }
+
+  for (const conversion of conversions) {
+    const sourceBalance = balances.get(conversion.source.key);
+    const targetBalance = balances.get(conversion.target.key);
+    sourceBalance.value -= conversion.amount;
+    const nextTarget = targetBalance.value + conversion.receivedAmount;
+    if (!Number.isSafeInteger(nextTarget)) {
+      throw new Error(`Der neue Betrag für ${conversion.target.name} ist zu groß.`);
+    }
+    targetBalance.value = nextTarget;
+  }
+
+  const initialCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  const finalCopper = getBetterInvCurrencyTotalInCopper([...balances.values()], "value");
+  if (finalCopper !== initialCopper) {
+    throw new Error("Der Münzwechsel war nicht wertgleich und wurde abgebrochen.");
+  }
+
+  return { balances, conversions };
+}
+
+async function exchangeBetterInvCurrencyUp(actor) {
+  if (!actor || actor.isOwner === false) {
+    ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
+    return false;
+  }
+
+  const exchanges = getBetterInvCurrencyAdditionDraft();
+  if (!exchanges.length) {
+    ui.notifications.warn("Gib bei der Münzart, die du wechseln möchtest, einen Betrag größer als 0 ein.");
+    return false;
+  }
+
+  const unsupported = exchanges.find(exchange => !BETTER_INV_CURRENCY_UP_TARGETS[exchange.key]);
+  if (unsupported) {
+    ui.notifications.warn(`${unsupported.name} kann nicht weiter nach oben gewechselt werden.`);
+    return false;
+  }
+
+  const wallet = BETTER_INV_CURRENCIES.map(currency => {
+    const storage = getBetterInvCurrencyStorage(actor, currency);
+    if (!storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
+    }
+    return { ...currency, storage, value: storage.current };
+  });
+
+  for (const exchange of exchanges) {
+    const source = BETTER_INV_CURRENCIES.find(currency => currency.key === exchange.key);
+    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === BETTER_INV_CURRENCY_UP_TARGETS[exchange.key]);
+    const current = wallet.find(currency => currency.key === exchange.key)?.value ?? 0;
+    if (!Number.isSafeInteger(current) || current < exchange.amount) {
+      ui.notifications.warn(
+        `Nicht genug ${exchange.name}. Benötigt: ${formatBetterInvNumber(exchange.amount)} ${exchange.abbreviation} · ` +
+        `Vorhanden: ${formatBetterInvNumber(Math.max(0, Number(current) || 0))} ${exchange.abbreviation}`
+      );
+      return false;
+    }
+
+    const rate = target?.copperValue / source?.copperValue;
+    if (!Number.isSafeInteger(rate) || rate <= 1 || exchange.amount % rate !== 0) {
+      ui.notifications.warn(
+        `${exchange.name} kann nur in Gruppen von ${formatBetterInvNumber(rate || 0)} ${exchange.abbreviation} ` +
+        `nach ${target?.name ?? "oben"} gewechselt werden.`
+      );
+      return false;
+    }
+  }
+
+  const result = calculateBetterInvCurrencyUpExchange(wallet, exchanges);
+  const updateData = {};
+  for (const currency of wallet) {
+    const next = result.balances.get(currency.key)?.value;
+    if (!Number.isSafeInteger(next) || next < 0) {
+      throw new Error(`Der neue Betrag für ${currency.key} ist ungültig.`);
+    }
+    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
+  }
+
+  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
+  betterInvState.currencyDraft = {};
+  betterInvState.currencyDraftActorId = actor.id;
+  try {
+    // Source and target denominations are committed together so an update can
+    // never leave only half of an exchange in the actor data.
     await actor.update(updateData);
   } catch (error) {
     betterInvState.currencyDraft = previousDraft;
@@ -2657,6 +2830,15 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyDown, {
       logMessage: "Better Inventory | Münzen konnten nicht nach unten gewechselt werden",
       errorMessage: "Die Münzen konnten nicht nach unten gewechselt werden."
+    });
+  });
+
+  windowEl.querySelector(".betterinv-currency-exchange-up")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyUp, {
+      logMessage: "Better Inventory | Münzen konnten nicht nach oben gewechselt werden",
+      errorMessage: "Die Münzen konnten nicht nach oben gewechselt werden."
     });
   });
 
