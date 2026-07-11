@@ -1547,3 +1547,58 @@
   background: #3a3423;
   color: #fff4c9;
 }
+
+/* Phase 2.3: virtual category for unidentified items */
+.betterinv-system-category.betterinv-unknown-category {
+  margin: 8px 0;
+  border: 1px solid rgba(155, 160, 172, .42);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(95, 100, 112, .10), rgba(16, 16, 20, .92));
+  overflow: hidden;
+}
+
+.betterinv-unknown-header {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(155, 160, 172, .26);
+  color: #c5c8d0;
+  font-weight: 700;
+}
+
+.betterinv-unknown-icon {
+  width: 18px;
+  text-align: center;
+  color: #aeb2bd;
+}
+
+.betterinv-unknown-header .betterinv-category-count {
+  margin-left: auto;
+}
+
+.betterinv-item.betterinv-item-unidentified {
+  border-color: rgba(145, 150, 162, .32);
+  background: linear-gradient(90deg, rgba(105, 110, 122, .10), rgba(24, 24, 29, .96));
+}
+
+.betterinv-item.betterinv-item-unidentified:hover {
+  border-color: rgba(180, 184, 194, .62);
+  background: linear-gradient(90deg, rgba(125, 130, 142, .16), rgba(30, 30, 36, .98));
+}
+
+.betterinv-item.betterinv-item-unidentified > img {
+  filter: grayscale(.55) saturate(.55);
+  opacity: .78;
+}
+
+.betterinv-item.betterinv-item-unidentified .betterinv-open-item,
+.betterinv-item.betterinv-item-unidentified .betterinv-item-main small {
+  color: #b6b9c2;
+}
+
+.betterinv-unidentified-label {
+  color: #b8bcc7;
+  font-style: italic;
+}

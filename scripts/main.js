@@ -293,13 +293,14 @@ function parseCategoryId(id) {
   return { parent, sub: rest.join("::") || null };
 }
 function displayCategoryName(id) {
+  if (id === "__unknown") return "Unbekannt";
   if (id === "__unsorted") return "Unsortiert";
   const parsed = parseCategoryId(id);
   return parsed.sub ? parsed.sub : parsed.parent;
 }
 
 async function getCategoryOptions(actor, categories, containerId = null) {
-  const options = ["__unsorted"];
+  const options = ["__unknown", "__unsorted"];
   for (const category of categories) {
     options.push(category);
     const subs = await getSubcategories(actor, category, containerId);
@@ -309,6 +310,7 @@ async function getCategoryOptions(actor, categories, containerId = null) {
 }
 
 function categoryOptionLabel(id) {
+  if (id === "__unknown") return "Unbekannt";
   if (id === "__unsorted") return "Unsortiert";
   const parsed = parseCategoryId(id);
   return parsed.sub ? `${parsed.parent} / ${parsed.sub}` : parsed.parent;
@@ -420,17 +422,52 @@ async function deleteCategory(actor, categoryName, containerId = null) {
   }
 }
 
+function getItemIdentificationData(item) {
+  if (!item) return { supported: false, identified: true };
+
+  const direct = foundry.utils.getProperty(item, "system.identified");
+  if (typeof direct === "boolean") return { supported: true, identified: direct };
+  if (direct && typeof direct === "object" && typeof direct.value === "boolean") {
+    return { supported: true, identified: direct.value };
+  }
+
+  const nested = foundry.utils.getProperty(item, "system.identification.identified");
+  if (typeof nested === "boolean") return { supported: true, identified: nested };
+
+  const status = String(foundry.utils.getProperty(item, "system.identification.status") ?? "").trim().toLowerCase();
+  if (status) {
+    if (["identified", "known", "revealed"].includes(status)) return { supported: true, identified: true };
+    if (["unidentified", "unknown", "hidden"].includes(status)) return { supported: true, identified: false };
+  }
+
+  return { supported: false, identified: true };
+}
+
+function isBetterInvUnidentified(item) {
+  const identification = getItemIdentificationData(item);
+  return identification.supported && !identification.identified;
+}
+
 function itemCategory(item, containerId = null) {
   const all = item.getFlag(MODULE_ID, "categoryByContext") ?? {};
-  return all[getContextKey(containerId)] || "__unsorted";
+  const ctx = getContextKey(containerId);
+  const explicit = all[ctx];
+  if (explicit) return explicit;
+  return isBetterInvUnidentified(item) ? "__unknown" : "__unsorted";
 }
 
 async function setItemCategory(item, category, containerId = null) {
   if (!item) return;
   const all = foundry.utils.deepClone(item.getFlag(MODULE_ID, "categoryByContext") ?? {});
   const ctx = getContextKey(containerId);
-  if (!category || category === "__unsorted") delete all[ctx];
+
+  // Unidentified items default to the virtual "Unbekannt" category. When a
+  // user explicitly moves one to "Unsortiert", preserve that choice instead
+  // of deleting the flag and immediately sending it back to "Unbekannt".
+  if (!category) delete all[ctx];
+  else if (category === "__unsorted" && !isBetterInvUnidentified(item)) delete all[ctx];
   else all[ctx] = category;
+
   await item.setFlag(MODULE_ID, "categoryByContext", all);
 }
 
@@ -670,6 +707,18 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       </details>`);
   }
   const sectionHtml = sectionHtmlParts.join("");
+  const unknownItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === "__unknown");
+  const unknownHtml = unknownItems.length ? `
+    <section class="betterinv-system-category betterinv-unknown-category" data-category="__unknown">
+      <div class="betterinv-unknown-header">
+        <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
+        <span class="betterinv-category-name">Unbekannt</span>
+        <span class="betterinv-category-count">${unknownItems.length}</span>
+      </div>
+      <div class="betterinv-items betterinv-unknown-items">
+        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null)).join("")}
+      </div>
+    </section>` : "";
   const favoriteItems = visibleItems.filter(item => isBetterInvFavorite(item));
   const favoritesHtml = favoriteItems.length ? `
     <section class="betterinv-favorites">
@@ -701,6 +750,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       </div>
       ${searchContainersHtml}
       ${favoritesHtml}
+      ${unknownHtml}
       ${sectionHtml}
     </div>
   `);
@@ -1196,6 +1246,7 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
   const equipped = getItemEquippedData(item);
+  const unidentified = isBetterInvUnidentified(item);
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
@@ -1204,12 +1255,12 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
   ).join("");
 
   return `
-    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
+    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
       <span class="betterinv-item-grip" title="${favoriteView ? "Favorit – das Original bleibt in seiner Kategorie" : "Gedrückt halten und Item verschieben"}">${favoriteView ? "★" : "☰"}</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
-        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
+        <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
       </div>
       <div class="betterinv-quantity-controls" aria-label="Anzahl ändern">
         <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern">−</button>
@@ -1865,7 +1916,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
       event.stopPropagation();
       const indicator = windowEl.querySelector(".betterinv-drop-indicator");
       const targetList = indicator?.closest(".betterinv-items");
-      const targetCategory = targetList?.closest(".betterinv-subcategory, .betterinv-category")?.dataset.category;
+      const targetCategory = targetList?.closest(".betterinv-subcategory, .betterinv-category, .betterinv-system-category")?.dataset.category;
       if (indicator?.parentNode) indicator.parentNode.insertBefore(row, indicator);
       clearDropIndicator(windowEl);
       row.classList.remove("betterinv-item-dragging");
@@ -1909,7 +1960,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
   // Allow dropping an item on a category header/body too. This is important when
   // a category is empty or collapsed: the item still gets a clear white target
   // line inside that category.
-  windowEl.querySelectorAll(".betterinv-category, .betterinv-subcategory").forEach(categoryEl => {
+  windowEl.querySelectorAll(".betterinv-category, .betterinv-subcategory, .betterinv-system-category").forEach(categoryEl => {
     categoryEl.addEventListener("dragover", event => {
       const dragging = windowEl.querySelector(".betterinv-item-dragging");
       if (!dragging) return;
