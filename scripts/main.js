@@ -900,7 +900,7 @@ function itemRowHtml(item, categoryOptions, containerId) {
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
         <small>${escapeHtml(item.type)} · Anzahl: ${escapeHtml(String(qty))} · Gewicht: ${escapeHtml(String(weight))}</small>
       </div>
-      <button type="button" class="betterinv-chat-item" title="Item im Chat anzeigen">💬</button>
+      <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
       <select class="betterinv-category-select" title="Kategorie wählen">${options}</select>
     </article>`;
 }
@@ -1139,11 +1139,13 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
-  windowEl.querySelectorAll(".betterinv-chat-item").forEach(button => {
-    button.addEventListener("click", async event => {
+  windowEl.querySelectorAll(".betterinv-edit-item").forEach(button => {
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
       const row = event.currentTarget.closest(".betterinv-item");
       const item = actor?.items?.get(row?.dataset?.itemId);
-      await sendItemToChat(item);
+      openItemSheet(item);
     });
   });
 }
@@ -1435,7 +1437,7 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
   const rows = Array.from(windowEl.querySelectorAll(".betterinv-item"));
   rows.forEach(row => {
     row.addEventListener("dragstart", event => {
-      if (event.target.closest("select, input, textarea, a, .betterinv-chat-item, .betterinv-open-item")) {
+      if (event.target.closest("select, input, textarea, a, .betterinv-edit-item, .betterinv-open-item")) {
         event.preventDefault();
         return;
       }
@@ -1552,25 +1554,10 @@ async function useOrOpenItem(item, event) {
   elevateRecentFoundryApps();
 }
 
-async function sendItemToChat(item) {
+function openItemSheet(item) {
   if (!item) return;
-  try {
-    if (typeof item.toMessage === "function") { await item.toMessage(); return; }
-  } catch (err) { console.warn("Better Inventory | item.toMessage failed", err); }
-  try {
-    if (typeof item.displayCard === "function") { await item.displayCard(); return; }
-  } catch (err) { console.warn("Better Inventory | item.displayCard failed", err); }
-
-  const description = foundry.utils.getProperty(item, "system.description.value") ?? foundry.utils.getProperty(item, "system.description") ?? "";
-  const content = `
-    <div class="dnd5e chat-card item-card" data-actor-id="${escapeAttr(item.actor?.id ?? "")}" data-item-id="${escapeAttr(item.id)}">
-      <header class="card-header flexrow"><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" width="36" height="36"><h3>${escapeHtml(item.name)}</h3></header>
-      <div class="card-content">${description}</div>
-    </div>`;
-  await ChatMessage.create({
-    speaker: ChatMessage.getSpeaker({ actor: item.actor }),
-    content
-  });
+  item.sheet?.render(true);
+  elevateRecentFoundryApps();
 }
 
 function makeBetterInvDraggable(windowEl) {
@@ -1607,7 +1594,7 @@ function openBetterInvPopup(windowEl) {
   popup.document.write(`<!doctype html><html><head><title>Better Inventory</title><link rel="stylesheet" href="/modules/betterinv/styles/style.css"><style>
     body{margin:0;min-height:100vh;background:#06080b;color:#eef3f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:auto;padding:18px}
     .betterinv-popup-shell{max-width:820px;margin:0 auto}.betterinv-popup-title{margin:0 0 12px;font-size:22px;font-weight:900;letter-spacing:.02em}.betterinv-note{color:rgba(238,243,247,.62);margin-bottom:14px}
-    .betterinv-toolbar,.betterinv-category-select,.betterinv-chat-item{display:none!important}.betterinv-item{grid-template-columns:46px minmax(0,1fr)!important}
+    .betterinv-toolbar,.betterinv-category-select,.betterinv-edit-item{display:none!important}.betterinv-item{grid-template-columns:46px minmax(0,1fr)!important}
   </style></head><body><div class="betterinv-popup-shell"><h1 class="betterinv-popup-title">🎒 Better Inventory</h1><div class="betterinv-note">Popup-Ansicht. Änderungen machst du aktuell im Foundry-Fenster.</div>${bodyHtml}</div></body></html>`);
   popup.document.close();
 }

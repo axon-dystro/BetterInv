@@ -423,7 +423,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.betterinv-chat-item {
+.betterinv-edit-item {
   width: 32px;
   height: 32px;
   border: 1px solid rgba(158,139,83,.32);
@@ -431,8 +431,15 @@
   background: #111115;
   color: #d8c795;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
-.betterinv-chat-item:hover { border-color: var(--bi-gold); color:#fff; background:#25252b; }
+.betterinv-edit-item i {
+  pointer-events: none;
+  font-size: 13px;
+}
+.betterinv-edit-item:hover { border-color: var(--bi-gold); color:#fff; background:#25252b; }
 .betterinv-category-select {
   min-width: 140px;
   height: 34px;
