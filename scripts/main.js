@@ -9,7 +9,9 @@ let betterInvState = {
   actorId: null,
   containerId: null,
   search: "",
-  scale: 1
+  scale: 1,
+  currencyDraftActorId: null,
+  currencyDraft: {}
 };
 
 Hooks.once("init", () => {
@@ -72,7 +74,7 @@ function installBetterInvInputGuard() {
   if (document.body?.dataset) document.body.dataset.betterInvInputGuard = "1";
   const guard = event => {
     const target = event.target;
-    if (!target?.closest?.("#betterinv-window .betterinv-search, .betterinv-dialog-top input, .betterinv-dialog-top textarea")) return;
+    if (!target?.closest?.("#betterinv-window .betterinv-search, #betterinv-window .betterinv-currency-input, .betterinv-dialog-top input, .betterinv-dialog-top textarea")) return;
     // Foundry registers global single-key hotkeys. While focus is in our fields,
     // keep the keystroke inside the input without cancelling normal typing.
     event.stopImmediatePropagation();
@@ -683,7 +685,11 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 
   const topContainerHtml = !activeContainer ? await renderContainerCards(actor, containers) : renderContainerBreadcrumb(actor, activeContainer);
   const actorEncumbranceHtml = !activeContainer ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor)) : "";
-  const actorCurrencyHtml = betterInvActorCurrencyHtml(getBetterInvActorCurrency(actor));
+  const actorCurrencyHtml = betterInvActorCurrencyHtml(
+    getBetterInvActorCurrency(actor),
+    getBetterInvCurrencyDraft(actor),
+    { editable: actor.isOwner !== false }
+  );
   const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
   const order = await getCategoryOrder(actor, activeContainer?.id ?? null, categories);
   const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
@@ -1136,7 +1142,29 @@ function getBetterInvActorCurrency(actor) {
   }));
 }
 
-function betterInvActorCurrencyHtml(currencies) {
+function normalizeBetterInvCurrencyDraftValue(value, { allowBlank = true } = {}) {
+  const clean = String(value ?? "").replace(/\D+/g, "").slice(0, 12);
+  if (!clean) return allowBlank ? "" : "0";
+  const normalized = clean.replace(/^0+(?=\d)/, "");
+  return normalized || "0";
+}
+
+function getBetterInvCurrencyDraft(actor) {
+  const actorId = actor?.id ?? null;
+  if (betterInvState.currencyDraftActorId !== actorId) {
+    betterInvState.currencyDraftActorId = actorId;
+    betterInvState.currencyDraft = {};
+  }
+  const draft = betterInvState.currencyDraft && typeof betterInvState.currencyDraft === "object"
+    ? betterInvState.currencyDraft
+    : {};
+  return Object.fromEntries(BETTER_INV_CURRENCIES.map(currency => [
+    currency.key,
+    normalizeBetterInvCurrencyDraftValue(draft[currency.key], { allowBlank: true })
+  ]));
+}
+
+function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } = {}) {
   if (!Array.isArray(currencies) || !currencies.length) return "";
   const totalCoins = currencies.reduce((sum, currency) => sum + (Number(currency.value) || 0), 0);
   return `
@@ -1145,13 +1173,33 @@ function betterInvActorCurrencyHtml(currencies) {
         <i class="fas fa-coins" aria-hidden="true"></i>
         <span>Währungen</span>
       </div>
-      <div class="betterinv-currency-list">
-        ${currencies.map(currency => `
-          <div class="betterinv-currency-entry betterinv-currency-${escapeAttr(currency.key)}" title="${escapeAttr(`${currency.name}: ${formatBetterInvNumber(currency.value)} ${currency.abbreviation}`)}">
-            <span class="betterinv-currency-name">${escapeHtml(currency.name)}</span>
-            <strong>${escapeHtml(formatBetterInvNumber(currency.value))}</strong>
-            <small>${escapeHtml(currency.abbreviation)}</small>
-          </div>`).join("")}
+      <div class="betterinv-currency-main">
+        <div class="betterinv-currency-list">
+          ${currencies.map(currency => `
+            <div class="betterinv-currency-entry betterinv-currency-${escapeAttr(currency.key)}" title="${escapeAttr(`${currency.name}: ${formatBetterInvNumber(currency.value)} ${currency.abbreviation}`)}">
+              <span class="betterinv-currency-name">${escapeHtml(currency.name)}</span>
+              <strong>${escapeHtml(formatBetterInvNumber(currency.value))}</strong>
+              <small>${escapeHtml(currency.abbreviation)}</small>
+              <input
+                type="text"
+                class="betterinv-currency-input"
+                data-currency-key="${escapeAttr(currency.key)}"
+                value="${escapeAttr(draft[currency.key] ?? "")}"
+                placeholder="0"
+                inputmode="numeric"
+                pattern="[0-9]*"
+                maxlength="12"
+                autocomplete="off"
+                aria-label="${escapeAttr(`${currency.name} eingeben`)}"
+                title="${escapeAttr(`Änderungsbetrag in ${currency.name} eingeben`)}"
+                ${editable ? "" : "disabled"}
+              >
+            </div>`).join("")}
+        </div>
+        <div class="betterinv-currency-input-caption">
+          <i class="fas fa-pen" aria-hidden="true"></i>
+          <span>Änderungsbetrag je Münzart</span>
+        </div>
       </div>
     </section>`;
 }
@@ -2092,6 +2140,30 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
       } finally {
         button.disabled = false;
       }
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
+    input.addEventListener("click", event => event.stopPropagation());
+    input.addEventListener("focus", event => {
+      event.stopPropagation();
+      event.currentTarget.select();
+    });
+    input.addEventListener("keydown", event => {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.currentTarget.blur();
+      }
+    });
+    input.addEventListener("input", event => {
+      event.stopPropagation();
+      const field = event.currentTarget;
+      const key = String(field.dataset.currencyKey ?? "");
+      if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
+      const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
+      if (field.value !== next) field.value = next;
+      betterInvState.currencyDraft[key] = next;
     });
   });
 

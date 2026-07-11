@@ -2344,3 +2344,82 @@
     }
   }
 }
+
+/* Phase 4.1: transaction inputs for every currency */
+.betterinv-currency-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.betterinv-currency-entry {
+  grid-template-areas:
+    "name name"
+    "value unit"
+    "input input";
+  row-gap: 4px;
+}
+
+.betterinv-currency-input {
+  grid-area: input;
+  width: 100%;
+  min-width: 0;
+  height: 25px;
+  margin: 1px 0 0;
+  padding: 2px 6px;
+  border: 1px solid rgba(200,168,90,.28);
+  border-radius: 3px;
+  outline: 0;
+  background: rgba(3,3,5,.78);
+  color: #f3ead6;
+  font: 800 11px/1 Signika, Georgia, serif;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.46) inset;
+}
+
+.betterinv-currency-input::placeholder {
+  color: #6f685b;
+  opacity: 1;
+}
+
+.betterinv-currency-input:hover {
+  border-color: rgba(200,168,90,.52);
+}
+
+.betterinv-currency-input:focus {
+  border-color: var(--bi-gold);
+  background: #101014;
+  box-shadow: 0 0 0 1px rgba(200,168,90,.20), 0 0 10px rgba(200,168,90,.10);
+}
+
+.betterinv-currency-input:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.betterinv-currency-input-caption {
+  min-width: 0;
+  padding: 1px 2px 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  color: #827966;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: .045em;
+  text-transform: uppercase;
+}
+
+.betterinv-currency-input-caption > i {
+  font-size: 8px;
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 420px) {
+    .betterinv-currency-input-caption {
+      justify-content: flex-start;
+    }
+  }
+}
