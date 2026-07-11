@@ -1353,3 +1353,98 @@
   }
 }
 
+
+/* Phase 1.4: compact item action menu */
+.betterinv-item-actions-button {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(158,139,83,.32);
+  border-radius: 3px;
+  background: #111115;
+  color: #d8c795;
+  cursor: pointer;
+}
+.betterinv-item-actions-button i {
+  pointer-events: none;
+  font-size: 13px;
+}
+.betterinv-item-actions-button:hover,
+.betterinv-item-actions-button:focus-visible {
+  border-color: var(--bi-gold);
+  background: #25252b;
+  color: #fff;
+  outline: none;
+}
+.betterinv-item-actions-menu {
+  position: fixed;
+  z-index: 25000;
+  min-width: 168px;
+  padding: 5px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid rgba(200,168,90,.58);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #202026, #111115);
+  box-shadow: 0 14px 34px rgba(0,0,0,.78), 0 0 0 1px rgba(255,255,255,.04) inset;
+  color: var(--bi-text);
+  font-family: Signika, Georgia, "Times New Roman", serif;
+}
+.betterinv-item-actions-menu button {
+  min-height: 34px;
+  padding: 0 10px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--bi-text);
+  text-align: left;
+  font: inherit;
+  font-weight: 750;
+  cursor: pointer;
+}
+.betterinv-item-actions-menu button:hover,
+.betterinv-item-actions-menu button:focus-visible {
+  background: #303037;
+  color: #fff;
+  outline: none;
+}
+.betterinv-item-actions-menu .betterinv-item-action-delete {
+  color: #efb0b0;
+}
+.betterinv-item-actions-menu .betterinv-item-action-delete:hover,
+.betterinv-item-actions-menu .betterinv-item-action-delete:focus-visible {
+  background: #4a1b20;
+  color: #fff;
+}
+
+/* One extra compact action column without enlarging quantity controls. */
+.betterinv-item {
+  grid-template-columns: 18px 42px minmax(90px, 1fr) auto 32px 32px 32px !important;
+}
+
+@media (max-width: 720px) {
+  .betterinv-item {
+    grid-template-columns: 18px 38px minmax(72px, 1fr) auto 30px 30px 30px !important;
+  }
+  .betterinv-item-actions-button {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+@media (max-width: 560px) {
+  .betterinv-item {
+    grid-template-columns: 18px 38px minmax(0, 1fr) 30px 30px 30px !important;
+  }
+  .betterinv-item > .betterinv-item-actions-button {
+    grid-column: 6;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+}

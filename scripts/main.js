@@ -3,6 +3,7 @@
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 let betterInvPopup = null;
+let betterInvActionMenuCleanup = null;
 let betterInvState = {
   actorId: null,
   containerId: null,
@@ -559,12 +560,13 @@ async function sortItemsBySavedOrder(actor, items, containerId = null) {
 
 function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
-  if (existing) { existing.remove(); return; }
+  if (existing) { closeBetterInvItemActionMenu(); existing.remove(); return; }
   betterInvState.containerId = null;
   renderBetterInvWindow();
 }
 
 async function renderBetterInvWindow({ preserveScroll = true } = {}) {
+  closeBetterInvItemActionMenu();
   const actor = getCurrentActor();
   let windowEl = document.getElementById("betterinv-window");
   const previousBody = windowEl?.querySelector?.(".betterinv-body");
@@ -908,6 +910,104 @@ async function changeItemQuantity(item, delta) {
   await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
+function closeBetterInvItemActionMenu() {
+  if (typeof betterInvActionMenuCleanup === "function") {
+    betterInvActionMenuCleanup();
+    return;
+  }
+  document.getElementById("betterinv-item-action-menu")?.remove();
+}
+
+async function duplicateBetterInvItem(actor, item) {
+  if (!actor || !item) return;
+  const data = item.toObject();
+  delete data._id;
+  data.name = `${item.name} (Kopie)`;
+  await actor.createEmbeddedDocuments("Item", [data]);
+  ui.notifications.info(`${item.name} wurde dupliziert.`);
+}
+
+async function deleteBetterInvItem(item) {
+  if (!item) return;
+  const confirmed = await Dialog.confirm({
+    title: "Item löschen",
+    content: `<p><strong>${escapeHtml(item.name)}</strong> wirklich dauerhaft löschen?</p>`
+  });
+  if (!confirmed) return;
+  await item.delete();
+  ui.notifications.info(`${item.name} wurde gelöscht.`);
+}
+
+function openBetterInvItemActionMenu(button, actor, item) {
+  closeBetterInvItemActionMenu();
+  if (!button || !actor || !item) return;
+
+  const menu = document.createElement("div");
+  menu.id = "betterinv-item-action-menu";
+  menu.className = "betterinv-item-actions-menu";
+  menu.setAttribute("role", "menu");
+  menu.innerHTML = `
+    <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
+    <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
+  `;
+  document.body.appendChild(menu);
+
+  const rect = button.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const gap = 5;
+  let left = rect.right - menuRect.width;
+  let top = rect.bottom + gap;
+  left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
+  if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - gap;
+  top = Math.max(8, top);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    menu.remove();
+    document.removeEventListener("pointerdown", onOutsidePointerDown, true);
+    window.removeEventListener("resize", close);
+    window.removeEventListener("scroll", close, true);
+    if (betterInvActionMenuCleanup === close) betterInvActionMenuCleanup = null;
+  };
+  const onOutsidePointerDown = event => {
+    if (menu.contains(event.target) || button.contains(event.target)) return;
+    close();
+  };
+  betterInvActionMenuCleanup = close;
+
+  menu.querySelector(".betterinv-item-action-duplicate")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    try {
+      await duplicateBetterInvItem(actor, item);
+    } catch (error) {
+      console.error("Better Inventory | Item konnte nicht dupliziert werden", error);
+      ui.notifications.error("Das Item konnte nicht dupliziert werden.");
+    }
+  });
+
+  menu.querySelector(".betterinv-item-action-delete")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    try {
+      await deleteBetterInvItem(item);
+    } catch (error) {
+      console.error("Better Inventory | Item konnte nicht gelöscht werden", error);
+      ui.notifications.error("Das Item konnte nicht gelöscht werden.");
+    }
+  });
+
+  setTimeout(() => document.addEventListener("pointerdown", onOutsidePointerDown, true), 0);
+  window.addEventListener("resize", close, { once: true });
+  window.addEventListener("scroll", close, { once: true, capture: true });
+}
+
 function itemRowHtml(item, categoryOptions, containerId) {
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
@@ -936,11 +1036,12 @@ function itemRowHtml(item, categoryOptions, containerId) {
         <i class="fas fa-chevron-down" aria-hidden="true"></i>
         <select class="betterinv-category-select" aria-label="Kategorie wählen">${options}</select>
       </span>
+      <button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>
     </article>`;
 }
 
 function activateWindowListeners(windowEl, actor, activeContainer) {
-  windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => windowEl.remove());
+  windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => { closeBetterInvItemActionMenu(); windowEl.remove(); });
   windowEl.querySelector(".betterinv-popout")?.addEventListener("pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
   windowEl.querySelector(".betterinv-scale-down")?.addEventListener("click", () => { betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10); renderBetterInvWindow(); });
   windowEl.querySelector(".betterinv-scale-up")?.addEventListener("click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
@@ -1180,6 +1281,16 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
       const row = event.currentTarget.closest(".betterinv-item");
       const item = actor?.items?.get(row?.dataset?.itemId);
       openItemSheet(item);
+    });
+  });
+
+  windowEl.querySelectorAll(".betterinv-item-actions-button").forEach(button => {
+    button.addEventListener("click", event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = event.currentTarget.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      openBetterInvItemActionMenu(event.currentTarget, actor, item);
     });
   });
 
