@@ -14,6 +14,10 @@ let betterInvState = {
   currencyDraft: {}
 };
 
+// Prevent overlapping money transactions for the same actor, including during
+// updateActor-triggered re-renders which can temporarily create fresh buttons.
+const betterInvCurrencyTransactions = new Set();
+
 Hooks.once("init", () => {
   registerBetterInvHotkey();
   registerBetterInvSettings();
@@ -688,7 +692,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const actorCurrencyHtml = betterInvActorCurrencyHtml(
     getBetterInvActorCurrency(actor),
     getBetterInvCurrencyDraft(actor),
-    { editable: actor.isOwner !== false }
+    { editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor) }
   );
   const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
   const order = await getCategoryOrder(actor, activeContainer?.id ?? null, categories);
@@ -1295,6 +1299,161 @@ function getBetterInvCurrencyStorage(actor, currency) {
   };
 }
 
+function getBetterInvCurrencyActorKey(actor) {
+  return String(actor?.uuid ?? actor?.id ?? "");
+}
+
+function isBetterInvCurrencyTransactionPending(actor) {
+  const actorKey = getBetterInvCurrencyActorKey(actor);
+  return Boolean(actorKey && betterInvCurrencyTransactions.has(actorKey));
+}
+
+function getBetterInvCurrencyWallet(actor) {
+  if (!actor) throw new Error("Der Charakter konnte nicht gelesen werden.");
+
+  const seenPaths = new Set();
+  return BETTER_INV_CURRENCIES.map(currency => {
+    const storage = getBetterInvCurrencyStorage(actor, currency);
+    if (!storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
+    }
+    if (seenPaths.has(storage.updatePath)) {
+      throw new Error("Mehrere Währungen würden denselben Actor-Pfad verändern.");
+    }
+    seenPaths.add(storage.updatePath);
+
+    const value = Number(storage.current);
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`Der Münzbestand für ${currency.name} ist ungültig.`);
+    }
+    return { ...currency, storage, value };
+  });
+}
+
+function cloneBetterInvCurrencyBalances(wallet) {
+  return new Map(Array.from(wallet ?? []).map(currency => [
+    currency.key,
+    { ...currency, value: currency.value }
+  ]));
+}
+
+function buildBetterInvCurrencyUpdateData(wallet, balances) {
+  const updateData = {};
+  const expectedValues = new Map();
+
+  for (const currency of Array.from(wallet ?? [])) {
+    const balance = balances?.get?.(currency.key);
+    const next = Number(balance?.value);
+    if (!Number.isSafeInteger(next) || next < 0) {
+      throw new Error(`Der neue Betrag für ${currency.name} ist ungültig.`);
+    }
+    if (!currency.storage?.updatePath) {
+      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
+    }
+    expectedValues.set(currency.key, next);
+    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
+  }
+
+  return { updateData, expectedValues };
+}
+
+async function commitBetterInvCurrencyBalances(
+  actor,
+  wallet,
+  balances,
+  { actionName = "Geldänderung", expectedTotalCopper = null } = {}
+) {
+  if (!actor || actor.isOwner === false) {
+    ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
+    return false;
+  }
+
+  const actorKey = getBetterInvCurrencyActorKey(actor);
+  if (!actorKey) throw new Error("Der Charakter besitzt keine eindeutige ID.");
+  if (betterInvCurrencyTransactions.has(actorKey)) {
+    ui.notifications.warn("Eine Geldänderung für diesen Charakter läuft bereits.");
+    return false;
+  }
+
+  betterInvCurrencyTransactions.add(actorKey);
+  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
+  const previousDraftActorId = betterInvState.currencyDraftActorId;
+  let draftCleared = false;
+  let updateMayHaveSucceeded = false;
+
+  try {
+    // Reject stale calculations before writing. This avoids overwriting a purse
+    // that was changed by another hook, window or client after it was read.
+    const freshWallet = getBetterInvCurrencyWallet(actor);
+    for (const original of Array.from(wallet ?? [])) {
+      const fresh = freshWallet.find(currency => currency.key === original.key);
+      if (!fresh || fresh.storage.updatePath !== original.storage?.updatePath || fresh.value !== original.value) {
+        const error = new Error(
+          `${actionName} abgebrochen: Der Münzbestand wurde zwischenzeitlich geändert. Bitte erneut ausführen.`
+        );
+        error.betterInvUserMessage = `${error.message} Keine Münzen wurden verändert.`;
+        throw error;
+      }
+    }
+
+    const { updateData, expectedValues } = buildBetterInvCurrencyUpdateData(wallet, balances);
+    const finalTotalCopper = getBetterInvCurrencyTotalInCopper([...balances.values()], "value");
+    if (expectedTotalCopper !== null) {
+      const expected = Number(expectedTotalCopper);
+      if (!Number.isSafeInteger(expected) || expected < 0 || finalTotalCopper !== expected) {
+        throw new Error(`${actionName} war nicht wertgleich und wurde abgebrochen.`);
+      }
+    }
+
+    if (!Object.keys(updateData).length) {
+      ui.notifications.info("Keine Münzänderung notwendig.");
+      return false;
+    }
+
+    // Clear before the Actor update so updateActor-triggered re-renders cannot
+    // display stale inputs. On a rejected update the original draft is restored.
+    betterInvState.currencyDraft = {};
+    betterInvState.currencyDraftActorId = actor.id;
+    draftCleared = true;
+
+    // Every affected denomination is sent in this single Actor update. Foundry
+    // therefore stores the complete money action as one document change.
+    await actor.update(updateData);
+    updateMayHaveSucceeded = true;
+
+    // Verify the local Actor document after Foundry resolved the update. A
+    // mismatch is reported without automatically retrying or overwriting data.
+    const verifiedWallet = getBetterInvCurrencyWallet(actor);
+    const mismatch = verifiedWallet.find(currency => expectedValues.get(currency.key) !== currency.value);
+    if (mismatch) {
+      const error = new Error(
+        `${actionName} wurde gesendet, aber der gespeicherte Münzbestand konnte nicht eindeutig bestätigt werden. ` +
+        "Bitte den Charakterbogen prüfen, bevor du die Aktion wiederholst."
+      );
+      error.betterInvUserMessage = error.message;
+      error.betterInvUpdateMayHaveSucceeded = true;
+      throw error;
+    }
+
+    return true;
+  } catch (error) {
+    const mayHaveSucceeded = updateMayHaveSucceeded || error?.betterInvUpdateMayHaveSucceeded;
+    if (draftCleared && !mayHaveSucceeded && betterInvState.currencyDraftActorId === actor.id) {
+      betterInvState.currencyDraft = previousDraft;
+      betterInvState.currencyDraftActorId = previousDraftActorId;
+    }
+    if (mayHaveSucceeded && !error?.betterInvUserMessage) {
+      error.betterInvUserMessage =
+        `${actionName} wurde gesendet, aber das Ergebnis konnte nicht sicher bestätigt werden. ` +
+        "Bitte den Charakterbogen prüfen, bevor du die Aktion wiederholst.";
+      error.betterInvUpdateMayHaveSucceeded = true;
+    }
+    throw error;
+  } finally {
+    betterInvCurrencyTransactions.delete(actorKey);
+  }
+}
+
 function getBetterInvCurrencyAdditionDraft() {
   const draft = betterInvState.currencyDraft && typeof betterInvState.currencyDraft === "object"
     ? betterInvState.currencyDraft
@@ -1374,6 +1533,10 @@ async function addBetterInvCurrency(actor) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
+  if (isBetterInvCurrencyTransactionPending(actor)) {
+    ui.notifications.warn("Eine Geldänderung für diesen Charakter läuft bereits.");
+    return false;
+  }
 
   const additions = getBetterInvCurrencyAdditionDraft();
   if (!additions.length) {
@@ -1381,38 +1544,34 @@ async function addBetterInvCurrency(actor) {
     return false;
   }
 
-  const updateData = {};
+  const wallet = getBetterInvCurrencyWallet(actor);
+  const balances = cloneBetterInvCurrencyBalances(wallet);
   for (const addition of additions) {
-    const storage = getBetterInvCurrencyStorage(actor, addition);
-    if (!storage?.updatePath) {
-      throw new Error(`Kein Speicherpfad für ${addition.key} gefunden.`);
-    }
-    const next = storage.current + addition.amount;
+    const balance = balances.get(addition.key);
+    if (!balance) throw new Error(`Kein Münzspeicher für ${addition.key} gefunden.`);
+    const next = balance.value + addition.amount;
     if (!Number.isSafeInteger(next)) {
-      throw new Error(`Der neue Betrag für ${addition.key} ist zu groß.`);
+      throw new Error(`Der neue Betrag für ${addition.name} ist zu groß.`);
     }
-    updateData[storage.updatePath] = next;
+    balance.value = next;
   }
 
-  // Clear before the Actor update so the updateActor hook cannot briefly render
-  // stale inputs. Restore the draft when Foundry rejects the update.
-  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
-  betterInvState.currencyDraft = {};
-  betterInvState.currencyDraftActorId = actor.id;
-  try {
-    // One Actor update keeps all entered denominations together. No denomination
-    // is converted, combined or automatically exchanged here.
-    await actor.update(updateData);
-  } catch (error) {
-    betterInvState.currencyDraft = previousDraft;
-    throw error;
+  const initialCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  const addedCopper = getBetterInvCurrencyTotalInCopper(additions, "amount");
+  if (!Number.isSafeInteger(initialCopper + addedCopper)) {
+    throw new Error("Der neue Gesamtwert der Münzen ist zu groß.");
   }
+
+  const committed = await commitBetterInvCurrencyBalances(actor, wallet, balances, {
+    actionName: "Münzen hinzufügen",
+    expectedTotalCopper: initialCopper + addedCopper
+  });
+  if (!committed) return false;
 
   const summary = additions.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
   ui.notifications.info(`Hinzugefügt: ${summary}`);
   return true;
 }
-
 
 function addBetterInvCurrencyChange(balances, totalCopper) {
   let remaining = Math.max(0, Math.trunc(Number(totalCopper) || 0));
@@ -1585,6 +1744,10 @@ async function exchangeBetterInvCurrencyDown(actor) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
+  if (isBetterInvCurrencyTransactionPending(actor)) {
+    ui.notifications.warn("Eine Geldänderung für diesen Charakter läuft bereits.");
+    return false;
+  }
 
   const exchanges = getBetterInvCurrencyAdditionDraft();
   if (!exchanges.length) {
@@ -1598,13 +1761,7 @@ async function exchangeBetterInvCurrencyDown(actor) {
     return false;
   }
 
-  const wallet = BETTER_INV_CURRENCIES.map(currency => {
-    const storage = getBetterInvCurrencyStorage(actor, currency);
-    if (!storage?.updatePath) {
-      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
-    }
-    return { ...currency, storage, value: storage.current };
-  });
+  const wallet = getBetterInvCurrencyWallet(actor);
 
   // Validate every requested source against the original purse. This keeps a
   // multi-denomination exchange predictable: newly created lower coins are not
@@ -1623,26 +1780,12 @@ async function exchangeBetterInvCurrencyDown(actor) {
   }
 
   const result = calculateBetterInvCurrencyDownExchange(wallet, exchanges);
-  const updateData = {};
-  for (const currency of wallet) {
-    const next = result.balances.get(currency.key)?.value;
-    if (!Number.isSafeInteger(next) || next < 0) {
-      throw new Error(`Der neue Betrag für ${currency.key} ist ungültig.`);
-    }
-    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
-  }
-
-  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
-  betterInvState.currencyDraft = {};
-  betterInvState.currencyDraftActorId = actor.id;
-  try {
-    // Source and target denominations are always stored together in one Actor
-    // update so a failed update cannot leave only half of an exchange behind.
-    await actor.update(updateData);
-  } catch (error) {
-    betterInvState.currencyDraft = previousDraft;
-    throw error;
-  }
+  const initialCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  const committed = await commitBetterInvCurrencyBalances(actor, wallet, result.balances, {
+    actionName: "Münzen abrunden",
+    expectedTotalCopper: initialCopper
+  });
+  if (!committed) return false;
 
   const summary = result.conversions.map(conversion =>
     `${formatBetterInvNumber(conversion.amount)} ${conversion.source.abbreviation} → ` +
@@ -1927,6 +2070,10 @@ async function exchangeBetterInvCurrencyUp(actor) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
+  if (isBetterInvCurrencyTransactionPending(actor)) {
+    ui.notifications.warn("Eine Geldänderung für diesen Charakter läuft bereits.");
+    return false;
+  }
 
   const requests = getBetterInvCurrencyAdditionDraft();
   if (!requests.length) {
@@ -1940,13 +2087,7 @@ async function exchangeBetterInvCurrencyUp(actor) {
     return false;
   }
 
-  const wallet = BETTER_INV_CURRENCIES.map(currency => {
-    const storage = getBetterInvCurrencyStorage(actor, currency);
-    if (!storage?.updatePath) {
-      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
-    }
-    return { ...currency, storage, value: storage.current };
-  });
+  const wallet = getBetterInvCurrencyWallet(actor);
 
   let result;
   try {
@@ -1966,24 +2107,12 @@ async function exchangeBetterInvCurrencyUp(actor) {
     return false;
   }
 
-  const updateData = {};
-  for (const currency of wallet) {
-    const next = result.balances.get(currency.key)?.value;
-    if (!Number.isSafeInteger(next) || next < 0) {
-      throw new Error(`Der neue Betrag für ${currency.key} ist ungültig.`);
-    }
-    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
-  }
-
-  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
-  betterInvState.currencyDraft = {};
-  betterInvState.currencyDraftActorId = actor.id;
-  try {
-    await actor.update(updateData);
-  } catch (error) {
-    betterInvState.currencyDraft = previousDraft;
-    throw error;
-  }
+  const initialCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
+  const committed = await commitBetterInvCurrencyBalances(actor, wallet, result.balances, {
+    actionName: "Münzen aufrunden",
+    expectedTotalCopper: initialCopper
+  });
+  if (!committed) return false;
 
   const summary = result.conversions.map(conversion => {
     const paid = conversion.sources
@@ -2000,6 +2129,10 @@ async function removeBetterInvCurrency(actor) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
+  if (isBetterInvCurrencyTransactionPending(actor)) {
+    ui.notifications.warn("Eine Geldänderung für diesen Charakter läuft bereits.");
+    return false;
+  }
 
   const removals = getBetterInvCurrencyAdditionDraft();
   if (!removals.length) {
@@ -2007,14 +2140,7 @@ async function removeBetterInvCurrency(actor) {
     return false;
   }
 
-  const wallet = BETTER_INV_CURRENCIES.map(currency => {
-    const storage = getBetterInvCurrencyStorage(actor, currency);
-    if (!storage?.updatePath) {
-      throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
-    }
-    return { ...currency, storage, value: storage.current };
-  });
-
+  const wallet = getBetterInvCurrencyWallet(actor);
   const availableCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
   const requestedCopper = getBetterInvCurrencyTotalInCopper(removals, "amount");
   if (availableCopper < requestedCopper) {
@@ -2032,25 +2158,12 @@ async function removeBetterInvCurrency(actor) {
     notifyBetterInvCurrencyError(error?.message || "Die Zahlung konnte nicht sicher verrechnet werden.");
     return false;
   }
-  const updateData = {};
-  for (const currency of wallet) {
-    const next = payment.balances.get(currency.key)?.value;
-    if (!Number.isSafeInteger(next) || next < 0) {
-      throw new Error(`Der neue Betrag für ${currency.key} ist ungültig.`);
-    }
-    if (next !== currency.value) updateData[currency.storage.updatePath] = next;
-  }
 
-  const previousDraft = { ...(betterInvState.currencyDraft ?? {}) };
-  betterInvState.currencyDraft = {};
-  betterInvState.currencyDraftActorId = actor.id;
-  try {
-    // Every affected denomination is stored in one atomic Actor update.
-    await actor.update(updateData);
-  } catch (error) {
-    betterInvState.currencyDraft = previousDraft;
-    throw error;
-  }
+  const committed = await commitBetterInvCurrencyBalances(actor, wallet, payment.balances, {
+    actionName: "Bezahlen / Entfernen",
+    expectedTotalCopper: availableCopper - requestedCopper
+  });
+  if (!committed) return false;
 
   const summary = removals.map(currency => `${formatBetterInvNumber(currency.amount)} ${currency.abbreviation}`).join(" · ");
   if (payment.breakage) {
@@ -3010,16 +3123,21 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
   const runCurrencyAction = async (button, action, { logMessage, errorMessage } = {}) => {
     if (!button || button.disabled) return;
     const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
+    const currencyInputs = Array.from(windowEl.querySelectorAll(".betterinv-currency-input"));
     actionButtons.forEach(actionButton => { actionButton.disabled = true; });
+    currencyInputs.forEach(input => { input.disabled = true; });
     button.classList.add("betterinv-currency-action-busy");
     try {
       const changed = await action(actor);
       if (changed) renderBetterInvWindow();
     } catch (error) {
       console.error(logMessage, error);
-      ui.notifications.error(errorMessage);
+      if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
+      else notifyBetterInvCurrencyError(errorMessage);
     } finally {
-      actionButtons.forEach(actionButton => { actionButton.disabled = actor?.isOwner === false; });
+      const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
+      actionButtons.forEach(actionButton => { actionButton.disabled = disabled; });
+      currencyInputs.forEach(input => { input.disabled = disabled; });
       button.classList.remove("betterinv-currency-action-busy");
     }
   };
