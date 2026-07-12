@@ -3022,6 +3022,334 @@ async function deleteBetterInvItem(item) {
   ui.notifications.info(`${item.name} wurde gelöscht.`);
 }
 
+function canBetterInvUserModifyActor(actor) {
+  if (!actor || !game.user) return false;
+  if (game.user.isGM || actor.isOwner === true) return true;
+  try {
+    return actor.testUserPermission?.(game.user, CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER) === true;
+  } catch (_error) {
+    const level = actor.ownership?.[game.user.id] ?? actor.permission?.[game.user.id] ?? 0;
+    return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+  }
+}
+
+function getBetterInvTransferTargetActors(sourceActor) {
+  const actors = game.actors?.filter(actor => {
+    if (!actor || actor.id === sourceActor?.id) return false;
+    return canBetterInvUserModifyActor(actor);
+  }) ?? [];
+
+  const typeRank = actor => actor.type === "character" ? 0 : actor.type === "npc" ? 1 : 2;
+  actors.sort((left, right) => {
+    const rank = typeRank(left) - typeRank(right);
+    if (rank) return rank;
+    return String(left.name ?? "").localeCompare(String(right.name ?? ""), game.i18n?.lang ?? undefined, { sensitivity: "base" });
+  });
+  return actors;
+}
+
+function getBetterInvActorTypeLabel(actor) {
+  const raw = CONFIG?.Actor?.typeLabels?.[actor?.type];
+  if (raw) {
+    try { return game.i18n?.localize?.(raw) ?? raw; }
+    catch (_error) { return raw; }
+  }
+  const labels = { character: "Charakter", npc: "NSC", vehicle: "Fahrzeug", group: "Gruppe" };
+  return labels[actor?.type] ?? String(actor?.type ?? "Actor");
+}
+
+function getBetterInvItemContainedChildren(actor, containerItem) {
+  if (!actor || !containerItem || !isContainerLike(containerItem)) return [];
+  return Array.from(actor.items ?? []).filter(item => item.id !== containerItem.id && itemIsInContainer(item, containerItem));
+}
+
+function prepareBetterInvTransferredItemData(item, quantity) {
+  if (!item || typeof item.toObject !== "function") throw new Error("Das Item konnte nicht gelesen werden.");
+  const data = item.toObject();
+  if (!data || typeof data !== "object") throw new Error("Das Item enthält keine gültigen Daten.");
+
+  delete data._id;
+  delete data.folder;
+  delete data.sort;
+  delete data.ownership;
+  delete data.permission;
+  delete data._stats;
+
+  data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+  delete data.flags[MODULE_ID];
+
+  // Better-Inventory categories and the source actor's container id are local
+  // organization data. The receiving actor always gets the item unsorted at root.
+  const sourceContainer = foundry.utils.getProperty(data, "system.container");
+  if (sourceContainer && typeof sourceContainer === "object" && !Array.isArray(sourceContainer)) {
+    foundry.utils.setProperty(data, "system.container", {
+      ...foundry.utils.deepClone(sourceContainer),
+      id: null,
+      uuid: null,
+      value: null
+    });
+  } else if (sourceContainer !== undefined && sourceContainer !== null) {
+    foundry.utils.setProperty(data, "system.container", "");
+  }
+  [
+    "system.containerId",
+    "system.containerUuid",
+    "system.containerIdentifier",
+    "system.equippedContainer",
+    "flags.dnd5e.container",
+    "flags.dnd5e.containerId",
+    "flags.dnd5e.containerUuid",
+    "flags.itemcollection.container"
+  ].forEach(path => deleteBetterInvNestedProperty(data, path));
+
+  const sourceQuantity = foundry.utils.getProperty(data, "system.quantity");
+  if (sourceQuantity && typeof sourceQuantity === "object" && !Array.isArray(sourceQuantity)) {
+    foundry.utils.setProperty(data, "system.quantity.value", quantity);
+  } else if (sourceQuantity !== undefined) {
+    foundry.utils.setProperty(data, "system.quantity", quantity);
+  }
+
+  const equipped = getItemEquippedData(item);
+  if (equipped.supported && equipped.updatePath) foundry.utils.setProperty(data, equipped.updatePath, false);
+  return data;
+}
+
+async function promptBetterInvItemTransfer(sourceActor, item) {
+  const targets = getBetterInvTransferTargetActors(sourceActor);
+  if (!targets.length) {
+    ui.notifications.warn("Es wurde kein anderer Actor gefunden, den du bearbeiten darfst.");
+    return null;
+  }
+
+  const currentQuantity = getItemQuantityData(item).value;
+  const itemImage = item.img || "icons/svg/item-bag.svg";
+  const actorCards = targets.map(actor => `
+    <button type="button" class="betterinv-transfer-actor" data-transfer-actor-id="${escapeAttr(actor.id)}" role="option" aria-selected="false">
+      <img src="${escapeAttr(actor.img || "icons/svg/mystery-man.svg")}" alt="">
+      <span class="betterinv-transfer-actor-copy">
+        <strong>${escapeHtml(actor.name)}</strong>
+        <small>${escapeHtml(getBetterInvActorTypeLabel(actor))}</small>
+      </span>
+      <i class="fas fa-check" aria-hidden="true"></i>
+    </button>`).join("");
+
+  return await new Promise(resolve => {
+    let settled = false;
+    let selectedActorId = "";
+    let dialog;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    const choose = value => {
+      done(value);
+      dialog?.close?.();
+    };
+
+    dialog = new Dialog({
+      title: "Item übertragen",
+      content: `
+        <div class="betterinv-transfer-dialog" data-betterinv-transfer-dialog>
+          <header class="betterinv-transfer-header">
+            <img src="${escapeAttr(itemImage)}" alt="">
+            <div>
+              <span class="betterinv-transfer-kicker">Von ${escapeHtml(sourceActor.name)}</span>
+              <h3>${escapeHtml(item.name)}</h3>
+              <p>Wähle den Empfänger und die zu übertragende Menge.</p>
+            </div>
+            <span class="betterinv-transfer-stock">Bestand: ${escapeHtml(formatBetterInvNumber(currentQuantity))}</span>
+          </header>
+
+          <div class="betterinv-transfer-controls">
+            <label class="betterinv-transfer-search">
+              <span>Actor suchen</span>
+              <span class="betterinv-transfer-search-wrap">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" data-transfer-search placeholder="Name oder Actortyp …" autocomplete="off">
+              </span>
+            </label>
+            <label class="betterinv-transfer-quantity">
+              <span>Menge</span>
+              <span class="betterinv-transfer-quantity-wrap">
+                <button type="button" data-transfer-quantity-minus aria-label="Menge verringern">−</button>
+                <input type="number" data-transfer-quantity min="1" max="${escapeAttr(String(currentQuantity))}" step="1" value="${escapeAttr(String(currentQuantity))}" inputmode="numeric">
+                <button type="button" data-transfer-quantity-plus aria-label="Menge erhöhen">+</button>
+              </span>
+            </label>
+          </div>
+
+          <div class="betterinv-transfer-summary" data-transfer-result-count>${escapeHtml(formatBetterInvNumber(targets.length))} mögliche Empfänger</div>
+          <div class="betterinv-transfer-actors" data-transfer-actors role="listbox" aria-label="Empfänger auswählen">${actorCards}</div>
+
+          <footer class="betterinv-transfer-footer">
+            <span data-transfer-selection>Kein Empfänger ausgewählt</span>
+            <div>
+              <button type="button" class="betterinv-transfer-cancel" data-transfer-cancel>
+                <i class="fas fa-xmark" aria-hidden="true"></i><span>Abbrechen</span>
+              </button>
+              <button type="button" class="betterinv-transfer-confirm" data-transfer-confirm disabled>
+                <i class="fas fa-right-left" aria-hidden="true"></i><span>Übertragen</span>
+              </button>
+            </div>
+          </footer>
+        </div>`,
+      buttons: {},
+      close: () => done(null)
+    }, {
+      width: 620,
+      classes: ["betterinv-transfer-window"]
+    });
+
+    dialog.render(true);
+    setTimeout(() => {
+      bringFoundryDialogsToFront({ avoidOverlap: false });
+      const dialogElement = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
+      dialogElement?.classList?.add("betterinv-transfer-window");
+      const root = dialogElement?.querySelector?.("[data-betterinv-transfer-dialog]");
+      if (!root) return;
+
+      const search = root.querySelector("[data-transfer-search]");
+      const quantityInput = root.querySelector("[data-transfer-quantity]");
+      const quantityMinus = root.querySelector("[data-transfer-quantity-minus]");
+      const quantityPlus = root.querySelector("[data-transfer-quantity-plus]");
+      const actorsElement = root.querySelector("[data-transfer-actors]");
+      const resultCount = root.querySelector("[data-transfer-result-count]");
+      const selection = root.querySelector("[data-transfer-selection]");
+      const confirm = root.querySelector("[data-transfer-confirm]");
+      const cancel = root.querySelector("[data-transfer-cancel]");
+
+      const normalizedQuantity = () => {
+        const raw = Number(quantityInput?.value ?? currentQuantity);
+        const value = Math.max(1, Math.min(currentQuantity, Math.trunc(Number.isFinite(raw) ? raw : 1)));
+        if (quantityInput) quantityInput.value = String(value);
+        return value;
+      };
+
+      const updateSelection = () => {
+        const target = targets.find(actor => actor.id === selectedActorId) ?? null;
+        const quantity = normalizedQuantity();
+        if (selection) selection.textContent = target
+          ? `${formatBetterInvNumber(quantity)} × ${item.name} → ${target.name}`
+          : "Kein Empfänger ausgewählt";
+        if (confirm) confirm.disabled = !target;
+      };
+
+      const renderActors = () => {
+        const query = normalizeBetterInvSearchText(search?.value ?? "").trim();
+        let visible = 0;
+        actorsElement?.querySelectorAll("[data-transfer-actor-id]").forEach(button => {
+          const actor = targets.find(entry => entry.id === button.dataset.transferActorId);
+          const matches = actor && (!query || normalizeBetterInvSearchText(`${actor.name} ${getBetterInvActorTypeLabel(actor)} ${actor.type}`).includes(query));
+          button.hidden = !matches;
+          if (matches) visible += 1;
+          const selected = actor?.id === selectedActorId;
+          button.classList.toggle("is-selected", selected);
+          button.setAttribute("aria-selected", selected ? "true" : "false");
+        });
+        if (resultCount) resultCount.textContent = `${formatBetterInvNumber(visible)} mögliche Empfänger`;
+      };
+
+      actorsElement?.querySelectorAll("[data-transfer-actor-id]").forEach(button => {
+        button.addEventListener("click", () => {
+          selectedActorId = String(button.dataset.transferActorId ?? "");
+          renderActors();
+          updateSelection();
+        });
+        button.addEventListener("dblclick", () => {
+          selectedActorId = String(button.dataset.transferActorId ?? "");
+          const targetActor = targets.find(actor => actor.id === selectedActorId);
+          if (targetActor) choose({ targetActor, quantity: normalizedQuantity() });
+        });
+      });
+
+      search?.addEventListener("input", event => {
+        event.stopPropagation();
+        renderActors();
+      }, { capture: true });
+      ["keydown", "keyup", "keypress", "beforeinput", "paste"].forEach(type => {
+        search?.addEventListener(type, event => event.stopPropagation(), { capture: true });
+        quantityInput?.addEventListener(type, event => event.stopPropagation(), { capture: true });
+      });
+      quantityInput?.addEventListener("input", updateSelection);
+      quantityInput?.addEventListener("change", updateSelection);
+      quantityMinus?.addEventListener("click", () => {
+        if (quantityInput) quantityInput.value = String(Math.max(1, normalizedQuantity() - 1));
+        updateSelection();
+      });
+      quantityPlus?.addEventListener("click", () => {
+        if (quantityInput) quantityInput.value = String(Math.min(currentQuantity, normalizedQuantity() + 1));
+        updateSelection();
+      });
+      cancel?.addEventListener("click", () => choose(null));
+      confirm?.addEventListener("click", () => {
+        const targetActor = targets.find(actor => actor.id === selectedActorId);
+        if (targetActor) choose({ targetActor, quantity: normalizedQuantity() });
+      });
+
+      root.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
+        if (image.dataset.fallbackApplied === "true") return;
+        image.dataset.fallbackApplied = "true";
+        image.src = image.closest(".betterinv-transfer-header") ? "icons/svg/item-bag.svg" : "icons/svg/mystery-man.svg";
+      }, { once: true }));
+
+      renderActors();
+      updateSelection();
+      search?.focus();
+    }, 50);
+  });
+}
+
+async function transferBetterInvItem(sourceActor, item) {
+  if (!sourceActor || !item) return null;
+  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error("Du darfst den Quell-Actor nicht bearbeiten.");
+
+  const availableQuantity = getItemQuantityData(item).value;
+  if (availableQuantity < 1) {
+    ui.notifications.warn(`${item.name} hat aktuell keine übertragbare Menge.`);
+    return null;
+  }
+
+  const containedItems = getBetterInvItemContainedChildren(sourceActor, item);
+  if (containedItems.length) {
+    ui.notifications.warn(`${item.name} enthält noch ${containedItems.length} Item(s). Leere den Container vor der Übertragung.`);
+    return null;
+  }
+
+  const choice = await promptBetterInvItemTransfer(sourceActor, item);
+  if (!choice) return null;
+  const targetActor = choice.targetActor;
+  if (!targetActor || targetActor.id === sourceActor.id) throw new Error("Der Empfänger ist ungültig.");
+  if (!canBetterInvUserModifyActor(targetActor)) throw new Error("Du darfst den Ziel-Actor nicht bearbeiten.");
+
+  const currentQuantity = getItemQuantityData(item).value;
+  const quantity = Math.max(1, Math.min(currentQuantity, Math.trunc(Number(choice.quantity) || 1)));
+  const data = prepareBetterInvTransferredItemData(item, quantity);
+  let createdItem = null;
+
+  try {
+    const created = await targetActor.createEmbeddedDocuments("Item", [data]);
+    createdItem = created?.[0] ?? null;
+    if (!createdItem) throw new Error("Foundry hat auf dem Ziel-Actor kein Item erstellt.");
+    await setItemCategory(createdItem, "__unsorted", null);
+
+    if (quantity >= currentQuantity) await item.delete();
+    else await setItemQuantity(item, currentQuantity - quantity);
+  } catch (error) {
+    if (createdItem) {
+      try { await createdItem.delete(); }
+      catch (rollbackError) {
+        console.error("Better Inventory | Rollback des übertragenen Items fehlgeschlagen", rollbackError);
+        ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf ein zusätzliches Item.`);
+      }
+    }
+    throw error;
+  }
+
+  ui.notifications.info(`${formatBetterInvNumber(quantity)} × ${item.name} wurde an ${targetActor.name} übertragen.`);
+  return createdItem;
+}
+
 const BETTER_INV_INVENTORY_ITEM_TYPES = [
   "weapon",
   "equipment",
@@ -4038,6 +4366,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.innerHTML = `
     ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
+    <button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen</span></button>
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -4092,6 +4421,18 @@ function openBetterInvItemActionMenu(button, actor, item) {
     } catch (error) {
       console.error("Better Inventory | Favoritenstatus konnte nicht geändert werden", error);
       ui.notifications.error("Der Favoritenstatus konnte nicht geändert werden.");
+    }
+  });
+
+  menu.querySelector(".betterinv-item-action-transfer")?.addEventListener("click", async event => {
+    event.preventDefault();
+    event.stopPropagation();
+    close();
+    try {
+      await transferBetterInvItem(actor, item);
+    } catch (error) {
+      console.error("Better Inventory | Item konnte nicht übertragen werden", error);
+      ui.notifications.error(error?.message || "Das Item konnte nicht übertragen werden.");
     }
   });
 
