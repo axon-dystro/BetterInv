@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Proprietäre Freeware-Lizenz hinzugefügt und im Modulmanifest verknüpft
+- Lizenzbedingungen direkt über das Supportfenster erreichbar gemacht
+- Bereich „Projekt freiwillig unterstützen“ im Supportfenster ergänzt
+- README und Support-Dokumentation um Lizenz- und Unterstützungshinweise erweitert
+
 ## 1.0.0
 
 Erste vollständige Version von Axon’s Inventory für Foundry VTT 14 und D&D 5e 5.3.3.

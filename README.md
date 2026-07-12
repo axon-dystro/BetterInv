@@ -18,8 +18,14 @@ Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODUL
 - Einstellungen: Zahnrad im Inventar-Header
 - Support und Diagnose: Symbole im Inventar-Header
 
-## Support
+## Support und freiwillige Unterstützung
 
 Fehler und Funktionswünsche können über das integrierte Support-Menü oder über GitHub Issues gemeldet werden.
 
+Axon’s Inventory bleibt kostenlos. Wer die weitere Entwicklung freiwillig unterstützen möchte, kann Axon über den im Support-Menü hinterlegten Discord-Kontakt anschreiben. Eine Unterstützung ist freiwillig und schaltet keine zusätzlichen Funktionen frei.
+
 Axon’s Inventory überträgt selbst keine Diagnose- oder Nutzerdaten. Exportierte Fehlerberichte werden lokal erstellt und erst nach ausdrücklicher Bestätigung durch den Nutzer weitergegeben.
+
+## Lizenz
+
+Die Nutzung ist kostenlos, das Modul bleibt jedoch proprietär. Weiterverbreitung, Verkauf, Neuverpackung und Veröffentlichung veränderter Versionen sind ohne ausdrückliche Genehmigung nicht erlaubt. Die vollständigen Bedingungen stehen in [LICENSE](LICENSE).

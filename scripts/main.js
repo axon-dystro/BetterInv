@@ -1,4 +1,5 @@
 /* Axon’s Inventory - Foundry VTT v14 lightweight module */
+// SPDX-License-Identifier: LicenseRef-Axons-Inventory-1.0
 
 const MODULE_ID = "betterinv";
 
@@ -10,7 +11,9 @@ const BETTER_INV_SUPPORT_LINKS = Object.freeze({
   issues: "https://github.com/axon-dystro/BetterInv/issues",
   bugReport: "https://github.com/axon-dystro/BetterInv/issues/new?title=%5BBug%5D%20",
   featureRequest: "https://github.com/axon-dystro/BetterInv/issues/new?title=%5BFeature%5D%20",
-  documentation: "https://github.com/axon-dystro/BetterInv#readme"
+  documentation: "https://github.com/axon-dystro/BetterInv#readme",
+  supportProject: "https://discord.com/users/622739422332321792",
+  license: "https://github.com/axon-dystro/BetterInv/blob/main/LICENSE"
 });
 
 function getBetterInvSupportLink(key) {
@@ -3316,6 +3319,14 @@ function openBetterInvSupportWindow() {
           <small>Die folgenden Schaltflächen öffnen externe Seiten. Axon’s Inventory überträgt selbst keine Nachrichten oder Diagnosedaten.</small>
         </div>
       </section>
+      <section class="betterinv-support-donation">
+        <span class="betterinv-support-donation-icon"><i class="fas fa-heart" aria-hidden="true"></i></span>
+        <span class="betterinv-support-donation-copy">
+          <strong>Projekt freiwillig unterstützen</strong>
+          <small>Axon’s Inventory bleibt kostenlos. Wer die Entwicklung unterstützen möchte, kann Axon unverbindlich auf Discord kontaktieren.</small>
+        </span>
+        <a class="betterinv-support-donation-action" href="${escapeAttr(getBetterInvSupportLink("supportProject"))}" target="_blank" rel="noopener noreferrer">Discord öffnen</a>
+      </section>
       <div class="betterinv-support-grid">
         ${betterInvSupportCardHtml({
           key: "discord",
@@ -3351,6 +3362,13 @@ function openBetterInvSupportWindow() {
           title: "Dokumentation",
           description: "Projektbeschreibung und Nutzungshinweise öffnen.",
           tone: "docs"
+        })}
+        ${betterInvSupportCardHtml({
+          key: "license",
+          icon: "fa-file-contract",
+          title: "Lizenz & Nutzung",
+          description: "Erlaubte Nutzung und Rechtehinweise ansehen.",
+          tone: "license"
         })}
       </div>
     </div>
