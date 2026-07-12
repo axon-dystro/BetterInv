@@ -3022,15 +3022,43 @@ async function deleteBetterInvItem(item) {
   ui.notifications.info(`${item.name} wurde gelöscht.`);
 }
 
+const BETTER_INV_INVENTORY_ITEM_TYPES = [
+  "weapon",
+  "equipment",
+  "consumable",
+  "tool",
+  "loot",
+  "container",
+  "backpack"
+];
+
+const BETTER_INV_INVENTORY_ITEM_TYPE_LABELS = {
+  weapon: "Waffen",
+  equipment: "Ausrüstung",
+  consumable: "Verbrauchsgegenstände",
+  tool: "Werkzeuge",
+  loot: "Beute",
+  container: "Behälter",
+  backpack: "Rucksäcke"
+};
+
+function isBetterInvInventoryItemType(type) {
+  return BETTER_INV_INVENTORY_ITEM_TYPES.includes(String(type ?? "").toLowerCase());
+}
+
+function getBetterInvInventoryItemTypeLabel(type) {
+  const normalized = String(type ?? "").toLowerCase();
+  return BETTER_INV_INVENTORY_ITEM_TYPE_LABELS[normalized] ?? getBetterInvItemTypeLabel(normalized);
+}
+
 function getBetterInvCreatableItemTypes() {
-  const preferred = ["loot", "weapon", "equipment", "consumable", "tool", "container", "backpack"];
   const configured = new Set([
     ...(Array.isArray(game.system?.documentTypes?.Item) ? game.system.documentTypes.Item : []),
     ...Object.keys(CONFIG.Item?.dataModels ?? {}),
     ...Object.keys(CONFIG.Item?.typeLabels ?? {})
   ]);
-  const supported = preferred.filter(type => configured.has(type));
-  return supported.length ? supported : preferred;
+  const supported = BETTER_INV_INVENTORY_ITEM_TYPES.filter(type => configured.has(type));
+  return supported.length ? supported : [...BETTER_INV_INVENTORY_ITEM_TYPES];
 }
 
 function getBetterInvItemTypeLabel(type) {
@@ -3198,24 +3226,27 @@ async function loadBetterInvCompendiumIndexItems(packs) {
     const entries = getBetterInvCollectionValues(index);
     const packLabel = getBetterInvCompendiumLabel(pack);
 
-    return entries.map(entry => {
-      const id = String(entry?._id ?? entry?.id ?? "");
-      const name = String(entry?.name ?? "Unbenanntes Item");
-      const type = String(entry?.type ?? "");
-      const img = String(entry?.img ?? "icons/svg/item-bag.svg");
-      return {
-        key: `${packId}:${id}`,
-        id,
-        name,
-        type,
-        typeLabel: getBetterInvItemTypeLabel(type),
-        img,
-        packId,
-        packLabel,
-        uuid: id ? `Compendium.${packId}.${id}` : "",
-        searchText: normalizeBetterInvSearchText(`${name} ${type} ${getBetterInvItemTypeLabel(type)} ${packLabel}`)
-      };
-    }).filter(item => item.id);
+    return entries
+      .filter(entry => isBetterInvInventoryItemType(entry?.type))
+      .map(entry => {
+        const id = String(entry?._id ?? entry?.id ?? "");
+        const name = String(entry?.name ?? "Unbenannter Gegenstand");
+        const type = String(entry?.type ?? "").toLowerCase();
+        const img = String(entry?.img ?? "icons/svg/item-bag.svg");
+        return {
+          key: `${packId}:${id}`,
+          id,
+          name,
+          type,
+          typeLabel: getBetterInvInventoryItemTypeLabel(type),
+          img,
+          packId,
+          packLabel,
+          uuid: id ? `Compendium.${packId}.${id}` : "",
+          searchText: normalizeBetterInvSearchText(`${name} ${type} ${getBetterInvInventoryItemTypeLabel(type)} ${packLabel}`)
+        };
+      })
+      .filter(item => item.id);
   }));
 
   const items = [];
@@ -3244,7 +3275,7 @@ async function promptBetterInvCompendiumItem(packs) {
   const { items, failedPacks } = await loadBetterInvCompendiumIndexItems(availablePacks);
   if (!items.length) {
     const failedSuffix = failedPacks.length ? ` ${failedPacks.length} Kompendium/Kompendien konnten nicht gelesen werden.` : "";
-    ui.notifications.warn(`In den zugänglichen Item-Kompendien wurden keine Items gefunden.${failedSuffix}`);
+    ui.notifications.warn(`In den zugänglichen Item-Kompendien wurden keine Inventargegenstände gefunden.${failedSuffix}`);
     return null;
   }
 
@@ -3257,11 +3288,11 @@ async function promptBetterInvCompendiumItem(packs) {
       <span>${escapeHtml(pack.label)}</span>
     </button>`).join("");
 
-  const typeValues = Array.from(new Set(items.map(item => item.type).filter(Boolean)))
-    .sort((left, right) => getBetterInvItemTypeLabel(left).localeCompare(getBetterInvItemTypeLabel(right), game.i18n?.lang ?? undefined, { sensitivity: "base" }));
+  const availableTypes = new Set(items.map(item => item.type).filter(Boolean));
+  const typeValues = BETTER_INV_INVENTORY_ITEM_TYPES.filter(type => availableTypes.has(type));
   const typeOptions = typeValues.map(type => `
     <button type="button" class="betterinv-compendium-dropdown-option" data-compendium-dropdown-option data-value="${escapeAttr(type)}" role="option" aria-selected="false">
-      <span>${escapeHtml(getBetterInvItemTypeLabel(type))}</span>
+      <span>${escapeHtml(getBetterInvInventoryItemTypeLabel(type))}</span>
     </button>`).join("");
 
   return await new Promise(resolve => {
@@ -3281,16 +3312,16 @@ async function promptBetterInvCompendiumItem(packs) {
     };
 
     dialog = new Dialog({
-      title: "Item aus Kompendium auswählen",
+      title: "Gegenstand aus Kompendium auswählen",
       content: `
         <div class="betterinv-compendium-browser" data-betterinv-compendium-browser>
           <header class="betterinv-compendium-browser-header">
             <div>
               <span class="betterinv-compendium-browser-kicker">Kompendien durchsuchen</span>
-              <h3>Item auswählen</h3>
-              <p>Durchsuche alle zugänglichen Item-Kompendien und wähle einen Eintrag aus.</p>
+              <h3>Gegenstand auswählen</h3>
+              <p>Es werden nur Inventargegenstände wie Waffen, Ausrüstung, Verbrauchsgegenstände, Werkzeuge, Beute und Behälter angezeigt.</p>
             </div>
-            <span class="betterinv-compendium-browser-total">${escapeHtml(formatBetterInvNumber(items.length))} Items · ${escapeHtml(formatBetterInvNumber(indexedPacks.length))} Kompendien</span>
+            <span class="betterinv-compendium-browser-total">${escapeHtml(formatBetterInvNumber(items.length))} Gegenstände · ${escapeHtml(formatBetterInvNumber(indexedPacks.length))} Kompendien</span>
           </header>
 
           <div class="betterinv-compendium-browser-filters">
@@ -3298,7 +3329,7 @@ async function promptBetterInvCompendiumItem(packs) {
               <span>Suche</span>
               <span class="betterinv-compendium-browser-input-wrap">
                 <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" data-compendium-search placeholder="Name, Typ oder Kompendium …" autocomplete="off">
+                <input type="search" data-compendium-search placeholder="Name oder Kompendium …" autocomplete="off">
               </span>
             </label>
             <div class="betterinv-compendium-browser-filter">
@@ -3317,15 +3348,15 @@ async function promptBetterInvCompendiumItem(packs) {
               </div>
             </div>
             <div class="betterinv-compendium-browser-filter">
-              <span>Itemtyp</span>
+              <span>Gegenstandsart</span>
               <div class="betterinv-compendium-dropdown" data-compendium-dropdown="type">
                 <button type="button" class="betterinv-compendium-dropdown-toggle" data-compendium-dropdown-toggle aria-haspopup="listbox" aria-expanded="false">
-                  <span data-compendium-dropdown-label>Alle Itemtypen</span>
+                  <span data-compendium-dropdown-label>Alle Gegenstände</span>
                   <i class="fas fa-chevron-down" aria-hidden="true"></i>
                 </button>
                 <div class="betterinv-compendium-dropdown-menu" data-compendium-dropdown-menu role="listbox" hidden>
                   <button type="button" class="betterinv-compendium-dropdown-option is-selected" data-compendium-dropdown-option data-value="" role="option" aria-selected="true">
-                    <span>Alle Itemtypen</span>
+                    <span>Alle Gegenstände</span>
                   </button>
                   ${typeOptions}
                 </div>
@@ -3338,10 +3369,10 @@ async function promptBetterInvCompendiumItem(packs) {
             ${failedPacks.length ? `<span class="betterinv-compendium-browser-warning" title="Einige Kompendien konnten nicht gelesen werden."><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>${failedPacks.length} nicht gelesen</span>` : ""}
           </div>
 
-          <div class="betterinv-compendium-browser-results" data-compendium-results role="listbox" aria-label="Gefundene Kompendium-Items"></div>
+          <div class="betterinv-compendium-browser-results" data-compendium-results role="listbox" aria-label="Gefundene Inventargegenstände"></div>
 
           <footer class="betterinv-compendium-browser-footer">
-            <span class="betterinv-compendium-browser-selection" data-compendium-selection>Kein Item ausgewählt</span>
+            <span class="betterinv-compendium-browser-selection" data-compendium-selection>Kein Gegenstand ausgewählt</span>
             <div>
               <button type="button" class="betterinv-compendium-browser-cancel" data-compendium-cancel>
                 <i class="fas fa-xmark" aria-hidden="true"></i>
@@ -3388,7 +3419,7 @@ async function promptBetterInvCompendiumItem(packs) {
         if (selectionElement) {
           selectionElement.textContent = selected
             ? `${selected.name} · ${selected.packLabel}`
-            : "Kein Item ausgewählt";
+            : "Kein Gegenstand ausgewählt";
         }
         if (confirmButton) confirmButton.disabled = !selected;
       };
@@ -3416,8 +3447,8 @@ async function promptBetterInvCompendiumItem(packs) {
           resultsElement.innerHTML = `
             <div class="betterinv-compendium-browser-empty">
               <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-              <strong>Keine Items gefunden</strong>
-              <span>Ändere die Suche oder einen Filter.</span>
+              <strong>Keine Gegenstände gefunden</strong>
+              <span>Ändere die Suche, das Kompendium oder die Gegenstandsart.</span>
             </div>`;
           return;
         }
