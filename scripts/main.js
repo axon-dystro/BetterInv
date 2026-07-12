@@ -302,6 +302,100 @@ function moveElementOutsideBetterInv(el, betterInv) {
   el.style.bottom = "auto";
 }
 
+
+function decorateBetterInvDialog(dialog, { classes = [], avoidOverlap = false, focusSelector = null, selectInput = false } = {}) {
+  bringFoundryDialogsToFront({ avoidOverlap });
+  const element = dialog?.element?.[0]
+    ?? dialog?.element
+    ?? Array.from(document.querySelectorAll('.dialog.app.window-app, .application.dialog')).at(-1);
+  if (!element) return null;
+  element.classList.add("betterinv-dialog-theme", ...classes.filter(Boolean));
+  element.style.zIndex = "26000";
+
+  if (focusSelector) {
+    const input = element.querySelector(focusSelector);
+    if (input) {
+      ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
+        input.addEventListener(type, event => event.stopPropagation(), { capture: true });
+      });
+      input.focus?.({ preventScroll: true });
+      if (selectInput) input.select?.();
+    }
+  }
+  return element;
+}
+
+async function openBetterInvConfirmDialog({
+  title,
+  kicker = "Bitte bestätigen",
+  contentHtml,
+  note = "",
+  image = "",
+  icon = "fa-circle-question",
+  confirmLabel = "Bestätigen",
+  cancelLabel = "Abbrechen",
+  danger = false,
+  variant = "default",
+  width = 460
+} = {}) {
+  return await new Promise(resolve => {
+    let settled = false;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(Boolean(value));
+    };
+
+    const visual = image
+      ? `<img class="betterinv-confirm-visual" src="${escapeAttr(image)}" alt="">`
+      : `<span class="betterinv-confirm-visual betterinv-confirm-icon" aria-hidden="true"><i class="fas ${escapeAttr(icon)}"></i></span>`;
+
+    const dialog = new Dialog({
+      title: String(title || "Bestätigen"),
+      content: `
+        <div class="betterinv-confirm-card ${danger ? "is-danger" : ""} betterinv-confirm-${escapeAttr(variant)}">
+          <div class="betterinv-confirm-main">
+            ${visual}
+            <div class="betterinv-confirm-copy">
+              <span class="betterinv-confirm-kicker">${escapeHtml(kicker)}</span>
+              <div class="betterinv-confirm-message">${contentHtml ?? ""}</div>
+              ${note ? `<p class="betterinv-confirm-note">${escapeHtml(note)}</p>` : ""}
+            </div>
+          </div>
+        </div>`,
+      buttons: {
+        confirm: {
+          icon: `<i class="fas ${danger ? "fa-trash" : "fa-check"}"></i>`,
+          label: confirmLabel,
+          callback: () => done(true)
+        },
+        cancel: {
+          icon: '<i class="fas fa-xmark"></i>',
+          label: cancelLabel,
+          callback: () => done(false)
+        }
+      },
+      default: "confirm",
+      close: () => done(false)
+    }, {
+      width,
+      classes: ["betterinv-confirm-window", danger ? "betterinv-confirm-danger" : "", `betterinv-confirm-window-${variant}`].filter(Boolean)
+    });
+
+    dialog.render(true);
+    setTimeout(() => {
+      const element = decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-confirm-window", danger ? "betterinv-confirm-danger" : "", `betterinv-confirm-window-${variant}`]
+      });
+      element?.querySelectorAll?.("img").forEach(img => img.addEventListener("error", () => {
+        if (img.dataset.fallbackApplied === "true") return;
+        img.dataset.fallbackApplied = "true";
+        img.src = "icons/svg/item-bag.svg";
+      }, { once: true }));
+    }, 40);
+  });
+}
+
 function elevateRecentFoundryApps() {
   for (const delay of [0, 60, 140, 260, 500]) {
     setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: true }), delay);
@@ -548,9 +642,14 @@ async function renameSubcategory(actor, parentCategory, oldSub, newSub, containe
 
 async function deleteSubcategory(actor, parentCategory, subName, containerId = null) {
   if (!actor || parentCategory === "__unsorted") return;
-  const confirmed = await Dialog.confirm({
+  const confirmed = await openBetterInvConfirmDialog({
     title: "Unterkategorie löschen",
-    content: `<p>Unterkategorie <strong>${escapeHtml(subName)}</strong> löschen? Items darin werden nach <strong>${escapeHtml(parentCategory)}</strong> verschoben.</p>`
+    kicker: "Unterkategorie entfernen",
+    icon: "fa-folder-minus",
+    danger: true,
+    confirmLabel: "Löschen",
+    contentHtml: `<p><strong>${escapeHtml(subName)}</strong> wirklich löschen?</p>`,
+    note: `Enthaltene Items werden nach ${parentCategory} verschoben.`
   });
   if (!confirmed) return;
   const subs = (await getSubcategories(actor, parentCategory, containerId)).filter(s => s !== subName);
@@ -609,9 +708,14 @@ async function renameCategory(actor, oldName, newName, containerId = null) {
 
 async function deleteCategory(actor, categoryName, containerId = null) {
   if (!actor || categoryName === "__unsorted") return;
-  const confirmed = await Dialog.confirm({
+  const confirmed = await openBetterInvConfirmDialog({
     title: "Kategorie löschen",
-    content: `<p>Kategorie <strong>${escapeHtml(categoryName)}</strong> löschen? Items darin werden nach <strong>Unsortiert</strong> verschoben.</p>`
+    kicker: "Kategorie entfernen",
+    icon: "fa-folder-minus",
+    danger: true,
+    confirmLabel: "Löschen",
+    contentHtml: `<p><strong>${escapeHtml(categoryName)}</strong> wirklich löschen?</p>`,
+    note: "Enthaltene Items werden nach Unsortiert verschoben."
   });
   if (!confirmed) return;
   const categories = (await getCategories(actor, containerId)).filter(c => c !== categoryName);
@@ -1335,20 +1439,18 @@ async function promptContainerAlias(actor, container) {
       },
       default: "save",
       close: () => done(null)
+    }, {
+      width: 430,
+      classes: ["betterinv-standard-dialog", "betterinv-form-dialog"]
     });
     dialog.render(true);
     setTimeout(() => {
-      bringFoundryDialogsToFront({ avoidOverlap: false });
-      const el = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
-      const input = el?.querySelector?.('input[name="alias"]');
-      if (input) {
-        ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
-          input.addEventListener(type, event => event.stopPropagation(), { capture: true });
-        });
-        input.focus();
-        input.select();
-      }
-    }, 50);
+      decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-standard-dialog", "betterinv-form-dialog"],
+        focusSelector: 'input[name="alias"]',
+        selectInput: true
+      });
+    }, 40);
   });
 }
 
@@ -1365,23 +1467,18 @@ async function promptCategoryName() {
       },
       default: "create",
       close: () => done(null)
+    }, {
+      width: 430,
+      classes: ["betterinv-standard-dialog", "betterinv-form-dialog"]
     });
     dialog.render(true);
     setTimeout(() => {
-      const el = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
-      if (el) {
-        el.style.zIndex = "20000";
-        el.classList.add("betterinv-dialog-top");
-        const input = el.querySelector('input[name="name"]');
-        if (input) {
-          ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
-            input.addEventListener(type, event => event.stopPropagation(), { capture: true });
-          });
-          input.focus();
-          input.select();
-        }
-      }
-    }, 50);
+      decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-standard-dialog", "betterinv-form-dialog"],
+        focusSelector: 'input[name="name"]',
+        selectInput: true
+      });
+    }, 40);
   });
 }
 
@@ -3183,9 +3280,14 @@ async function duplicateBetterInvItem(actor, item) {
 
 async function deleteBetterInvItem(item) {
   if (!item) return;
-  const confirmed = await Dialog.confirm({
+  const confirmed = await openBetterInvConfirmDialog({
     title: "Item löschen",
-    content: `<p><strong>${escapeHtml(item.name)}</strong> wirklich dauerhaft löschen?</p>`
+    kicker: "Dauerhaft entfernen",
+    image: item.img || "icons/svg/item-bag.svg",
+    danger: true,
+    confirmLabel: "Löschen",
+    contentHtml: `<p><strong>${escapeHtml(item.name)}</strong> wirklich dauerhaft löschen?</p>`,
+    note: "Diese Aktion kann nicht rückgängig gemacht werden."
   });
   if (!confirmed) return;
   await item.delete();
@@ -4123,16 +4225,27 @@ function installBetterInvTokenDropFeedback() {
 async function confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity) {
   const amount = Math.max(1, Math.trunc(Number(quantity) || 1));
   const amountText = amount > 1 ? `${formatBetterInvNumber(amount)}× ` : "";
-  return await Dialog.confirm({
-    title: "Gegenstand übergeben?",
-    content: `
-      <div class="betterinv-token-transfer-confirm">
-        <img src="${escapeAttr(sourceItem?.img || "icons/svg/item-bag.svg")}" alt="">
-        <div>
-          <p>Möchtest du <strong>${escapeHtml(amountText)}${escapeHtml(sourceItem?.name || "diesen Gegenstand")}</strong> wirklich an <strong>${escapeHtml(targetActor?.name || "diesen Charakter")}</strong> übergeben?</p>
-          <small>Der Gegenstand wird aus deinem Inventar entfernt und beim Zielcharakter angelegt.</small>
-        </div>
-      </div>`
+  return await openBetterInvConfirmDialog({
+    title: "Gegenstand übergeben",
+    kicker: "Übergabe bestätigen",
+    icon: "fa-right-left",
+    variant: "transfer",
+    confirmLabel: "Übergeben",
+    width: 500,
+    contentHtml: `
+      <div class="betterinv-confirm-transfer-route">
+        <span class="betterinv-confirm-transfer-entity">
+          <img src="${escapeAttr(sourceItem?.img || "icons/svg/item-bag.svg")}" alt="">
+          <span><small>Gegenstand</small><strong>${escapeHtml(amountText)}${escapeHtml(sourceItem?.name || "Unbekannter Gegenstand")}</strong></span>
+        </span>
+        <i class="fas fa-arrow-right" aria-hidden="true"></i>
+        <span class="betterinv-confirm-transfer-entity">
+          <img src="${escapeAttr(targetActor?.img || "icons/svg/mystery-man.svg")}" alt="">
+          <span><small>Empfänger</small><strong>${escapeHtml(targetActor?.name || "Unbekannter Charakter")}</strong></span>
+        </span>
+      </div>
+      <p>Möchtest du diese Übergabe wirklich durchführen?</p>`,
+    note: "Der Gegenstand wird aus deinem Inventar entfernt und beim Zielcharakter angelegt."
   });
 }
 
@@ -5149,20 +5262,18 @@ async function promptNewBetterInvItem() {
       },
       default: "create",
       close: () => done(null)
+    }, {
+      width: 450,
+      classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-new-item-dialog"]
     });
     dialog.render(true);
     setTimeout(() => {
-      bringFoundryDialogsToFront({ avoidOverlap: false });
-      const el = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
-      const input = el?.querySelector?.('input[name="name"]');
-      if (input) {
-        ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
-          input.addEventListener(type, event => event.stopPropagation(), { capture: true });
-        });
-        input.focus();
-        input.select();
-      }
-    }, 50);
+      decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-new-item-dialog"],
+        focusSelector: 'input[name="name"]',
+        selectInput: true
+      });
+    }, 40);
   });
 }
 
@@ -5523,7 +5634,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       const parentCategory = section?.dataset?.category;
       if (!parentCategory || parentCategory === "__unsorted") return;
       const name = await new Promise(resolve => {
-        new Dialog({
+        const dialog = new Dialog({
           title: "Unterkategorie erstellen",
           content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" placeholder="z.B. Vortex Warp" autofocus></div></form>`,
           buttons: {
@@ -5532,8 +5643,15 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
           },
           default: "create",
           close: () => resolve(null)
-        }).render(true);
-        setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+        }, {
+          width: 430,
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog"]
+        });
+        dialog.render(true);
+        setTimeout(() => decorateBetterInvDialog(dialog, {
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog"],
+          focusSelector: 'input[name="name"]'
+        }), 40);
       });
       if (!name) return;
       await addSubcategory(actor, parentCategory, name, activeContainer?.id ?? null);
@@ -5550,7 +5668,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       const currentName = section?.dataset?.subcategory;
       if (!parentCategory || !currentName) return;
       const choice = await new Promise(resolve => {
-        new Dialog({
+        const dialog = new Dialog({
           title: "Unterkategorie bearbeiten",
           content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" value="${escapeAttr(currentName)}" autofocus></div></form>`,
           buttons: {
@@ -5560,8 +5678,16 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
           },
           default: "rename",
           close: () => resolve(null)
-        }).render(true);
-        setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+        }, {
+          width: 450,
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-edit-dialog"]
+        });
+        dialog.render(true);
+        setTimeout(() => decorateBetterInvDialog(dialog, {
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-edit-dialog"],
+          focusSelector: 'input[name="name"]',
+          selectInput: true
+        }), 40);
       });
       if (!choice) return;
       const containerId = activeContainer?.id ?? null;
@@ -5581,7 +5707,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       if (category === "__unsorted") { ui.notifications.info("Unsortiert kann nicht gelöscht werden. Du kannst es aber verschieben."); return; }
       const currentName = category;
       const choice = await new Promise(resolve => {
-        new Dialog({
+        const dialog = new Dialog({
           title: "Kategorie bearbeiten",
           content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" value="${escapeAttr(currentName)}" autofocus></div></form>`,
           buttons: {
@@ -5591,22 +5717,16 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
           },
           default: "rename",
           close: () => resolve(null)
-        }).render(true);
-        setTimeout(() => {
-          const el = document.querySelector('.dialog.app.window-app');
-          if (el) {
-            el.style.zIndex = "20000";
-            el.classList.add("betterinv-dialog-top");
-            const input = el.querySelector('input[name="name"]');
-            if (input) {
-              ["keydown", "keyup", "keypress", "beforeinput", "input", "paste"].forEach(type => {
-                input.addEventListener(type, event => event.stopPropagation(), { capture: true });
-              });
-              input.focus();
-              input.select();
-            }
-          }
-        }, 50);
+        }, {
+          width: 450,
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-edit-dialog"]
+        });
+        dialog.render(true);
+        setTimeout(() => decorateBetterInvDialog(dialog, {
+          classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-edit-dialog"],
+          focusSelector: 'input[name="name"]',
+          selectInput: true
+        }), 40);
       });
       if (!choice) return;
       const containerId = activeContainer?.id ?? null;

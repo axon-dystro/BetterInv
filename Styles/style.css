@@ -4641,3 +4641,454 @@
   color: #a99f8a;
   line-height: 1.3;
 }
+
+/* Phase 6.8.2: unified Axon dialog and spacing polish.
+   This layer intentionally keeps the existing dark/gold design while making
+   prompts, forms and optional inventory sections visually consistent. */
+
+/* Optional sections now use one shared gap instead of stacking their historic margins. */
+.betterinv-content {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.betterinv-content > :empty {
+  display: none !important;
+}
+
+.betterinv-content > .betterinv-actor-encumbrance,
+.betterinv-content > .betterinv-currency,
+.betterinv-content > .betterinv-actor,
+.betterinv-content > .betterinv-containers,
+.betterinv-content > .betterinv-container-view,
+.betterinv-content > .betterinv-toolbar,
+.betterinv-content > .betterinv-search-hits,
+.betterinv-content > .betterinv-favorites,
+.betterinv-content > .betterinv-system-category,
+.betterinv-content > .betterinv-category {
+  margin-block: 0 !important;
+}
+
+/* The detachable settings window follows the same no-ghost-spacing rule. */
+.betterinv-settings-window-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.betterinv-settings-window-scroll > :empty {
+  display: none !important;
+}
+
+.betterinv-settings-window .betterinv-settings-master,
+.betterinv-settings-window .betterinv-settings-group,
+.betterinv-settings-window .betterinv-settings-group + .betterinv-settings-group {
+  margin: 0 !important;
+}
+
+.betterinv-settings-window .betterinv-settings-master {
+  padding-bottom: 10px;
+}
+
+/* Shared Foundry window frame for every dialog opened by Axon's Inventory. */
+:is(
+  .betterinv-dialog-theme,
+  .betterinv-standard-dialog,
+  .betterinv-confirm-window,
+  .betterinv-item-source-dialog,
+  .betterinv-compendium-browser-dialog,
+  .betterinv-transfer-window
+) {
+  overflow: hidden;
+  border: 1px solid rgba(183,164,118,.62) !important;
+  border-radius: 6px !important;
+  background: #0d0d11 !important;
+  box-shadow: 0 24px 82px rgba(0,0,0,.78), 0 0 0 1px #000 inset, 0 0 30px rgba(72,43,105,.13) !important;
+  color: var(--bi-text) !important;
+  font-family: Signika, Georgia, "Times New Roman", serif !important;
+}
+
+:is(
+  .betterinv-dialog-theme,
+  .betterinv-standard-dialog,
+  .betterinv-confirm-window,
+  .betterinv-item-source-dialog,
+  .betterinv-compendium-browser-dialog,
+  .betterinv-transfer-window
+) .window-header {
+  min-height: 38px;
+  padding: 6px 9px 6px 12px;
+  border-bottom: 1px solid rgba(183,164,118,.48) !important;
+  background: linear-gradient(180deg, #1a1a20, #0e0e12) !important;
+  color: #f4ead3 !important;
+  box-shadow: 0 7px 22px rgba(0,0,0,.34);
+}
+
+:is(
+  .betterinv-dialog-theme,
+  .betterinv-standard-dialog,
+  .betterinv-confirm-window,
+  .betterinv-item-source-dialog,
+  .betterinv-compendium-browser-dialog,
+  .betterinv-transfer-window
+) .window-title {
+  color: #f4ead3 !important;
+  font-size: 14px !important;
+  font-weight: 850 !important;
+  letter-spacing: .01em;
+  text-shadow: 1px 1px 2px #000;
+}
+
+:is(
+  .betterinv-dialog-theme,
+  .betterinv-standard-dialog,
+  .betterinv-confirm-window,
+  .betterinv-item-source-dialog,
+  .betterinv-compendium-browser-dialog,
+  .betterinv-transfer-window
+) .window-header :is(.header-button, button) {
+  color: #c9bea5 !important;
+}
+
+:is(
+  .betterinv-dialog-theme,
+  .betterinv-standard-dialog,
+  .betterinv-confirm-window,
+  .betterinv-item-source-dialog,
+  .betterinv-compendium-browser-dialog,
+  .betterinv-transfer-window
+) .window-header :is(.header-button, button):hover {
+  color: #fff1c5 !important;
+}
+
+/* Standard input and editing dialogs. */
+.betterinv-standard-dialog {
+  width: min(450px, calc(100vw - 24px)) !important;
+  min-width: 0 !important;
+}
+
+.betterinv-standard-dialog .window-content,
+.betterinv-standard-dialog .dialog-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), transparent 46%),
+    linear-gradient(135deg, #17171c, #0d0d11 76%) !important;
+  color: var(--bi-text) !important;
+}
+
+.betterinv-standard-dialog .dialog-content {
+  padding: 16px !important;
+}
+
+.betterinv-standard-dialog form,
+.betterinv-standard-dialog .betterinv-new-item-form {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.betterinv-standard-dialog .form-group {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 0 !important;
+}
+
+.betterinv-standard-dialog .form-group > label {
+  color: #b7a476 !important;
+  font-size: 9px !important;
+  font-weight: 900 !important;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.betterinv-standard-dialog :is(input, select, textarea) {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  margin: 0 !important;
+  padding: 7px 9px !important;
+  border: 1px solid rgba(200,168,90,.32) !important;
+  border-radius: 4px !important;
+  outline: 0;
+  background: #09090c !important;
+  color: #f1e8d5 !important;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.55) inset !important;
+  color-scheme: dark;
+}
+
+.betterinv-standard-dialog :is(input, select, textarea):focus {
+  border-color: rgba(200,168,90,.82) !important;
+  box-shadow: 0 0 0 1px rgba(200,168,90,.18), 0 0 12px rgba(200,168,90,.09) !important;
+}
+
+.betterinv-standard-dialog select option {
+  background: #111116;
+  color: #efe6cf;
+}
+
+.betterinv-standard-dialog .notes {
+  margin: 0 !important;
+  padding: 9px 10px;
+  border-left: 2px solid rgba(200,168,90,.48);
+  border-radius: 0 4px 4px 0;
+  background: rgba(200,168,90,.055);
+  color: #9f9580 !important;
+  font-size: 10px !important;
+  line-height: 1.35;
+}
+
+/* Shared footer buttons for standard forms and confirmations. */
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-buttons {
+  margin: 0 !important;
+  padding: 10px 12px !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 7px !important;
+  border-top: 1px solid rgba(200,168,90,.20);
+  background: #101014;
+}
+
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-button {
+  min-height: 34px;
+  margin: 0 !important;
+  padding: 6px 10px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(200,168,90,.28) !important;
+  border-radius: 4px !important;
+  background: linear-gradient(180deg, #25252b, #17171c) !important;
+  color: #d8cfbd !important;
+  font-size: 10px !important;
+  font-weight: 900 !important;
+  letter-spacing: .035em;
+  text-transform: uppercase;
+  box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 2px 5px rgba(0,0,0,.40);
+}
+
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-button:hover,
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-button:focus-visible {
+  border-color: rgba(200,168,90,.72) !important;
+  background: linear-gradient(180deg, #33322f, #1d1c1a) !important;
+  color: #fff1c5 !important;
+  outline: none;
+}
+
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-button[data-button="cancel"] {
+  order: 1;
+}
+
+:is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-button:is([data-button="create"], [data-button="save"], [data-button="rename"], [data-button="confirm"]) {
+  order: 2;
+  border-color: rgba(200,168,90,.54) !important;
+  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98)) !important;
+  color: #f0d994 !important;
+}
+
+.betterinv-standard-dialog .dialog-button[data-button="delete"],
+.betterinv-confirm-danger .dialog-button[data-button="confirm"] {
+  border-color: rgba(194,82,76,.62) !important;
+  background: linear-gradient(180deg, rgba(91,40,38,.98), rgba(43,22,22,.98)) !important;
+  color: #ffc2b9 !important;
+}
+
+.betterinv-standard-dialog .dialog-button[data-button="delete"]:hover,
+.betterinv-confirm-danger .dialog-button[data-button="confirm"]:hover {
+  border-color: rgba(232,112,102,.92) !important;
+  background: linear-gradient(180deg, rgba(117,49,45,.98), rgba(58,27,25,.98)) !important;
+  color: #ffe0db !important;
+}
+
+/* Confirmation cards, including token-to-player handover. */
+.betterinv-confirm-window {
+  width: min(500px, calc(100vw - 24px)) !important;
+  min-width: 0 !important;
+}
+
+.betterinv-confirm-window .window-content,
+.betterinv-confirm-window .dialog-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+  background:
+    radial-gradient(circle at 14% 0%, rgba(200,168,90,.09), transparent 34%),
+    linear-gradient(135deg, #17171c, #0d0d11 76%) !important;
+  color: var(--bi-text) !important;
+}
+
+.betterinv-confirm-card {
+  padding: 16px;
+}
+
+.betterinv-confirm-main {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: start;
+  gap: 13px;
+}
+
+.betterinv-confirm-visual {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.46);
+  border-radius: 6px;
+  background: linear-gradient(180deg, #222228, #101014);
+  color: #d8c795;
+  box-shadow: 0 4px 14px rgba(0,0,0,.42), 0 0 0 1px rgba(0,0,0,.55) inset;
+}
+
+.betterinv-confirm-icon > i {
+  font-size: 20px;
+}
+
+.betterinv-confirm-card.is-danger .betterinv-confirm-visual {
+  border-color: rgba(194,82,76,.55);
+  background: linear-gradient(180deg, #351d1e, #171013);
+  color: #f0a59c;
+}
+
+.betterinv-confirm-copy {
+  min-width: 0;
+}
+
+.betterinv-confirm-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: #b7a476;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.betterinv-confirm-card.is-danger .betterinv-confirm-kicker {
+  color: #d9948c;
+}
+
+.betterinv-confirm-message,
+.betterinv-confirm-message p {
+  margin: 0;
+  color: #f0e6d0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.betterinv-confirm-message strong {
+  color: #fff2ce;
+  font-weight: 900;
+}
+
+.betterinv-confirm-note {
+  margin: 8px 0 0;
+  padding: 7px 9px;
+  border-left: 2px solid rgba(200,168,90,.42);
+  border-radius: 0 4px 4px 0;
+  background: rgba(200,168,90,.05);
+  color: #9e9582;
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.betterinv-confirm-card.is-danger .betterinv-confirm-note {
+  border-left-color: rgba(194,82,76,.52);
+  background: rgba(194,82,76,.055);
+}
+
+.betterinv-confirm-transfer-route {
+  margin-bottom: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+}
+
+.betterinv-confirm-transfer-route > i {
+  color: #b7a476;
+  font-size: 11px;
+  text-align: center;
+}
+
+.betterinv-confirm-transfer-entity {
+  min-width: 0;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(200,168,90,.22);
+  border-radius: 5px;
+  background: rgba(7,7,10,.58);
+}
+
+.betterinv-confirm-transfer-entity > img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 1px solid rgba(200,168,90,.34);
+  border-radius: 4px;
+  background: #08080a;
+}
+
+.betterinv-confirm-transfer-entity > span {
+  min-width: 0;
+}
+
+.betterinv-confirm-transfer-entity small,
+.betterinv-confirm-transfer-entity strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-confirm-transfer-entity small {
+  margin-bottom: 2px;
+  color: #8f8674;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.betterinv-confirm-transfer-entity strong {
+  color: #efe6cf;
+  font-size: 10px;
+}
+
+/* Keep bespoke dialogs on the same title-bar and edge system. */
+:is(.betterinv-item-source-dialog, .betterinv-compendium-browser-dialog, .betterinv-transfer-window) .window-content {
+  border-radius: 0 0 5px 5px;
+}
+
+@media (max-width: 480px) {
+  .betterinv-confirm-main {
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .betterinv-confirm-visual {
+    width: 42px;
+    height: 42px;
+  }
+
+  .betterinv-confirm-transfer-route {
+    grid-template-columns: 1fr;
+  }
+
+  .betterinv-confirm-transfer-route > i {
+    transform: rotate(90deg);
+  }
+
+  :is(.betterinv-standard-dialog, .betterinv-confirm-window) .dialog-buttons {
+    grid-template-columns: 1fr;
+  }
+}
