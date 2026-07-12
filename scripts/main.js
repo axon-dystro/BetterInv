@@ -2938,14 +2938,14 @@ function getItemQuantityData(item) {
   };
 }
 
-async function setItemQuantity(item, value) {
+async function setItemQuantity(item, value, operation = {}) {
   if (!item) return;
   const quantity = getItemQuantityData(item);
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return;
   const next = Math.max(0, Math.floor(parsed));
   if (next === quantity.value) return;
-  await item.update({ [quantity.updatePath]: next });
+  await item.update({ [quantity.updatePath]: next }, operation);
 }
 
 async function changeItemQuantity(item, delta) {
@@ -3061,6 +3061,73 @@ function getBetterInvActorTypeLabel(actor) {
 function getBetterInvItemContainedChildren(actor, containerItem) {
   if (!actor || !containerItem || !isContainerLike(containerItem)) return [];
   return Array.from(actor.items ?? []).filter(item => item.id !== containerItem.id && itemIsInContainer(item, containerItem));
+}
+
+function getBetterInvItemDocumentImplementation() {
+  let documentClass = CONFIG?.Item?.documentClass ?? null;
+  if (!documentClass && typeof getDocumentClass === "function") {
+    try { documentClass = getDocumentClass("Item"); }
+    catch (_error) { documentClass = null; }
+  }
+  return documentClass?.implementation ?? documentClass ?? globalThis.Item?.implementation ?? globalThis.Item ?? null;
+}
+
+async function resolveBetterInvNativeTransferSource(item) {
+  if (!item) return { document: null, dragData: null, usedNativeDropData: false };
+
+  let dragData = null;
+  try {
+    dragData = typeof item.toDragData === "function"
+      ? item.toDragData()
+      : { type: "Item", uuid: item.uuid };
+  } catch (error) {
+    console.debug("Better Inventory | Foundry-Dragdaten konnten nicht erzeugt werden; direkter Dokument-Fallback", error);
+    dragData = { type: "Item", uuid: item.uuid };
+  }
+
+  const ItemImplementation = getBetterInvItemDocumentImplementation();
+  if (dragData && typeof ItemImplementation?.fromDropData === "function") {
+    try {
+      const resolved = await ItemImplementation.fromDropData(dragData);
+      if (resolved && typeof resolved.toObject === "function") {
+        return { document: resolved, dragData, usedNativeDropData: true };
+      }
+    } catch (error) {
+      console.debug("Better Inventory | Foundrys fromDropData konnte das Item nicht auflösen; direkter Dokument-Fallback", error);
+    }
+  }
+
+  return { document: item, dragData, usedNativeDropData: false };
+}
+
+async function createBetterInvTransferredItem(targetActor, data, operation = {}) {
+  const ItemImplementation = getBetterInvItemDocumentImplementation();
+
+  // Prefer Foundry's configured Item implementation. This allows the active
+  // game system to run its own Item creation lifecycle for the target Actor.
+  if (typeof ItemImplementation?.createDocuments === "function") {
+    const created = await ItemImplementation.createDocuments([data], {
+      ...operation,
+      parent: targetActor
+    });
+    return created?.[0] ?? null;
+  }
+
+  // Compatibility fallback for systems or older environments without the
+  // static Document creation API.
+  const created = await targetActor.createEmbeddedDocuments("Item", [data], operation);
+  return created?.[0] ?? null;
+}
+
+function getBetterInvTransferOperation(sourceActor, sourceItem, targetActor, quantity) {
+  return {
+    betterInventoryTransfer: {
+      sourceActorUuid: sourceActor?.uuid ?? null,
+      sourceItemUuid: sourceItem?.uuid ?? null,
+      targetActorUuid: targetActor?.uuid ?? null,
+      quantity
+    }
+  };
 }
 
 function prepareBetterInvTransferredItemData(item, quantity) {
@@ -3324,20 +3391,28 @@ async function transferBetterInvItem(sourceActor, item) {
 
   const currentQuantity = getItemQuantityData(item).value;
   const quantity = Math.max(1, Math.min(currentQuantity, Math.trunc(Number(choice.quantity) || 1)));
-  const data = prepareBetterInvTransferredItemData(item, quantity);
+  const nativeSource = await resolveBetterInvNativeTransferSource(item);
+  const transferDocument = nativeSource.document ?? item;
+  const data = prepareBetterInvTransferredItemData(transferDocument, quantity);
+  const operation = getBetterInvTransferOperation(sourceActor, item, targetActor, quantity);
   let createdItem = null;
 
   try {
-    const created = await targetActor.createEmbeddedDocuments("Item", [data]);
-    createdItem = created?.[0] ?? null;
+    createdItem = await createBetterInvTransferredItem(targetActor, data, operation);
     if (!createdItem) throw new Error("Foundry hat auf dem Ziel-Actor kein Item erstellt.");
+
+    // Some systems normalize quantity during creation. Correct it through the
+    // system Item document after creation so the requested transfer stays exact.
+    if (getItemQuantityData(createdItem).value !== quantity) {
+      await setItemQuantity(createdItem, quantity, operation);
+    }
     await setItemCategory(createdItem, "__unsorted", null);
 
-    if (quantity >= currentQuantity) await item.delete();
-    else await setItemQuantity(item, currentQuantity - quantity);
+    if (quantity >= currentQuantity) await item.delete(operation);
+    else await setItemQuantity(item, currentQuantity - quantity, operation);
   } catch (error) {
     if (createdItem) {
-      try { await createdItem.delete(); }
+      try { await createdItem.delete({ ...operation, betterInventoryRollback: true }); }
       catch (rollbackError) {
         console.error("Better Inventory | Rollback des übertragenen Items fehlgeschlagen", rollbackError);
         ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf ein zusätzliches Item.`);
