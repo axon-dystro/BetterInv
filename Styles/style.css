@@ -4518,3 +4518,126 @@
     height: 46px;
   }
 }
+
+/* Phase 6.8.1: compact item drag preview and clear player-token drop feedback. */
+.betterinv-item-drag-preview {
+  position: fixed;
+  left: -10000px;
+  top: -10000px;
+  z-index: 99999;
+  width: 184px;
+  min-height: 44px;
+  padding: 5px 7px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+  overflow: hidden;
+  border: 1px solid rgba(216,199,149,.82);
+  border-radius: 6px;
+  background: linear-gradient(180deg, rgba(38,38,45,.98), rgba(17,17,21,.98));
+  color: #f2e6ca;
+  box-shadow: 0 10px 28px rgba(0,0,0,.78), 0 0 0 1px rgba(255,255,255,.06) inset;
+  font-family: Signika, Georgia, "Times New Roman", serif;
+}
+
+.betterinv-item-drag-preview > img {
+  width: 34px;
+  height: 34px;
+  object-fit: cover;
+  border: 1px solid rgba(216,199,149,.42);
+  border-radius: 4px;
+  background: #09090c;
+}
+
+.betterinv-item-drag-preview strong,
+.betterinv-item-drag-preview small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-item-drag-preview strong {
+  color: #fff1cf;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.betterinv-item-drag-preview small {
+  padding: 3px 5px;
+  border: 1px solid rgba(216,199,149,.28);
+  border-radius: 999px;
+  background: rgba(5,5,8,.62);
+  color: #d8c795;
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.betterinv-token-drop-feedback {
+  position: fixed;
+  z-index: 99998;
+  pointer-events: none;
+  box-sizing: border-box;
+  display: grid;
+  place-items: end center;
+  padding: 4px;
+  border: 2px solid rgba(183,231,152,.95);
+  border-radius: 10px;
+  background: radial-gradient(circle at center, rgba(103,171,75,.08), rgba(103,171,75,.22));
+  box-shadow: 0 0 0 2px rgba(0,0,0,.72), 0 0 18px rgba(133,214,98,.72), 0 0 34px rgba(133,214,98,.28) inset;
+  transform-origin: center;
+  animation: betterinv-token-drop-wiggle .42s ease-in-out infinite alternate;
+}
+
+.betterinv-token-drop-feedback > span {
+  max-width: calc(100% - 6px);
+  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid rgba(183,231,152,.78);
+  border-radius: 999px;
+  background: rgba(10,17,9,.92);
+  color: #e5ffd7;
+  box-shadow: 0 3px 10px rgba(0,0,0,.68);
+  font: 900 9px/1 Signika, Georgia, serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes betterinv-token-drop-wiggle {
+  0% { transform: translateX(-2px) rotate(-.7deg) scale(.995); }
+  100% { transform: translateX(2px) rotate(.7deg) scale(1.012); }
+}
+
+.betterinv-token-transfer-confirm {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 6px 2px;
+}
+
+.betterinv-token-transfer-confirm > img {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  border: 1px solid rgba(200,168,90,.46);
+  border-radius: 5px;
+  background: #09090c;
+}
+
+.betterinv-token-transfer-confirm p {
+  margin: 0 0 5px;
+  color: #efe6cf;
+  line-height: 1.35;
+}
+
+.betterinv-token-transfer-confirm small {
+  display: block;
+  color: #a99f8a;
+  line-height: 1.3;
+}

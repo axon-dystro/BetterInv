@@ -77,6 +77,10 @@ const BETTER_INV_SETTINGS_GROUPS = [
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
 let betterInvActionMenuButton = null;
+let betterInvActiveItemDrag = null;
+let betterInvTokenDropOverlay = null;
+let betterInvTokenDropTargetId = null;
+let betterInvTokenDropFeedbackInstalled = false;
 let betterInvState = {
   actorId: null,
   containerId: null,
@@ -102,6 +106,7 @@ Hooks.once("ready", async () => {
   ensureBetterInvButton();
   installBetterInvInputGuard();
   installBetterInvDialogZGuard();
+  installBetterInvTokenDropFeedback();
 });
 
 Hooks.on("renderHotbar", () => ensureBetterInvButton());
@@ -3947,6 +3952,190 @@ function enableBetterInvExternalItemDrops(windowEl, actor, activeContainer = nul
   });
 }
 
+
+function createBetterInvItemDragPreview(item, quantity = 1) {
+  removeBetterInvItemDragPreview();
+  const preview = document.createElement("div");
+  preview.className = "betterinv-item-drag-preview";
+  preview.setAttribute("aria-hidden", "true");
+  const amount = Math.max(0, Math.trunc(Number(quantity) || 0));
+  preview.innerHTML = `
+    <img src="${escapeAttr(item?.img || "icons/svg/item-bag.svg")}" alt="">
+    <strong>${escapeHtml(item?.name || "Gegenstand")}</strong>
+    ${amount > 1 ? `<small>×${escapeHtml(formatBetterInvNumber(amount))}</small>` : ""}`;
+  preview.querySelector("img")?.addEventListener("error", event => {
+    event.currentTarget.src = "icons/svg/item-bag.svg";
+  }, { once: true });
+  document.body.appendChild(preview);
+  return preview;
+}
+
+function removeBetterInvItemDragPreview() {
+  betterInvActiveItemDrag?.previewElement?.remove?.();
+  document.querySelectorAll(".betterinv-item-drag-preview").forEach(element => element.remove());
+  if (betterInvActiveItemDrag) betterInvActiveItemDrag.previewElement = null;
+}
+
+function getBetterInvCanvasView() {
+  return canvas?.app?.canvas
+    ?? canvas?.app?.view
+    ?? document.querySelector("#board canvas")
+    ?? document.querySelector("canvas#board")
+    ?? null;
+}
+
+function getBetterInvCanvasPointFromDragEvent(event) {
+  const view = getBetterInvCanvasView();
+  if (!view || !event) return null;
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  const targetElement = event.target instanceof Element ? event.target : null;
+  const isOverCanvas = path.includes(view) || event.target === view || Boolean(targetElement?.closest?.("#board"));
+  if (path.length && !isOverCanvas) return null;
+
+  const rect = view.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+  const clientX = Number(event.clientX);
+  const clientY = Number(event.clientY);
+  if (!Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
+  if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) return null;
+
+  const renderWidth = Number(view.width) || rect.width;
+  const renderHeight = Number(view.height) || rect.height;
+  const screenX = (clientX - rect.left) * (renderWidth / rect.width);
+  const screenY = (clientY - rect.top) * (renderHeight / rect.height);
+  const stageTransform = canvas?.stage?.worldTransform;
+  const PointClass = globalThis.PIXI?.Point;
+
+  if (stageTransform?.applyInverse && PointClass) {
+    try {
+      const point = stageTransform.applyInverse(new PointClass(screenX, screenY));
+      if (Number.isFinite(point?.x) && Number.isFinite(point?.y)) return { x: point.x, y: point.y };
+    } catch (_error) {}
+  }
+
+  const fallback = canvas?.mousePosition;
+  if (Number.isFinite(fallback?.x) && Number.isFinite(fallback?.y)) return { x: fallback.x, y: fallback.y };
+  return null;
+}
+
+function isBetterInvPlayerCharacterActor(actor) {
+  if (!actor) return false;
+  const type = String(actor.type ?? "").trim().toLowerCase();
+  if (type) return type === "character";
+  return actor.hasPlayerOwner === true;
+}
+
+function isBetterInvValidTokenTransferTarget(token, sourceActorId = null) {
+  const actor = token?.actor;
+  if (!actor || actor.id === sourceActorId) return false;
+  if (!isBetterInvPlayerCharacterActor(actor)) return false;
+  return canBetterInvUserModifyActor(actor);
+}
+
+function getBetterInvTokenScreenRect(token) {
+  const view = getBetterInvCanvasView();
+  const rect = view?.getBoundingClientRect?.();
+  const bounds = token?.bounds ?? token?.getBounds?.();
+  const stageTransform = canvas?.stage?.worldTransform;
+  const PointClass = globalThis.PIXI?.Point;
+  if (!view || !rect || !bounds || !stageTransform?.apply || !PointClass) return null;
+
+  try {
+    const topLeft = stageTransform.apply(new PointClass(bounds.x, bounds.y));
+    const bottomRight = stageTransform.apply(new PointClass(bounds.x + bounds.width, bounds.y + bounds.height));
+    const renderWidth = Number(view.width) || rect.width;
+    const renderHeight = Number(view.height) || rect.height;
+    const scaleX = rect.width / renderWidth;
+    const scaleY = rect.height / renderHeight;
+    const left = rect.left + Math.min(topLeft.x, bottomRight.x) * scaleX;
+    const top = rect.top + Math.min(topLeft.y, bottomRight.y) * scaleY;
+    const width = Math.max(24, Math.abs(bottomRight.x - topLeft.x) * scaleX);
+    const height = Math.max(24, Math.abs(bottomRight.y - topLeft.y) * scaleY);
+    return { left, top, width, height };
+  } catch (_error) {
+    return null;
+  }
+}
+
+function clearBetterInvTokenDropFeedback() {
+  betterInvTokenDropOverlay?.remove?.();
+  betterInvTokenDropOverlay = null;
+  betterInvTokenDropTargetId = null;
+}
+
+function showBetterInvTokenDropFeedback(token) {
+  if (!token?.actor) return clearBetterInvTokenDropFeedback();
+  const tokenId = String(token.id ?? token.document?.id ?? token.actor.id);
+  const screenRect = getBetterInvTokenScreenRect(token);
+  if (!screenRect) return clearBetterInvTokenDropFeedback();
+
+  if (!betterInvTokenDropOverlay) {
+    betterInvTokenDropOverlay = document.createElement("div");
+    betterInvTokenDropOverlay.className = "betterinv-token-drop-feedback";
+    betterInvTokenDropOverlay.setAttribute("aria-hidden", "true");
+    document.body.appendChild(betterInvTokenDropOverlay);
+  }
+
+  betterInvTokenDropTargetId = tokenId;
+  betterInvTokenDropOverlay.style.left = `${screenRect.left}px`;
+  betterInvTokenDropOverlay.style.top = `${screenRect.top}px`;
+  betterInvTokenDropOverlay.style.width = `${screenRect.width}px`;
+  betterInvTokenDropOverlay.style.height = `${screenRect.height}px`;
+  betterInvTokenDropOverlay.innerHTML = `<span><i class="fas fa-gift" aria-hidden="true"></i>${escapeHtml(token.actor.name)}</span>`;
+}
+
+function installBetterInvTokenDropFeedback() {
+  if (betterInvTokenDropFeedbackInstalled) return;
+  betterInvTokenDropFeedbackInstalled = true;
+
+  document.addEventListener("dragover", event => {
+    if (!betterInvActiveItemDrag) return;
+    const point = getBetterInvCanvasPointFromDragEvent(event);
+    if (!point) {
+      clearBetterInvTokenDropFeedback();
+      return;
+    }
+
+    const token = findBetterInvTokenAtCanvasPoint(canvas, point.x, point.y);
+    if (!isBetterInvValidTokenTransferTarget(token, betterInvActiveItemDrag.sourceActorId)) {
+      clearBetterInvTokenDropFeedback();
+      return;
+    }
+
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    showBetterInvTokenDropFeedback(token);
+  }, true);
+
+  document.addEventListener("drop", () => {
+    window.setTimeout(clearBetterInvTokenDropFeedback, 0);
+  }, true);
+
+  document.addEventListener("dragend", () => {
+    clearBetterInvTokenDropFeedback();
+    removeBetterInvItemDragPreview();
+    betterInvActiveItemDrag = null;
+  }, true);
+
+  window.addEventListener("blur", clearBetterInvTokenDropFeedback);
+}
+
+async function confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity) {
+  const amount = Math.max(1, Math.trunc(Number(quantity) || 1));
+  const amountText = amount > 1 ? `${formatBetterInvNumber(amount)}× ` : "";
+  return await Dialog.confirm({
+    title: "Gegenstand übergeben?",
+    content: `
+      <div class="betterinv-token-transfer-confirm">
+        <img src="${escapeAttr(sourceItem?.img || "icons/svg/item-bag.svg")}" alt="">
+        <div>
+          <p>Möchtest du <strong>${escapeHtml(amountText)}${escapeHtml(sourceItem?.name || "diesen Gegenstand")}</strong> wirklich an <strong>${escapeHtml(targetActor?.name || "diesen Charakter")}</strong> übergeben?</p>
+          <small>Der Gegenstand wird aus deinem Inventar entfernt und beim Zielcharakter angelegt.</small>
+        </div>
+      </div>`
+  });
+}
+
 function findBetterInvTokenAtCanvasPoint(canvasInstance, x, y) {
   const pointX = Number(x);
   const pointY = Number(y);
@@ -3998,8 +4187,20 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
     ui.notifications.info("Das Item liegt bereits bei diesem Charakter.");
     return;
   }
+  if (!isBetterInvPlayerCharacterActor(targetActor)) {
+    ui.notifications.warn("Items können per Token-Drop nur an Spielercharaktere übergeben werden, nicht an NPCs.");
+    return;
+  }
+  if (!canBetterInvUserModifyActor(targetActor)) {
+    ui.notifications.warn(`Du darfst ${targetActor.name} nicht bearbeiten.`);
+    return;
+  }
 
   const quantity = getItemQuantityData(sourceItem).value;
+  clearBetterInvTokenDropFeedback();
+  const confirmed = await confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity);
+  if (!confirmed) return;
+
   await transferBetterInvItemToActor(sourceActor, sourceItem, targetActor, quantity);
   if (document.getElementById("betterinv-window")) renderBetterInvWindow();
 }
@@ -5922,16 +6123,27 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
         return;
       }
       row.classList.add("betterinv-item-dragging");
+      const quantity = getItemQuantityData(item).value;
+      const previewElement = createBetterInvItemDragPreview(item, quantity);
+      betterInvActiveItemDrag = {
+        sourceActorId: actor.id,
+        sourceItemId: item.id,
+        previewElement
+      };
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("application/x-betterinv-item", row.dataset.itemId);
+      event.dataTransfer.setData("application/x-betterinv-transfer", item.id);
       event.dataTransfer.setData("text/plain", JSON.stringify({
         type: "BetterInventoryItemTransfer",
         sourceActorUuid: actor.uuid,
         sourceActorId: actor.id,
         sourceItemUuid: item.uuid,
         sourceItemId: item.id,
-        quantity: getItemQuantityData(item).value
+        quantity
       }));
+      if (typeof event.dataTransfer.setDragImage === "function") {
+        event.dataTransfer.setDragImage(previewElement, 22, 22);
+      }
       event.stopPropagation();
     });
     row.addEventListener("dragend", async event => {
@@ -5942,6 +6154,9 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
       if (indicator?.parentNode) indicator.parentNode.insertBefore(row, indicator);
       clearDropIndicator(windowEl);
       row.classList.remove("betterinv-item-dragging");
+      clearBetterInvTokenDropFeedback();
+      removeBetterInvItemDragPreview();
+      betterInvActiveItemDrag = null;
 
       const item = actor?.items?.get(row.dataset.itemId);
       if (item && targetCategory && row.dataset.category !== targetCategory) {
