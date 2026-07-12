@@ -1,4 +1,4 @@
-/* Better Inventory - Foundry-fit dark UI by Axon */
+/* Axon’s Inventory - Foundry-fit dark UI by Axon */
 :root {
   --bi-bg: #0b0b0d;
   --bi-panel: #151519;
@@ -731,7 +731,7 @@
   min-height: 28px;
 }
 
-/* Keep every Foundry/DnD5e prompt opened from Better Inventory above our window. */
+/* Keep every Foundry/DnD5e prompt opened from Axon’s Inventory above our window. */
 .dialog.app.window-app,
 .application.dialog,
 .dnd5e2.dialog,

@@ -1,4 +1,4 @@
-/* Better Inventory - Foundry VTT v14 lightweight module */
+/* Axon’s Inventory - Foundry VTT v14 lightweight module */
 
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
@@ -153,7 +153,7 @@ Hooks.once("init", () => {
 });
 
 Hooks.once("ready", async () => {
-  console.log("Better Inventory loaded!");
+  console.log("Axon’s Inventory loaded!");
   await initializeBetterInvUserSettings();
   ensureBetterInvButton();
   syncBetterInvRuntimeState(getBetterInvUserSettings());
@@ -219,7 +219,7 @@ function installBetterInvOperationalHooks() {
     try {
       await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
     } catch (error) {
-      console.error("Better Inventory | Item konnte nicht auf den Token übertragen werden", error);
+      console.error("Axon’s Inventory | Item konnte nicht auf den Token übertragen werden", error);
       ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Item konnte nicht auf den Token übertragen werden.");
     }
   });
@@ -273,8 +273,8 @@ function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
 function registerBetterInvHotkey() {
   if (!game?.keybindings) return;
   game.keybindings.register(MODULE_ID, "toggleInventory", {
-    name: "Better Inventory öffnen/schließen",
-    hint: "Öffnet oder schließt das Better-Inventory-Fenster.",
+    name: "Axon’s Inventory öffnen/schließen",
+    hint: "Öffnet oder schließt das Fenster von Axon’s Inventory.",
     editable: [{ key: "KeyI" }],
     onDown: () => { toggleBetterInvWindow(); return true; },
     restricted: false,
@@ -310,7 +310,7 @@ function getBetterInvUserSettings() {
   try {
     return normalizeBetterInvUserSettings(game.user?.getFlag?.(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG));
   } catch (error) {
-    console.warn("Better Inventory | Persönliche Einstellungen konnten nicht gelesen werden", error);
+    console.warn("Axon’s Inventory | Persönliche Einstellungen konnten nicht gelesen werden", error);
     return { ...DEFAULT_BETTER_INV_USER_SETTINGS };
   }
 }
@@ -628,7 +628,7 @@ function ensureBetterInvButton() {
   const button = document.createElement("button");
   button.id = "betterinv-button";
   button.type = "button";
-  button.title = "Better Inventory öffnen (I)";
+  button.title = "Axon’s Inventory öffnen (I)";
   button.innerHTML = `<img src="icons/containers/bags/pack-leather-brown.webp" alt="">`;
   button.addEventListener("click", () => toggleBetterInvWindow());
   hotbar.appendChild(button);
@@ -1816,7 +1816,7 @@ async function renderBetterInvDisabledWindow() {
       await saveBetterInvUserSettings({ moduleEnabled: true });
       await renderBetterInvWindow({ preserveScroll: false });
     } catch (error) {
-      console.error("Better Inventory | Reaktivierung fehlgeschlagen", error);
+      console.error("Axon’s Inventory | Reaktivierung fehlgeschlagen", error);
       ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
       if (button instanceof HTMLButtonElement) button.disabled = false;
     }
@@ -1875,7 +1875,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         await saveBetterInvUserSettings({ moduleEnabled: true });
         await renderBetterInvWindow({ preserveScroll: false });
       } catch (error) {
-        console.error("Better Inventory | Reaktivierung fehlgeschlagen", error);
+        console.error("Axon’s Inventory | Reaktivierung fehlgeschlagen", error);
         ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
         if (button instanceof HTMLButtonElement) button.disabled = false;
       }
@@ -2657,7 +2657,7 @@ function openBetterInvSettingsWindow() {
       if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
       return savedSettings;
     } catch (error) {
-      console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+      console.error("Axon’s Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
       ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
       syncBetterInvSettingsControls(settingsWindow, previousSettings);
       return null;
@@ -2723,7 +2723,7 @@ function baseShellHtml(bodyHtml) {
   const settingsOpen = Boolean(document.getElementById("betterinv-settings-window"));
   return `
     <header class="betterinv-header">
-      <h2>Better Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
+      <h2>Axon’s Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
@@ -3502,7 +3502,7 @@ async function commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfe
           });
         }
       } catch (rollbackError) {
-        console.error("Better Inventory | Geldtransfer-Rollback fehlgeschlagen", rollbackError);
+        console.error("Axon’s Inventory | Geldtransfer-Rollback fehlgeschlagen", rollbackError);
         error.betterInvUserMessage =
           `Der Geldtransfer ist unklar. Prüfe ${targetActor.name} auf eine zusätzliche Gutschrift und ${sourceActor.name} auf die Abbuchung.`;
         error.betterInvUpdateMayHaveSucceeded = true;
@@ -4912,7 +4912,7 @@ async function resolveBetterInvNativeTransferSource(item) {
       ? item.toDragData()
       : { type: "Item", uuid: item.uuid };
   } catch (error) {
-    console.debug("Better Inventory | Foundry-Dragdaten konnten nicht erzeugt werden; direkter Dokument-Fallback", error);
+    console.debug("Axon’s Inventory | Foundry-Dragdaten konnten nicht erzeugt werden; direkter Dokument-Fallback", error);
     dragData = { type: "Item", uuid: item.uuid };
   }
 
@@ -4924,7 +4924,7 @@ async function resolveBetterInvNativeTransferSource(item) {
         return { document: resolved, dragData, usedNativeDropData: true };
       }
     } catch (error) {
-      console.debug("Better Inventory | Foundrys fromDropData konnte das Item nicht auflösen; direkter Dokument-Fallback", error);
+      console.debug("Axon’s Inventory | Foundrys fromDropData konnte das Item nicht auflösen; direkter Dokument-Fallback", error);
     }
   }
 
@@ -4976,7 +4976,7 @@ function prepareBetterInvTransferredItemData(item, quantity) {
   data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
   delete data.flags[MODULE_ID];
 
-  // Better-Inventory categories and the source actor's container id are local
+  // Categories from Axon’s Inventory and the source actor's container id are local
   // organization data. The receiving actor always gets the item unsorted at root.
   const sourceContainer = foundry.utils.getProperty(data, "system.container");
   if (sourceContainer && typeof sourceContainer === "object" && !Array.isArray(sourceContainer)) {
@@ -5243,7 +5243,7 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
     if (createdItem) {
       try { await createdItem.delete({ ...operation, betterInventoryRollback: true }); }
       catch (rollbackError) {
-        console.error("Better Inventory | Rollback des übertragenen Items fehlgeschlagen", rollbackError);
+        console.error("Axon’s Inventory | Rollback des übertragenen Items fehlgeschlagen", rollbackError);
         ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf ein zusätzliches Item.`);
       }
     }
@@ -5324,7 +5324,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
       const document = await ItemImplementation.fromDropData(data);
       if (document) return document;
     } catch (error) {
-      console.debug("Better Inventory | Foundry konnte die Drop-Daten nicht direkt auflösen", error);
+      console.debug("Axon’s Inventory | Foundry konnte die Drop-Daten nicht direkt auflösen", error);
     }
   }
 
@@ -5334,7 +5334,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
       const document = await globalThis.fromUuid(uuid);
       if (document) return document;
     } catch (error) {
-      console.debug("Better Inventory | UUID-Drop-Fallback fehlgeschlagen", error);
+      console.debug("Axon’s Inventory | UUID-Drop-Fallback fehlgeschlagen", error);
     }
   }
 
@@ -5344,7 +5344,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
     try {
       return await game.packs?.get?.(packId)?.getDocument?.(documentId) ?? null;
     } catch (error) {
-      console.debug("Better Inventory | Kompendium-Drop-Fallback fehlgeschlagen", error);
+      console.debug("Axon’s Inventory | Kompendium-Drop-Fallback fehlgeschlagen", error);
     }
   }
   return null;
@@ -5374,7 +5374,7 @@ async function importBetterInvDroppedItem(actor, sourceItem, { targetContainer =
     if (targetContainer) await moveItemToContainer(item, targetContainer);
     await setItemCategory(item, targetCategory || "__unsorted", targetContainer?.id ?? null);
   } catch (error) {
-    console.warn("Better Inventory | Gedropptes Item wurde erstellt, aber nicht vollständig einsortiert", error);
+    console.warn("Axon’s Inventory | Gedropptes Item wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde hinzugefügt, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -5456,7 +5456,7 @@ function enableBetterInvExternalItemDrops(windowEl, actor, activeContainer = nul
         { forceRefresh: true }
       );
     } catch (error) {
-      console.error("Better Inventory | Externes Item konnte nicht importiert werden", error);
+      console.error("Axon’s Inventory | Externes Item konnte nicht importiert werden", error);
       ui.notifications.error(error?.message || "Der Gegenstand konnte nicht in das Inventar gezogen werden.");
     }
   });
@@ -5924,8 +5924,8 @@ function prepareBetterInvCompendiumItemData(sourceItem, selected = null) {
   delete data.permission;
   delete data._stats;
 
-  // Preserve the source UUID while removing Better Inventory's actor-specific
-  // organization flags which would be stale on the receiving actor.
+  // Preserve the source UUID while removing actor-specific organization flags
+  // from Axon’s Inventory, which would be stale on the receiving actor.
   data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
   delete data.flags[MODULE_ID];
   data.flags.core = data.flags.core && typeof data.flags.core === "object" ? data.flags.core : {};
@@ -5964,7 +5964,7 @@ async function getBetterInvCompendiumDocument(pack, selected) {
       if (document) return document;
     } catch (error) {
       primaryError = error;
-      console.warn("Better Inventory | Kompendium getDocument fehlgeschlagen, UUID-Fallback wird versucht", error);
+      console.warn("Axon’s Inventory | Kompendium getDocument fehlgeschlagen, UUID-Fallback wird versucht", error);
     }
   }
 
@@ -5974,7 +5974,7 @@ async function getBetterInvCompendiumDocument(pack, selected) {
       if (document) return document;
     } catch (error) {
       if (!primaryError) primaryError = error;
-      console.warn("Better Inventory | Kompendium UUID-Fallback fehlgeschlagen", error);
+      console.warn("Axon’s Inventory | Kompendium UUID-Fallback fehlgeschlagen", error);
     }
   }
 
@@ -6009,7 +6009,7 @@ async function importBetterInvCompendiumItem(actor, selected, activeContainer = 
     if (activeContainer) await moveItemToContainer(item, activeContainer);
     await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
   } catch (error) {
-    console.warn("Better Inventory | Importiertes Item wurde erstellt, aber nicht vollständig einsortiert", error);
+    console.warn("Axon’s Inventory | Importiertes Item wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde importiert, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -6803,7 +6803,7 @@ function openBetterInvCategoryMenu(button, actor, item, categoryOptions, contain
           { forceRefresh: true }
         );
       } catch (error) {
-        console.error("Better Inventory | Kategorie konnte nicht geändert werden", error);
+        console.error("Axon’s Inventory | Kategorie konnte nicht geändert werden", error);
         ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
       }
     })();
@@ -6916,7 +6916,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
           delete: ["Item konnte nicht gelöscht werden", "Das Item konnte nicht gelöscht werden."]
         };
         const [logLabel, userMessage] = labels[action] ?? ["Itemaktion fehlgeschlagen", "Die Itemaktion konnte nicht ausgeführt werden."];
-        console.error(`Better Inventory | ${logLabel}`, error);
+        console.error(`Axon’s Inventory | ${logLabel}`, error);
         ui.notifications.error(userMessage);
       }
     })();
@@ -7099,7 +7099,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
             { forceRefresh: true }
           );
         } catch (error) {
-          console.error("Better Inventory | Rucksackname konnte nicht geändert werden", error);
+          console.error("Axon’s Inventory | Rucksackname konnte nicht geändert werden", error);
           ui.notifications.error("Der Rucksackname konnte nicht geändert werden.");
         }
       })();
@@ -7126,15 +7126,15 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
       event.preventDefault();
       event.stopPropagation();
       const config = currencyButton.matches(".betterinv-currency-add")
-        ? [addBetterInvCurrency, "Better Inventory | Währung konnte nicht hinzugefügt werden", "Die Münzen konnten nicht hinzugefügt werden."]
+        ? [addBetterInvCurrency, "Axon’s Inventory | Währung konnte nicht hinzugefügt werden", "Die Münzen konnten nicht hinzugefügt werden."]
         : currencyButton.matches(".betterinv-currency-remove")
-          ? [removeBetterInvCurrency, "Better Inventory | Währung konnte nicht entfernt werden", "Die Münzen konnten nicht bezahlt oder entfernt werden."]
+          ? [removeBetterInvCurrency, "Axon’s Inventory | Währung konnte nicht entfernt werden", "Die Münzen konnten nicht bezahlt oder entfernt werden."]
           : currencyButton.matches(".betterinv-currency-exchange-down")
-            ? [exchangeBetterInvCurrencyDown, "Better Inventory | Münzen konnten nicht abgerundet werden", "Die Münzen konnten nicht abgerundet werden."]
+            ? [exchangeBetterInvCurrencyDown, "Axon’s Inventory | Münzen konnten nicht abgerundet werden", "Die Münzen konnten nicht abgerundet werden."]
             : currencyButton.matches(".betterinv-currency-exchange-up")
-              ? [exchangeBetterInvCurrencyUp, "Better Inventory | Münzen konnten nicht aufgerundet werden", "Die Münzen konnten nicht aufgerundet werden."]
+              ? [exchangeBetterInvCurrencyUp, "Axon’s Inventory | Münzen konnten nicht aufgerundet werden", "Die Münzen konnten nicht aufgerundet werden."]
               : currencyButton.matches(".betterinv-currency-transfer") && featurePlan.currencyTransfer
-                ? [transferBetterInvCurrency, "Better Inventory | Münzen konnten nicht übertragen werden", "Die Münzen konnten nicht übertragen werden."]
+                ? [transferBetterInvCurrency, "Axon’s Inventory | Münzen konnten nicht übertragen werden", "Die Münzen konnten nicht übertragen werden."]
                 : null;
       if (config) {
         const [action, logMessage, errorMessage] = config;
@@ -7170,7 +7170,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
 
     if (button.matches(".betterinv-open-item")) {
       void useOrOpenItem(item, event).catch(error => {
-        console.error("Better Inventory | Item konnte nicht geöffnet oder benutzt werden", error);
+        console.error("Axon’s Inventory | Item konnte nicht geöffnet oder benutzt werden", error);
         ui.notifications.error("Das Item konnte nicht geöffnet oder benutzt werden.");
       });
       return;
@@ -7183,7 +7183,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         const delta = button.classList.contains("betterinv-quantity-plus") ? 1 : -1;
         await changeItemQuantity(item, delta);
       } catch (error) {
-        console.error("Better Inventory | Menge konnte nicht geändert werden", error);
+        console.error("Axon’s Inventory | Menge konnte nicht geändert werden", error);
         ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
       } finally {
         if (button.isConnected) button.disabled = false;
@@ -7293,7 +7293,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         field.dataset.originalValue = String(next);
       } catch (error) {
         if (field.isConnected) field.value = String(oldValue);
-        console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
+        console.error("Axon’s Inventory | Menge konnte nicht direkt geändert werden", error);
         ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
       } finally {
         delete field.dataset.saving;
@@ -7387,7 +7387,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     try {
       await createBetterInvItem(actor, activeContainer);
     } catch (error) {
-      console.error("Better Inventory | Item konnte nicht erstellt oder importiert werden", error);
+      console.error("Axon’s Inventory | Item konnte nicht erstellt oder importiert werden", error);
       const reason = sanitizePlainText(error?.message, { max: 220 });
       ui.notifications.error(reason
         ? `Das Item konnte nicht erstellt oder importiert werden: ${reason}`
@@ -7693,10 +7693,10 @@ async function moveItemToContainer(item, targetContainer = null) {
   }
 
   try { await item.update(update); return; }
-  catch (err) { console.warn("Better Inventory | direct container update failed, trying id fallback", err); }
+  catch (err) { console.warn("Axon’s Inventory | direct container update failed, trying id fallback", err); }
 
   try { await item.update({ "system.container": targetContainer?.id ?? "" }); return; }
-  catch (err) { console.warn("Better Inventory | id container update failed", err); }
+  catch (err) { console.warn("Axon’s Inventory | id container update failed", err); }
 
   ui.notifications.warn("Item konnte nicht automatisch in den Container verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
 }
@@ -7967,7 +7967,7 @@ async function useOrOpenItem(item, event) {
       elevateRecentFoundryApps();
       if (result !== null && result !== undefined) return;
     } catch (err) {
-      console.warn("Better Inventory | native item use failed, trying fallback", err);
+      console.warn("Axon’s Inventory | native item use failed, trying fallback", err);
     }
   }
 
@@ -8052,11 +8052,11 @@ function openBetterInvPopup(windowEl) {
   betterInvPopup = popup;
   const bodyHtml = windowEl.querySelector(".betterinv-body")?.innerHTML ?? "";
   popup.document.open();
-  popup.document.write(`<!doctype html><html><head><title>Better Inventory</title><link rel="stylesheet" href="/modules/betterinv/styles/style.css"><style>
+  popup.document.write(`<!doctype html><html><head><title>Axon’s Inventory</title><link rel="stylesheet" href="/modules/betterinv/styles/style.css"><style>
     body{margin:0;min-height:100vh;background:#06080b;color:#eef3f7;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow:auto;padding:18px}
     .betterinv-popup-shell{max-width:820px;margin:0 auto}.betterinv-popup-title{margin:0 0 12px;font-size:22px;font-weight:900;letter-spacing:.02em}.betterinv-note{color:rgba(238,243,247,.62);margin-bottom:14px}
     .betterinv-toolbar,.betterinv-category-picker,.betterinv-edit-item,.betterinv-quantity-controls{display:none!important}.betterinv-item{grid-template-columns:46px minmax(0,1fr)!important}
-  </style></head><body><div class="betterinv-popup-shell"><h1 class="betterinv-popup-title">🎒 Better Inventory</h1><div class="betterinv-note">Popup-Ansicht. Änderungen machst du aktuell im Foundry-Fenster.</div>${bodyHtml}</div></body></html>`);
+  </style></head><body><div class="betterinv-popup-shell"><h1 class="betterinv-popup-title">🎒 Axon’s Inventory</h1><div class="betterinv-note">Popup-Ansicht. Änderungen machst du aktuell im Foundry-Fenster.</div>${bodyHtml}</div></body></html>`);
   popup.document.close();
 }
 
