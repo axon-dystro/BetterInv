@@ -5092,3 +5092,111 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Phase 6.8.3: group-level settings and bulk feature controls. */
+.betterinv-settings-group-header {
+  min-height: 30px;
+  padding: 0 2px 5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgba(200,168,90,.16);
+}
+
+.betterinv-settings-window .betterinv-settings-group-header h3 {
+  margin: 0;
+  min-width: 0;
+}
+
+.betterinv-settings-group-master {
+  min-width: 72px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+  color: #9e947f;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.betterinv-settings-group-master:hover {
+  color: #e3cf9c;
+}
+
+.betterinv-settings-group-master input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #b89a4d;
+  cursor: pointer;
+}
+
+.betterinv-settings-group-master input[type="checkbox"]:indeterminate {
+  accent-color: #8c7440;
+}
+
+.betterinv-settings-bulk-actions {
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.betterinv-settings-bulk-actions button {
+  min-width: 0;
+  min-height: 29px;
+  margin: 0;
+  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid rgba(200,168,90,.34);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(42,42,48,.96), rgba(22,22,27,.96));
+  color: #c9b98f;
+  font: 900 9px/1.1 Signika, Georgia, serif;
+  letter-spacing: .025em;
+  cursor: pointer;
+}
+
+.betterinv-settings-bulk-actions button:hover:not(:disabled) {
+  border-color: rgba(200,168,90,.68);
+  background: linear-gradient(180deg, rgba(58,53,39,.98), rgba(31,27,20,.98));
+  color: #f0d994;
+}
+
+.betterinv-settings-bulk-disable {
+  border-color: rgba(153,83,74,.42) !important;
+  color: #d2a7a0 !important;
+}
+
+.betterinv-settings-bulk-disable:hover:not(:disabled) {
+  border-color: rgba(205,105,91,.70) !important;
+  background: linear-gradient(180deg, rgba(70,38,34,.98), rgba(37,23,21,.98)) !important;
+  color: #ffd0c8 !important;
+}
+
+.betterinv-settings-window.is-saving {
+  cursor: progress;
+}
+
+.betterinv-settings-window.is-saving :is(
+  .betterinv-setting-toggle,
+  .betterinv-settings-group-toggle,
+  [data-settings-bulk]
+) {
+  opacity: .58;
+  cursor: progress;
+}
+
+@media (max-width: 380px) {
+  .betterinv-settings-bulk-actions {
+    grid-template-columns: 1fr;
+  }
+}

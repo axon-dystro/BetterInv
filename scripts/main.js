@@ -3,12 +3,13 @@
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
-const BETTER_INV_USER_SETTINGS_VERSION = 3;
+const BETTER_INV_USER_SETTINGS_VERSION = 4;
 const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   version: BETTER_INV_USER_SETTINGS_VERSION,
   moduleEnabled: true,
   showCurrency: true,
   showCurrencyCalculator: true,
+  showCurrencyTransfer: true,
   showItems: true,
   showSearch: true,
   showCategories: true,
@@ -21,6 +22,7 @@ const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   showEditButton: true,
   showAddItemButton: true,
   showItemActionsMenu: true,
+  showItemTransfer: true,
   showEquipActions: true,
   showCategoryDropdown: true,
   showContainers: true,
@@ -30,14 +32,17 @@ const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
 
 const BETTER_INV_SETTINGS_GROUPS = [
   {
+    id: "currency",
     title: "Geld",
     icon: "fa-coins",
     settings: [
       ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
-      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen, Aufrunden, Abrunden und Handeln."]
+      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen, Aufrunden und Abrunden."],
+      ["showCurrencyTransfer", "Geld handeln", "Zeigt den Handeln-Button für den direkten Münztransfer an andere Spielercharaktere."]
     ]
   },
   {
+    id: "items",
     title: "Items",
     icon: "fa-list",
     settings: [
@@ -53,12 +58,14 @@ const BETTER_INV_SETTINGS_GROUPS = [
       ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Item."],
       ["showAddItemButton", "Item hinzufügen", "Zeigt den Button zum Erstellen eines neuen Items."],
       ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Itemaktionen wie Duplizieren und Löschen."],
+      ["showItemTransfer", "Item handeln / übertragen", "Zeigt Übertragen im Drei-Punkte-Menü und erlaubt die Übergabe per Drag-and-drop auf Spieler-Tokens."],
       ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
       [null, "Einstimmung", "Unterstützung für eingestimmte Gegenstände folgt in einer späteren Version.", { disabled: true, badge: "Coming soon" }],
       ["showCategoryDropdown", "Kategorie-Dropdown", "Zeigt die kleine Kategorienauswahl direkt am Item."]
     ]
   },
   {
+    id: "containers",
     title: "Container",
     icon: "fa-box-open",
     settings: [
@@ -67,6 +74,7 @@ const BETTER_INV_SETTINGS_GROUPS = [
     ]
   },
   {
+    id: "character",
     title: "Charakter",
     icon: "fa-weight-hanging",
     settings: [
@@ -201,12 +209,14 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings()) {
     editButton: items && settings?.showEditButton !== false,
     addItemButton: items && settings?.showAddItemButton !== false,
     itemActionsMenu: items && settings?.showItemActionsMenu !== false,
+    itemTransfer: items && settings?.showItemTransfer !== false,
     equipActions: items && settings?.showEquipActions !== false,
     categoryDropdown: categories && settings?.showCategoryDropdown !== false,
     containerCapacity: containers && settings?.showContainerCapacity !== false,
     encumbrance: enabled && settings?.showEncumbrance !== false,
     currency,
     currencyCalculator,
+    currencyTransfer: currencyCalculator && settings?.showCurrencyTransfer !== false,
     search: enabled && settings?.showSearch !== false && (items || containers),
     needsInventoryCollection: items || containers,
     needsItemDocumentRefresh: items || containers || (enabled && settings?.showEncumbrance !== false),
@@ -1037,7 +1047,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     features.currencyCalculator ? getBetterInvCurrencyDraft(actor) : {},
     {
       editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor),
-      showCalculator: features.currencyCalculator
+      showCalculator: features.currencyCalculator,
+      showTransfer: features.currencyTransfer
     }
   ) : "";
   const searchContainersHtml = (features.containers && features.search && !activeContainer && query)
@@ -1240,31 +1251,80 @@ function closeBetterInvSettingsWindow() {
   updateBetterInvSettingsButtonState();
 }
 
+function getBetterInvSettingsGroupKeys(group) {
+  return Array.from(group?.settings ?? [])
+    .filter(([, , , options = {}]) => !options.disabled)
+    .map(([key]) => key)
+    .filter(key => key && Object.prototype.hasOwnProperty.call(DEFAULT_BETTER_INV_USER_SETTINGS, key));
+}
+
+function getBetterInvAllFeatureSettingKeys() {
+  return Array.from(new Set(BETTER_INV_SETTINGS_GROUPS.flatMap(group => getBetterInvSettingsGroupKeys(group))));
+}
+
+function getBetterInvSettingsGroupState(group, userSettings) {
+  const keys = getBetterInvSettingsGroupKeys(group);
+  const enabledCount = keys.filter(key => userSettings?.[key] !== false).length;
+  return {
+    keys,
+    checked: keys.length > 0 && enabledCount === keys.length,
+    indeterminate: enabledCount > 0 && enabledCount < keys.length
+  };
+}
+
+function syncBetterInvSettingsControls(settingsWindow, userSettings = getBetterInvUserSettings()) {
+  if (!settingsWindow) return;
+  settingsWindow.querySelectorAll(".betterinv-setting-toggle[data-setting-key]").forEach(input => {
+    const key = String(input.dataset.settingKey ?? "");
+    if (!key) return;
+    input.checked = userSettings[key] !== false;
+  });
+
+  settingsWindow.querySelectorAll(".betterinv-settings-group-toggle[data-setting-group]").forEach(input => {
+    const groupId = String(input.dataset.settingGroup ?? "");
+    const group = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === groupId);
+    if (!group) return;
+    const state = getBetterInvSettingsGroupState(group, userSettings);
+    input.checked = state.checked;
+    input.indeterminate = state.indeterminate;
+    input.setAttribute("aria-checked", state.indeterminate ? "mixed" : String(state.checked));
+  });
+}
+
 function betterInvSettingsGroupsHtml(userSettings) {
-  return BETTER_INV_SETTINGS_GROUPS.map(group => `
-    <section class="betterinv-settings-group">
-      <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
-      ${group.settings.map(([key, label, description, options = {}]) => {
-        if (options.disabled) {
+  return BETTER_INV_SETTINGS_GROUPS.map(group => {
+    const groupState = getBetterInvSettingsGroupState(group, userSettings);
+    return `
+      <section class="betterinv-settings-group" data-setting-group-section="${escapeAttr(group.id)}">
+        <div class="betterinv-settings-group-header">
+          <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
+          ${groupState.keys.length > 1 ? `<label class="betterinv-settings-group-master" title="Alle Einstellungen in ${escapeAttr(group.title)} gleichzeitig umschalten">
+            <span>Alles</span>
+            <input type="checkbox" class="betterinv-settings-group-toggle" data-setting-group="${escapeAttr(group.id)}" ${groupState.checked ? "checked" : ""} aria-label="${escapeAttr(`${group.title} vollständig aktivieren oder deaktivieren`)}">
+          </label>` : ""}
+        </div>
+        ${group.settings.map(([key, label, description, options = {}]) => {
+          if (options.disabled) {
+            return `
+              <label class="betterinv-settings-row betterinv-settings-row-disabled" aria-disabled="true">
+                <span>
+                  <strong>${escapeHtml(label)}${options.badge ? ` <em class="betterinv-settings-badge">${escapeHtml(options.badge)}</em>` : ""}</strong>
+                  <small>${escapeHtml(description)}</small>
+                </span>
+                <input type="checkbox" disabled aria-label="${escapeAttr(`${label} – ${options.badge ?? "deaktiviert"}`)}">
+              </label>`;
+          }
           return `
-            <label class="betterinv-settings-row betterinv-settings-row-disabled" aria-disabled="true">
+            <label class="betterinv-settings-row">
               <span>
-                <strong>${escapeHtml(label)}${options.badge ? ` <em class="betterinv-settings-badge">${escapeHtml(options.badge)}</em>` : ""}</strong>
+                <strong>${escapeHtml(label)}</strong>
                 <small>${escapeHtml(description)}</small>
               </span>
-              <input type="checkbox" disabled aria-label="${escapeAttr(`${label} – ${options.badge ?? "deaktiviert"}`)}">
+              <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
             </label>`;
-        }
-        return `
-          <label class="betterinv-settings-row">
-            <span>
-              <strong>${escapeHtml(label)}</strong>
-              <small>${escapeHtml(description)}</small>
-            </span>
-            <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
-          </label>`;
-      }).join("")}
-    </section>`).join("");
+        }).join("")}
+      </section>`;
+  }).join("");
 }
 
 function openBetterInvSettingsWindow() {
@@ -1296,6 +1356,14 @@ function openBetterInvSettingsWindow() {
           </span>
           <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="moduleEnabled" ${userSettings.moduleEnabled !== false ? "checked" : ""}>
         </label>
+        <div class="betterinv-settings-bulk-actions" role="group" aria-label="Alle Funktionshaken gleichzeitig setzen">
+          <button type="button" class="betterinv-settings-bulk-enable" data-settings-bulk="enable">
+            <i class="fas fa-check-double" aria-hidden="true"></i><span>Alle Haken rein</span>
+          </button>
+          <button type="button" class="betterinv-settings-bulk-disable" data-settings-bulk="disable">
+            <i class="fas fa-times" aria-hidden="true"></i><span>Alle Haken raus</span>
+          </button>
+        </div>
       </section>
       ${betterInvSettingsGroupsHtml(userSettings)}
     </div>
@@ -1315,32 +1383,76 @@ function openBetterInvSettingsWindow() {
   document.body.appendChild(settingsWindow);
 
   settingsWindow.querySelector(".betterinv-settings-close")?.addEventListener("click", closeBetterInvSettingsWindow);
+
+  const setSettingsBusy = busy => {
+    settingsWindow.querySelectorAll(".betterinv-setting-toggle, .betterinv-settings-group-toggle, [data-settings-bulk]").forEach(control => {
+      control.disabled = Boolean(busy);
+    });
+    settingsWindow.classList.toggle("is-saving", Boolean(busy));
+  };
+
+  const applySettingsPatch = async patch => {
+    const previousSettings = getBetterInvUserSettings();
+    setSettingsBusy(true);
+    try {
+      const savedSettings = await saveBetterInvUserSettings(patch);
+      if (!savedSettings.showSearch || (!savedSettings.showItems && !savedSettings.showContainers)) {
+        betterInvState.search = "";
+      }
+      if (!savedSettings.showContainers) betterInvState.containerId = null;
+      if (!savedSettings.showItemTransfer) clearBetterInvTokenDropFeedback();
+
+      syncBetterInvSettingsControls(settingsWindow, savedSettings);
+      if (savedSettings.moduleEnabled === false) {
+        closeBetterInvSettingsWindow();
+      }
+      if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
+      return savedSettings;
+    } catch (error) {
+      console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+      ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
+      syncBetterInvSettingsControls(settingsWindow, previousSettings);
+      return null;
+    } finally {
+      if (settingsWindow.isConnected) setSettingsBusy(false);
+    }
+  };
+
   settingsWindow.querySelectorAll(".betterinv-setting-toggle").forEach(input => {
     input.addEventListener("change", async event => {
       const checkbox = event.currentTarget;
       if (!(checkbox instanceof HTMLInputElement)) return;
       const key = String(checkbox.dataset.settingKey ?? "");
       if (!Object.prototype.hasOwnProperty.call(DEFAULT_BETTER_INV_USER_SETTINGS, key) || key === "version") return;
-      const previous = getBetterInvUserSettings()[key] !== false;
-      checkbox.disabled = true;
-      try {
-        const savedSettings = await saveBetterInvUserSettings({ [key]: checkbox.checked });
-        if ((key === "showSearch" && !checkbox.checked) || (!savedSettings.showItems && !savedSettings.showContainers)) {
-          betterInvState.search = "";
-        }
-        if (key === "showContainers" && !checkbox.checked) betterInvState.containerId = null;
-        if (key === "moduleEnabled" && !checkbox.checked) {
-          closeBetterInvSettingsWindow();
-        } else {
-          checkbox.disabled = false;
-        }
-        if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
-      } catch (error) {
-        console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
-        ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
-        checkbox.checked = previous;
-        checkbox.disabled = false;
-      }
+      await applySettingsPatch({ [key]: checkbox.checked });
+    });
+  });
+
+  settingsWindow.querySelectorAll(".betterinv-settings-group-toggle").forEach(input => {
+    const groupId = String(input.dataset.settingGroup ?? "");
+    const group = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === groupId);
+    if (group) {
+      const groupState = getBetterInvSettingsGroupState(group, userSettings);
+      input.indeterminate = groupState.indeterminate;
+      input.setAttribute("aria-checked", groupState.indeterminate ? "mixed" : String(groupState.checked));
+    }
+
+    input.addEventListener("change", async event => {
+      const checkbox = event.currentTarget;
+      if (!(checkbox instanceof HTMLInputElement)) return;
+      const selectedGroup = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === String(checkbox.dataset.settingGroup ?? ""));
+      if (!selectedGroup) return;
+      const patch = Object.fromEntries(getBetterInvSettingsGroupKeys(selectedGroup).map(key => [key, checkbox.checked]));
+      await applySettingsPatch(patch);
+    });
+  });
+
+  settingsWindow.querySelectorAll("[data-settings-bulk]").forEach(button => {
+    button.addEventListener("click", async event => {
+      event.preventDefault();
+      const enable = String(event.currentTarget.dataset.settingsBulk ?? "") === "enable";
+      const patch = Object.fromEntries(getBetterInvAllFeatureSettingKeys().map(key => [key, enable]));
+      await applySettingsPatch(patch);
     });
   });
 
@@ -1738,7 +1850,7 @@ function getBetterInvCurrencyDraft(actor) {
   ]));
 }
 
-function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, showCalculator = true } = {}) {
+function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, showCalculator = true, showTransfer = true } = {}) {
   if (!Array.isArray(currencies) || !currencies.length) return "";
   const totalCoins = currencies.reduce((sum, currency) => sum + (Number(currency.value) || 0), 0);
   const calculatorClass = showCalculator ? "" : " betterinv-currency-display-only";
@@ -1764,7 +1876,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
             <i class="fas fa-arrow-down" aria-hidden="true"></i>
             <span>Abrunden</span>
           </button>
-          <button
+          ${showTransfer ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-transfer"
             title="Eingegebene Münzen exakt an einen anderen Actor übertragen"
@@ -1772,7 +1884,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
           >
             <i class="fas fa-handshake" aria-hidden="true"></i>
             <span>Handeln</span>
-          </button>` : `
+          </button>` : ""}` : `
           <i class="fas fa-coins" aria-hidden="true"></i>
           <span>Währungen</span>`}
       </div>
@@ -4191,7 +4303,7 @@ function installBetterInvTokenDropFeedback() {
   betterInvTokenDropFeedbackInstalled = true;
 
   document.addEventListener("dragover", event => {
-    if (!betterInvActiveItemDrag) return;
+    if (!betterInvActiveItemDrag?.allowTransfer) return;
     const point = getBetterInvCanvasPointFromDragEvent(event);
     if (!point) {
       clearBetterInvTokenDropFeedback();
@@ -4272,6 +4384,7 @@ function findBetterInvTokenAtCanvasPoint(canvasInstance, x, y) {
 
 async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
   if (String(data?.type ?? "") !== "BetterInventoryItemTransfer") return;
+  if (!getBetterInvFeaturePlan().itemTransfer) return;
 
   event?.preventDefault?.();
   event?.stopPropagation?.();
@@ -5333,7 +5446,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.innerHTML = `
     ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
-    <button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen</span></button>
+    ${features.itemTransfer ? `<button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen</span></button>` : ""}
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -6245,22 +6358,26 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
       row.classList.add("betterinv-item-dragging");
       const quantity = getItemQuantityData(item).value;
       const previewElement = createBetterInvItemDragPreview(item, quantity);
+      const allowTransfer = getBetterInvFeaturePlan().itemTransfer;
       betterInvActiveItemDrag = {
         sourceActorId: actor.id,
         sourceItemId: item.id,
-        previewElement
+        previewElement,
+        allowTransfer
       };
       event.dataTransfer.effectAllowed = "move";
       event.dataTransfer.setData("application/x-betterinv-item", row.dataset.itemId);
-      event.dataTransfer.setData("application/x-betterinv-transfer", item.id);
-      event.dataTransfer.setData("text/plain", JSON.stringify({
-        type: "BetterInventoryItemTransfer",
-        sourceActorUuid: actor.uuid,
-        sourceActorId: actor.id,
-        sourceItemUuid: item.uuid,
-        sourceItemId: item.id,
-        quantity
-      }));
+      if (allowTransfer) {
+        event.dataTransfer.setData("application/x-betterinv-transfer", item.id);
+        event.dataTransfer.setData("text/plain", JSON.stringify({
+          type: "BetterInventoryItemTransfer",
+          sourceActorUuid: actor.uuid,
+          sourceActorId: actor.id,
+          sourceItemUuid: item.uuid,
+          sourceItemId: item.id,
+          quantity
+        }));
+      }
       if (typeof event.dataTransfer.setDragImage === "function") {
         event.dataTransfer.setDragImage(previewElement, 22, 22);
       }
