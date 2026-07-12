@@ -3002,3 +3002,199 @@
     }
   }
 }
+
+/* Phase 5.3.1: detachable personal settings window. */
+.betterinv-settings-window {
+  position: fixed;
+  z-index: 20010;
+  width: 370px;
+  height: min(680px, 82vh);
+  min-width: 320px;
+  min-height: 360px;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 20px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  resize: both;
+  border: 1px solid rgba(183,164,118,.58);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #111116, #0d0d11 52%, #15101c);
+  box-shadow: 0 22px 80px rgba(0,0,0,.74), 0 0 0 1px #000 inset;
+  color: var(--bi-text);
+  font-family: Signika, Georgia, "Times New Roman", serif;
+}
+
+.betterinv-settings-window-header {
+  min-height: 56px;
+  padding: 9px 10px 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex: 0 0 auto;
+  cursor: move;
+  user-select: none;
+  border-bottom: 1px solid rgba(183,164,118,.48);
+  background: linear-gradient(180deg, #18181e, #0e0e12);
+  box-shadow: 0 8px 24px rgba(0,0,0,.34);
+}
+
+.betterinv-settings-window-header strong {
+  display: block;
+  color: #f4ead3;
+  font-size: 16px;
+  line-height: 1.1;
+}
+
+.betterinv-settings-window-header small {
+  display: block;
+  margin-top: 3px;
+  color: #a99f8a;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.betterinv-settings-window-scroll {
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bi-border) #111;
+}
+
+.betterinv-settings-window-scroll::-webkit-scrollbar { width: 8px; }
+.betterinv-settings-window-scroll::-webkit-scrollbar-track { background: #111; }
+.betterinv-settings-window-scroll::-webkit-scrollbar-thumb { background: #5e5438; border: 1px solid #111; }
+
+.betterinv-settings-window .betterinv-settings-group + .betterinv-settings-group {
+  margin-top: 12px;
+}
+
+.betterinv-settings-window .betterinv-settings-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.betterinv-settings-window .betterinv-settings-group h3 > i {
+  width: 13px;
+  text-align: center;
+  font-size: 9px;
+}
+
+.betterinv-settings-master {
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(200,168,90,.20);
+}
+
+.betterinv-settings-window .betterinv-settings-master-row {
+  margin-top: 0;
+  border-color: rgba(200,168,90,.46);
+  background: linear-gradient(180deg, rgba(67,55,29,.52), rgba(25,21,13,.62));
+}
+
+.betterinv-settings-window .betterinv-settings-master-row strong {
+  color: #f1d88d;
+  font-size: 12px;
+}
+
+.betterinv-settings-window-footer {
+  min-height: 42px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  border-top: 1px solid rgba(200,168,90,.18);
+  background: #101014;
+  color: #918877;
+  font-size: 9px;
+  line-height: 1.25;
+}
+
+.betterinv-settings-window-footer > i {
+  color: #b7a476;
+}
+
+/* Disabled mode deliberately avoids actor/item rendering and keeps only reactivation. */
+.betterinv-window.betterinv-disabled-mode {
+  width: 390px;
+  height: 180px;
+  min-width: 340px;
+  min-height: 160px;
+  max-width: calc(100vw - 20px);
+  max-height: calc(100vh - 20px);
+  resize: none;
+}
+
+.betterinv-disabled-mode .betterinv-header {
+  height: 54px;
+}
+
+.betterinv-disabled-mode .betterinv-header h2 {
+  font-size: 18px;
+}
+
+.betterinv-disabled-body {
+  height: calc(100% - 54px);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  overflow: hidden;
+  text-align: center;
+}
+
+.betterinv-disabled-body > i {
+  color: #8f846d;
+  font-size: 24px;
+}
+
+.betterinv-disabled-body > strong {
+  color: #efe6cf;
+  font-size: 15px;
+}
+
+.betterinv-reactivate {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid rgba(200,168,90,.52);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98));
+  color: #f0d994;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.betterinv-reactivate:hover:not(:disabled) {
+  border-color: var(--bi-gold);
+  color: #fff0bd;
+}
+
+@media (max-width: 520px) {
+  .betterinv-settings-window {
+    width: calc(100vw - 20px);
+    min-width: 0;
+    left: 10px !important;
+  }
+}
+
+/* Toolbar remains compact when the personal search field is hidden. */
+.betterinv-toolbar.betterinv-toolbar-no-search {
+  grid-template-columns: repeat(2, auto) !important;
+  justify-content: end;
+}
+
+.betterinv-toolbar.betterinv-toolbar-search-only {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.betterinv-toolbar.betterinv-toolbar-no-search > button:only-child {
+  min-width: 110px;
+}

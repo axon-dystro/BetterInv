@@ -3,57 +3,73 @@
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
-const BETTER_INV_USER_SETTINGS_VERSION = 2;
+const BETTER_INV_USER_SETTINGS_VERSION = 3;
 const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   version: BETTER_INV_USER_SETTINGS_VERSION,
+  moduleEnabled: true,
+  showCurrency: true,
+  showCurrencyCalculator: true,
+  showItems: true,
+  showSearch: true,
   showCategories: true,
   showSubcategories: true,
   showFavorites: true,
   showUnknownItems: true,
-  showEncumbrance: true,
   showCategoryWeights: true,
-  showContainerCapacity: true,
-  showCurrency: true,
-  showCurrencyCalculator: true,
   showItemValues: true,
   showQuantityControls: true,
   showEditButton: true,
   showAddItemButton: true,
   showItemActionsMenu: true,
   showEquipActions: true,
-  showCategoryDropdown: true
+  showCategoryDropdown: true,
+  showContainers: true,
+  showContainerCapacity: true,
+  showEncumbrance: true
 });
 
 const BETTER_INV_SETTINGS_GROUPS = [
   {
-    title: "Struktur",
+    title: "Geld",
+    icon: "fa-coins",
     settings: [
-      ["showCategories", "Kategorien", "Zeigt die Kategorien und ihre Verwaltungsfunktionen."],
+      ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
+      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen, Aufrunden und Abrunden."]
+    ]
+  },
+  {
+    title: "Items",
+    icon: "fa-list",
+    settings: [
+      ["showItems", "Items anzeigen", "Blendet die vollständige Itemliste ein oder aus."],
+      ["showSearch", "Suchleiste", "Zeigt die Suche oberhalb der Items und Rucksäcke."],
+      ["showCategories", "Kategorien", "Zeigt Kategorien und ihre Verwaltungsfunktionen."],
       ["showSubcategories", "Unterkategorien", "Zeigt Unterkategorien innerhalb der Hauptkategorien."],
       ["showFavorites", "Favoriten", "Zeigt den Favoritenbereich und die Favoritenaktion."],
-      ["showUnknownItems", "Unbekannte Items", "Zeigt nicht identifizierte Items in einem eigenen Bereich."]
-    ]
-  },
-  {
-    title: "Informationen",
-    settings: [
-      ["showEncumbrance", "Traglast", "Zeigt die gesamte Traglast des Charakters."],
+      ["showUnknownItems", "Unbekannte Items", "Zeigt nicht identifizierte Items in einem eigenen Bereich."],
       ["showCategoryWeights", "Kategoriegewicht", "Zeigt Gewichte an Kategorien und Unterkategorien."],
-      ["showContainerCapacity", "Containerkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."],
-      ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
-      ["showItemValues", "Itempreise", "Zeigt den gespeicherten Wert direkt am Item."]
-    ]
-  },
-  {
-    title: "Bedienung",
-    settings: [
-      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen und Wechseln."],
+      ["showItemValues", "Itempreise", "Zeigt den gespeicherten Wert direkt am Item."],
       ["showQuantityControls", "Mengensteuerung", "Zeigt Anzahl sowie Plus- und Minussteuerung."],
       ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Item."],
       ["showAddItemButton", "Item hinzufügen", "Zeigt den Button zum Erstellen eines neuen Items."],
       ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Itemaktionen wie Duplizieren und Löschen."],
       ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
       ["showCategoryDropdown", "Kategorie-Dropdown", "Zeigt die kleine Kategorienauswahl direkt am Item."]
+    ]
+  },
+  {
+    title: "Container",
+    icon: "fa-box-open",
+    settings: [
+      ["showContainers", "Rucksäcke anzeigen", "Blendet Rucksackkarten und Containeransicht vollständig ein oder aus."],
+      ["showContainerCapacity", "Containerkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."]
+    ]
+  },
+  {
+    title: "Charakter",
+    icon: "fa-weight-hanging",
+    settings: [
+      ["showEncumbrance", "Traglast", "Zeigt die gesamte Traglast des Charakters."]
     ]
   }
 ];
@@ -88,7 +104,10 @@ Hooks.once("ready", async () => {
 });
 
 Hooks.on("renderHotbar", () => ensureBetterInvButton());
-Hooks.on("controlToken", () => { if (document.getElementById("betterinv-window")) renderBetterInvWindow(); });
+Hooks.on("controlToken", () => {
+  if (getBetterInvUserSettings().moduleEnabled === false) return;
+  if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+});
 Hooks.on("updateActor", actor => refreshIfCurrentActor(actor));
 Hooks.on("createItem", item => refreshIfItemActor(item));
 Hooks.on("updateItem", item => refreshIfItemActor(item));
@@ -299,11 +318,13 @@ function actorChooserHtml(actors) {
 }
 
 function refreshIfCurrentActor(actor) {
+  if (getBetterInvUserSettings().moduleEnabled === false) return;
   const current = getCurrentActor();
   if (current?.id === actor?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
 }
 
 function refreshIfItemActor(item) {
+  if (getBetterInvUserSettings().moduleEnabled === false) return;
   const current = getCurrentActor();
   if (current?.id === item?.parent?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
 }
@@ -735,7 +756,6 @@ function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
   if (existing) {
     closeBetterInvItemActionMenu();
-    betterInvState.settingsOpen = false;
     existing.remove();
     return;
   }
@@ -745,7 +765,6 @@ function toggleBetterInvWindow() {
 
 async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   closeBetterInvItemActionMenu();
-  const actor = getCurrentActor();
   let windowEl = document.getElementById("betterinv-window");
   const previousBody = windowEl?.querySelector?.(".betterinv-body");
   const previousScrollTop = preserveScroll ? (previousBody?.scrollTop ?? 0) : 0;
@@ -762,6 +781,31 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     document.body.appendChild(windowEl);
   }
   windowEl.style.setProperty("--bi-content-scale", String(betterInvState.scale || 1));
+
+  const userSettings = getBetterInvUserSettings();
+  if (userSettings.moduleEnabled === false) {
+    closeBetterInvSettingsWindow();
+    windowEl.classList.add("betterinv-disabled-mode");
+    windowEl.innerHTML = betterInvDisabledShellHtml();
+    windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => windowEl.remove());
+    windowEl.querySelector(".betterinv-reactivate")?.addEventListener("click", async event => {
+      const button = event.currentTarget;
+      if (button instanceof HTMLButtonElement) button.disabled = true;
+      try {
+        await saveBetterInvUserSettings({ moduleEnabled: true });
+        await renderBetterInvWindow({ preserveScroll: false });
+      } catch (error) {
+        console.error("Better Inventory | Reaktivierung fehlgeschlagen", error);
+        ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
+        if (button instanceof HTMLButtonElement) button.disabled = false;
+      }
+    });
+    makeBetterInvDraggable(windowEl);
+    return;
+  }
+
+  windowEl.classList.remove("betterinv-disabled-mode");
+  const actor = getCurrentActor();
 
   if (!actor && game.user.isGM) {
     const actors = getSelectablePlayerActors();
@@ -787,22 +831,30 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     return;
   }
 
+  if (!userSettings.showContainers) betterInvState.containerId = null;
   const currentContainer = betterInvState.containerId ? actor.items.get(betterInvState.containerId) : null;
   if (betterInvState.containerId && !currentContainer) betterInvState.containerId = null;
   const activeContainer = betterInvState.containerId ? currentContainer : null;
-  const userSettings = getBetterInvUserSettings();
-  const query = String(betterInvState.search ?? "").trim().toLowerCase();
-  const allVisibleItems = await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer), activeContainer?.id ?? null);
+  const query = userSettings.showSearch ? String(betterInvState.search ?? "").trim().toLowerCase() : "";
+  const allVisibleItems = userSettings.showItems
+    ? await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer), activeContainer?.id ?? null)
+    : [];
   const visibleItems = query ? allVisibleItems.filter(item => itemMatchesSearch(item, query)) : allVisibleItems;
-  const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor));
-  const categories = await getCategories(actor, activeContainer?.id ?? null);
-  let categoryOptions = await getCategoryOptions(actor, categories, activeContainer?.id ?? null);
+  const containers = userSettings.showContainers
+    ? await sortContainersBySavedOrder(actor, getContainerItems(actor))
+    : [];
+  const categories = userSettings.showItems ? await getCategories(actor, activeContainer?.id ?? null) : [];
+  let categoryOptions = userSettings.showItems
+    ? await getCategoryOptions(actor, categories, activeContainer?.id ?? null)
+    : [];
   if (!userSettings.showUnknownItems) categoryOptions = categoryOptions.filter(id => id !== "__unknown");
   if (!userSettings.showSubcategories) categoryOptions = categoryOptions.filter(id => !String(id).includes("::"));
 
-  const topContainerHtml = !activeContainer
-    ? await renderContainerCards(actor, containers, { showCapacity: userSettings.showContainerCapacity })
-    : renderContainerBreadcrumb(actor, activeContainer, { showCapacity: userSettings.showContainerCapacity });
+  const topContainerHtml = userSettings.showContainers
+    ? (!activeContainer
+      ? await renderContainerCards(actor, containers, { showCapacity: userSettings.showContainerCapacity })
+      : renderContainerBreadcrumb(actor, activeContainer, { showCapacity: userSettings.showContainerCapacity }))
+    : "";
   const actorEncumbranceHtml = (!activeContainer && userSettings.showEncumbrance)
     ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor))
     : "";
@@ -814,7 +866,9 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       showCalculator: userSettings.showCurrencyCalculator
     }
   ) : "";
-  const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
+  const searchContainersHtml = (userSettings.showContainers && userSettings.showSearch && !activeContainer && query)
+    ? renderSearchContainerHits(actor, containers, query)
+    : "";
   const contextContainerId = activeContainer?.id ?? null;
   const displayCategoryForItem = item => {
     const raw = itemCategory(item, contextContainerId);
@@ -831,7 +885,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     : visibleItems;
 
   let sectionHtml = "";
-  if (userSettings.showCategories) {
+  if (userSettings.showItems && userSettings.showCategories) {
     const order = await getCategoryOrder(actor, contextContainerId, categories);
     const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
     const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
@@ -886,7 +940,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         </details>`);
     }
     sectionHtml = sectionHtmlParts.join("");
-  } else {
+  } else if (userSettings.showItems) {
     const flatRows = regularItems.length
       ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
       : `<p class="betterinv-empty">Keine Items vorhanden.</p>`;
@@ -927,37 +981,58 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       </div>
     </section>` : "";
 
-  windowEl.innerHTML = baseShellHtml(`
-    <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
-      ${actorEncumbranceHtml}
-      ${actorCurrencyHtml}
-      <div class="betterinv-actor">
-        <strong>${activeContainer ? escapeHtml(getContainerAlias(actor, activeContainer)) : "Rucksäcke"}</strong>
-        <div class="betterinv-actor-right">
-          ${activeContainer ? `
-            <span class="betterinv-actor-meta">
-              Inhalt · ${visibleItems.length} Items
-              ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-              <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>
-            </span>` : `
+  const showInventoryHeader = userSettings.showContainers || userSettings.showItems;
+  const inventoryHeaderHtml = showInventoryHeader ? `
+    <div class="betterinv-actor">
+      <strong>${activeContainer
+        ? escapeHtml(getContainerAlias(actor, activeContainer))
+        : (userSettings.showContainers ? "Rucksäcke" : "Inventar")}</strong>
+      <div class="betterinv-actor-right">
+        ${activeContainer ? `
+          <span class="betterinv-actor-meta">
+            Inhalt · ${visibleItems.length} Items
             ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
+            <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>
+          </span>` : `
+          ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
+          ${userSettings.showContainers ? `
             <div class="betterinv-container-tools betterinv-container-tools-inline" aria-label="Rucksack-Layer einstellen">
               <span>Layer</span>
               <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
               <button type="button" class="betterinv-layer-plus" title="Layer hinzufügen">+</button>
-            </div>`}
-        </div>
+            </div>` : ""}`}
       </div>
+    </div>` : "";
+
+  const searchFieldHtml = userSettings.showSearch && (userSettings.showItems || userSettings.showContainers)
+    ? `<input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">`
+    : "";
+  const addItemHtml = userSettings.showItems && userSettings.showAddItemButton
+    ? `<button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>`
+    : "";
+  const addCategoryHtml = userSettings.showItems && userSettings.showCategories
+    ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>`
+    : "";
+  const toolbarClasses = [
+    "betterinv-toolbar",
+    searchFieldHtml ? "" : "betterinv-toolbar-no-search",
+    !addItemHtml && !addCategoryHtml ? "betterinv-toolbar-search-only" : ""
+  ].filter(Boolean).join(" ");
+  const toolbarHtml = searchFieldHtml || addItemHtml || addCategoryHtml
+    ? `<div class="${toolbarClasses}">${searchFieldHtml}${addItemHtml}${addCategoryHtml}</div>`
+    : "";
+
+  windowEl.innerHTML = baseShellHtml(`
+    <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
+      ${actorEncumbranceHtml}
+      ${actorCurrencyHtml}
+      ${inventoryHeaderHtml}
       ${topContainerHtml}
-      <div class="betterinv-toolbar">
-        <input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">
-        ${userSettings.showAddItemButton ? `<button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>` : ""}
-        ${userSettings.showCategories ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>` : ""}
-      </div>
+      ${toolbarHtml}
       ${searchContainersHtml}
-      ${favoritesHtml}
-      ${unknownHtml}
-      ${sectionHtml}
+      ${userSettings.showItems ? favoritesHtml : ""}
+      ${userSettings.showItems ? unknownHtml : ""}
+      ${userSettings.showItems ? sectionHtml : ""}
     </div>
   `);
 
@@ -978,12 +1053,23 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   }
 }
 
-function baseShellHtml(bodyHtml) {
-  const settingsOpen = betterInvState.settingsOpen === true;
-  const userSettings = getBetterInvUserSettings();
-  const settingsGroupsHtml = BETTER_INV_SETTINGS_GROUPS.map(group => `
+function updateBetterInvSettingsButtonState() {
+  const open = Boolean(document.getElementById("betterinv-settings-window"));
+  betterInvState.settingsOpen = open;
+  const button = document.querySelector("#betterinv-window .betterinv-settings");
+  button?.setAttribute("aria-expanded", String(open));
+  button?.classList.toggle("is-active", open);
+}
+
+function closeBetterInvSettingsWindow() {
+  document.getElementById("betterinv-settings-window")?.remove();
+  updateBetterInvSettingsButtonState();
+}
+
+function betterInvSettingsGroupsHtml(userSettings) {
+  return BETTER_INV_SETTINGS_GROUPS.map(group => `
     <section class="betterinv-settings-group">
-      <h3>${escapeHtml(group.title)}</h3>
+      <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
       ${group.settings.map(([key, label, description]) => `
         <label class="betterinv-settings-row">
           <span>
@@ -993,35 +1079,125 @@ function baseShellHtml(bodyHtml) {
           <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
         </label>`).join("")}
     </section>`).join("");
+}
+
+function openBetterInvSettingsWindow() {
+  const existing = document.getElementById("betterinv-settings-window");
+  if (existing) {
+    existing.style.zIndex = "20020";
+    updateBetterInvSettingsButtonState();
+    return existing;
+  }
+
+  const userSettings = getBetterInvUserSettings();
+  const settingsWindow = document.createElement("section");
+  settingsWindow.id = "betterinv-settings-window";
+  settingsWindow.className = "betterinv-settings-window";
+  settingsWindow.innerHTML = `
+    <header class="betterinv-settings-window-header">
+      <div>
+        <strong>Inventar-Einstellungen</strong>
+        <small>Persönlich für deinen Foundry-Nutzer</small>
+      </div>
+      <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
+    </header>
+    <div class="betterinv-settings-window-scroll">
+      <section class="betterinv-settings-master">
+        <label class="betterinv-settings-row betterinv-settings-master-row">
+          <span>
+            <strong>Axon’s Inventory aktiv</strong>
+            <small>Deaktiviert die Inventaransicht für deinen Nutzer. Beim Öffnen erscheint dann nur der Button zum Wiederaktivieren.</small>
+          </span>
+          <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="moduleEnabled" ${userSettings.moduleEnabled !== false ? "checked" : ""}>
+        </label>
+      </section>
+      ${betterInvSettingsGroupsHtml(userSettings)}
+    </div>
+    <footer class="betterinv-settings-window-footer">
+      <i class="fas fa-user-check" aria-hidden="true"></i>
+      <span>Änderungen werden sofort gespeichert und direkt im Inventar sichtbar.</span>
+    </footer>`;
+
+  const inventoryWindow = document.getElementById("betterinv-window");
+  const inventoryRect = inventoryWindow?.getBoundingClientRect?.();
+  const width = 370;
+  const gap = 12;
+  let left = inventoryRect ? inventoryRect.right + gap : Math.max(20, window.innerWidth - width - 30);
+  if (left + width > window.innerWidth - 10 && inventoryRect) left = Math.max(10, inventoryRect.left - width - gap);
+  settingsWindow.style.left = `${Math.max(10, left)}px`;
+  settingsWindow.style.top = `${Math.max(10, inventoryRect?.top ?? 90)}px`;
+  document.body.appendChild(settingsWindow);
+
+  settingsWindow.querySelector(".betterinv-settings-close")?.addEventListener("click", closeBetterInvSettingsWindow);
+  settingsWindow.querySelectorAll(".betterinv-setting-toggle").forEach(input => {
+    input.addEventListener("change", async event => {
+      const checkbox = event.currentTarget;
+      if (!(checkbox instanceof HTMLInputElement)) return;
+      const key = String(checkbox.dataset.settingKey ?? "");
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_BETTER_INV_USER_SETTINGS, key) || key === "version") return;
+      const previous = getBetterInvUserSettings()[key] !== false;
+      checkbox.disabled = true;
+      try {
+        const savedSettings = await saveBetterInvUserSettings({ [key]: checkbox.checked });
+        if ((key === "showSearch" && !checkbox.checked) || (!savedSettings.showItems && !savedSettings.showContainers)) {
+          betterInvState.search = "";
+        }
+        if (key === "showContainers" && !checkbox.checked) betterInvState.containerId = null;
+        if (key === "moduleEnabled" && !checkbox.checked) {
+          closeBetterInvSettingsWindow();
+        } else {
+          checkbox.disabled = false;
+        }
+        if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
+      } catch (error) {
+        console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+        ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
+        checkbox.checked = previous;
+        checkbox.disabled = false;
+      }
+    });
+  });
+
+  makeBetterInvSettingsDraggable(settingsWindow);
+  updateBetterInvSettingsButtonState();
+  return settingsWindow;
+}
+
+function toggleBetterInvSettingsWindow() {
+  if (document.getElementById("betterinv-settings-window")) closeBetterInvSettingsWindow();
+  else openBetterInvSettingsWindow();
+}
+
+function baseShellHtml(bodyHtml) {
+  const settingsOpen = Boolean(document.getElementById("betterinv-settings-window"));
   return `
     <header class="betterinv-header">
       <h2>Better Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
-        <button type="button" class="betterinv-settings${settingsOpen ? " is-active" : ""}" title="Inventar-Einstellungen öffnen" aria-label="Inventar-Einstellungen öffnen" aria-expanded="${settingsOpen}"><i class="fas fa-cog" aria-hidden="true"></i></button>
+        <button type="button" class="betterinv-settings${settingsOpen ? " is-active" : ""}" title="Inventar-Einstellungen in eigenem Fenster öffnen" aria-label="Inventar-Einstellungen öffnen" aria-expanded="${settingsOpen}"><i class="fas fa-cog" aria-hidden="true"></i></button>
         <button type="button" class="betterinv-popout" title="Als Browser-Popup öffnen">⧉</button>
         <button type="button" class="betterinv-close" title="Schließen">×</button>
       </div>
     </header>
-    <aside class="betterinv-settings-panel" aria-label="Inventar-Einstellungen" ${settingsOpen ? "" : "hidden"}>
-      <div class="betterinv-settings-panel-header">
-        <div>
-          <strong>Einstellungen</strong>
-          <small>Persönliche Inventaransicht</small>
-        </div>
-        <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
-      </div>
-      <div class="betterinv-settings-scroll">
-        ${settingsGroupsHtml}
-      </div>
-      <div class="betterinv-settings-coming-soon">
-        <i class="fas fa-user-check" aria-hidden="true"></i>
-        <span>Persönlich für deinen Foundry-Nutzer in dieser Welt gespeichert.</span>
-      </div>
-    </aside>
     <div class="betterinv-body">${bodyHtml}</div>
     <div class="betterinv-resize-hint">↘</div>`;
+}
+
+function betterInvDisabledShellHtml() {
+  return `
+    <header class="betterinv-header betterinv-disabled-header">
+      <h2>Axon’s Inventory</h2>
+      <div class="betterinv-header-actions">
+        <button type="button" class="betterinv-close" title="Schließen">×</button>
+      </div>
+    </header>
+    <div class="betterinv-body betterinv-disabled-body">
+      <i class="fas fa-power-off" aria-hidden="true"></i>
+      <strong>Axon’s Inventory ist deaktiviert.</strong>
+      <button type="button" class="betterinv-reactivate">Wieder aktivieren</button>
+    </div>`;
 }
 
 function itemMatchesSearch(item, query) {
@@ -3025,7 +3201,6 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
 function activateWindowListeners(windowEl, actor, activeContainer) {
   windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => {
     closeBetterInvItemActionMenu();
-    betterInvState.settingsOpen = false;
     windowEl.remove();
   });
   windowEl.querySelector(".betterinv-popout")?.addEventListener("pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
@@ -3033,42 +3208,12 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
   windowEl.querySelector(".betterinv-scale-up")?.addEventListener("click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
 
   const settingsButton = windowEl.querySelector(".betterinv-settings");
-  const settingsPanel = windowEl.querySelector(".betterinv-settings-panel");
-  const setSettingsOpen = open => {
-    betterInvState.settingsOpen = open === true;
-    if (settingsPanel) settingsPanel.hidden = !betterInvState.settingsOpen;
-    settingsButton?.setAttribute("aria-expanded", String(betterInvState.settingsOpen));
-    settingsButton?.classList.toggle("is-active", betterInvState.settingsOpen);
-  };
   settingsButton?.addEventListener("click", event => {
     event.preventDefault();
     event.stopPropagation();
-    setSettingsOpen(!betterInvState.settingsOpen);
+    toggleBetterInvSettingsWindow();
   });
-  windowEl.querySelector(".betterinv-settings-close")?.addEventListener("click", event => {
-    event.preventDefault();
-    setSettingsOpen(false);
-  });
-  windowEl.querySelectorAll(".betterinv-setting-toggle").forEach(input => {
-    input.addEventListener("change", async event => {
-      const checkbox = event.currentTarget;
-      if (!(checkbox instanceof HTMLInputElement)) return;
-      const key = String(checkbox.dataset.settingKey ?? "");
-      if (!Object.prototype.hasOwnProperty.call(DEFAULT_BETTER_INV_USER_SETTINGS, key) || key === "version") return;
-      const previous = getBetterInvUserSettings()[key] !== false;
-      checkbox.disabled = true;
-      betterInvState.settingsOpen = true;
-      try {
-        await saveBetterInvUserSettings({ [key]: checkbox.checked });
-        if (document.getElementById("betterinv-window")) renderBetterInvWindow();
-      } catch (error) {
-        console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
-        ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
-        checkbox.checked = previous;
-        checkbox.disabled = false;
-      }
-    });
-  });
+  updateBetterInvSettingsButtonState();
   makeBetterInvDraggable(windowEl);
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
@@ -3895,6 +4040,35 @@ function openItemSheet(item) {
   if (!item) return;
   item.sheet?.render(true);
   elevateRecentFoundryApps();
+}
+
+function makeBetterInvSettingsDraggable(windowEl) {
+  const header = windowEl.querySelector(".betterinv-settings-window-header");
+  if (!header || header.dataset.dragReady === "1") return;
+  header.dataset.dragReady = "1";
+  header.addEventListener("mousedown", event => {
+    if (event.button !== 0) return;
+    if (event.target.closest("button, input, select, textarea, a, label")) return;
+    event.preventDefault();
+    const rect = windowEl.getBoundingClientRect();
+    const offsetX = event.clientX - rect.left;
+    const offsetY = event.clientY - rect.top;
+    windowEl.style.zIndex = "20020";
+    function onMove(moveEvent) {
+      const maxLeft = Math.max(0, window.innerWidth - 80);
+      const maxTop = Math.max(0, window.innerHeight - 50);
+      windowEl.style.left = `${Math.max(0, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
+      windowEl.style.top = `${Math.max(0, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
+      windowEl.style.right = "auto";
+      windowEl.style.bottom = "auto";
+    }
+    function onUp() {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
 }
 
 function makeBetterInvDraggable(windowEl) {
