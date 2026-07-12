@@ -6476,3 +6476,381 @@ button.betterinv-category-picker:focus-visible {
     height: 32px;
   }
 }
+
+/* Phase 9.2–9.9: combined small-window, stress and container hardening.
+   Foundry itself is desktop-first; these rules primarily protect resized
+   desktop windows and provide a usable narrow fallback without changing the design. */
+.betterinv-window {
+  min-width: 360px;
+}
+
+.betterinv-category-name,
+.betterinv-actor strong,
+.betterinv-actor-meta,
+.betterinv-container-title-copy,
+.betterinv-item-main,
+.betterinv-open-item {
+  min-width: 0;
+}
+
+.betterinv-category-name,
+.betterinv-actor strong,
+.betterinv-actor-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-category-count,
+.betterinv-category-weight,
+.betterinv-item-price,
+.betterinv-quantity-value,
+.betterinv-currency-entry > strong,
+.betterinv-container-capacity-line > strong,
+.betterinv-actor-encumbrance-line > strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.betterinv-quantity-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Empty sections remain valid drop targets but do not create tall blank blocks. */
+.betterinv-category > .betterinv-items:empty,
+.betterinv-subcategory > .betterinv-items:empty {
+  min-height: 30px;
+  padding-block: 5px !important;
+}
+
+/* Many categories remain cheap to paint while preserving native details behaviour. */
+.betterinv-category,
+.betterinv-subcategory {
+  contain: layout;
+}
+
+/* Multiple backpacks use the available component width instead of forcing overflow. */
+.betterinv-container-row {
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr)) !important;
+}
+
+.betterinv-container-card > span {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.betterinv-container-card-nested::after {
+  content: "↳";
+  position: absolute;
+  top: 6px;
+  left: 7px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(126,164,190,.42);
+  border-radius: 50%;
+  background: rgba(21,35,43,.92);
+  color: #b9d8e5;
+  font-size: 10px;
+  font-weight: 900;
+  pointer-events: none;
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 560px) {
+    .betterinv-header {
+      height: 54px;
+      padding: 7px 9px 7px 11px;
+      gap: 7px;
+    }
+
+    .betterinv-header h2 {
+      font-size: 17px;
+    }
+
+    .betterinv-header h2 small {
+      margin-top: 3px;
+      font-size: 8px;
+      letter-spacing: .14em;
+    }
+
+    .betterinv-header-actions {
+      gap: 4px;
+    }
+
+    .betterinv-header-actions > button {
+      width: 28px;
+      height: 28px;
+      font-size: 13px;
+    }
+
+    .betterinv-body {
+      height: calc(100% - 54px);
+      padding: 10px;
+    }
+
+    .betterinv-toolbar {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 6px;
+    }
+
+    .betterinv-toolbar > .betterinv-search {
+      grid-column: 1 / -1;
+      width: 100%;
+    }
+
+    .betterinv-toolbar-search-only > .betterinv-search {
+      grid-column: 1 / -1;
+    }
+
+    .betterinv-toolbar-no-search {
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    }
+
+    .betterinv-add-item,
+    .betterinv-add-category {
+      width: 100%;
+      min-width: 0;
+      padding-inline: 7px !important;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .betterinv-actor {
+      min-height: 0;
+      padding: 9px 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .betterinv-actor > strong {
+      flex: 1 1 150px;
+    }
+
+    .betterinv-actor-right {
+      min-width: 0;
+      max-width: 100%;
+      margin-left: auto;
+    }
+
+    .betterinv-container-row {
+      grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)) !important;
+      gap: 8px !important;
+    }
+
+    .betterinv-container-card {
+      min-height: 102px !important;
+      padding: 10px 8px !important;
+      gap: 6px !important;
+    }
+
+    .betterinv-container-card > img {
+      width: 46px !important;
+      height: 46px !important;
+      max-width: 46px !important;
+      max-height: 46px !important;
+    }
+
+    .betterinv-category > summary,
+    .betterinv-subcategory > summary {
+      gap: 6px !important;
+      padding-inline: 7px !important;
+    }
+
+    .betterinv-category-weight {
+      max-width: 82px;
+      padding-inline: 5px;
+    }
+
+    .betterinv-subcategory {
+      margin-left: 14px !important;
+      margin-right: 6px !important;
+    }
+
+    .betterinv-item {
+      grid-template-columns: 14px 36px minmax(0, 1fr) 28px 28px 28px !important;
+      grid-template-rows: auto auto;
+      gap: 6px !important;
+      min-height: 0;
+      padding: 6px !important;
+    }
+
+    .betterinv-item > .betterinv-item-grip {
+      grid-column: 1;
+      grid-row: 1 / span 2;
+      width: 14px;
+    }
+
+    .betterinv-item > img {
+      grid-column: 2;
+      grid-row: 1 / span 2;
+      width: 36px !important;
+      height: 36px !important;
+    }
+
+    .betterinv-item > .betterinv-item-main {
+      grid-column: 3;
+      grid-row: 1;
+    }
+
+    .betterinv-item > .betterinv-item-resources {
+      grid-column: 3 / -1;
+      grid-row: 2;
+      justify-self: start;
+      max-width: 100%;
+      margin-top: 1px;
+    }
+
+    .betterinv-item > .betterinv-edit-item {
+      grid-column: 4;
+      grid-row: 1;
+    }
+
+    .betterinv-item > .betterinv-category-picker {
+      grid-column: 5;
+      grid-row: 1;
+    }
+
+    .betterinv-item > .betterinv-item-actions-button {
+      grid-column: 6;
+      grid-row: 1;
+    }
+
+    .betterinv-edit-item,
+    .betterinv-category-picker,
+    .betterinv-item-actions-button {
+      width: 28px !important;
+      height: 28px !important;
+    }
+
+    .betterinv-open-item {
+      font-size: 13px;
+    }
+
+    .betterinv-item-meta-row {
+      gap: 3px;
+      align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .betterinv-item-meta-row > small {
+      max-width: 100%;
+    }
+
+    .betterinv-settings-window,
+    .betterinv-performance-window,
+    .betterinv-support-window {
+      width: calc(100vw - 16px) !important;
+      min-width: 0 !important;
+      max-width: calc(100vw - 16px) !important;
+    }
+  }
+
+  @container (max-width: 430px) {
+    .betterinv-header h2 {
+      font-size: 15px;
+    }
+
+    .betterinv-header h2 small {
+      display: none;
+    }
+
+    .betterinv-header-actions > button {
+      width: 26px;
+      height: 26px;
+    }
+
+    .betterinv-body {
+      padding: 7px;
+    }
+
+    .betterinv-currency-list {
+      grid-template-columns: repeat(2, minmax(76px, 1fr));
+    }
+
+    .betterinv-currency-heading.betterinv-currency-heading-actions,
+    .betterinv-currency-actions-row {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .betterinv-container-row {
+      grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)) !important;
+    }
+
+    .betterinv-container-card {
+      min-height: 92px !important;
+      font-size: 11px !important;
+    }
+
+    .betterinv-container-card > img {
+      width: 40px !important;
+      height: 40px !important;
+      max-width: 40px !important;
+      max-height: 40px !important;
+    }
+
+    .betterinv-category-weight {
+      display: none !important;
+    }
+
+    .betterinv-category-count {
+      min-width: 22px;
+      padding-inline: 4px;
+      font-size: 10px;
+    }
+
+    .betterinv-sub-indent {
+      display: none;
+    }
+
+    .betterinv-subcategory {
+      margin-left: 8px !important;
+      margin-right: 3px !important;
+    }
+
+    .betterinv-item {
+      grid-template-columns: 12px 32px minmax(0, 1fr) 26px 26px 26px !important;
+      gap: 5px !important;
+    }
+
+    .betterinv-item > img {
+      width: 32px !important;
+      height: 32px !important;
+    }
+
+    .betterinv-edit-item,
+    .betterinv-category-picker,
+    .betterinv-item-actions-button {
+      width: 26px !important;
+      height: 26px !important;
+    }
+
+    .betterinv-item-main small,
+    .betterinv-item-meta-row > small {
+      font-size: 9px;
+    }
+
+    .betterinv-quantity-controls {
+      grid-template-columns: 28px !important;
+    }
+
+    .betterinv-quantity-minus,
+    .betterinv-quantity-plus,
+    .betterinv-quantity-value {
+      width: 28px !important;
+      min-width: 28px !important;
+      max-width: 28px !important;
+    }
+  }
+}
+
+@media (max-width: 390px) {
+  .betterinv-window {
+    min-width: 0;
+    width: calc(100vw - 8px) !important;
+    max-width: calc(100vw - 8px) !important;
+  }
+}

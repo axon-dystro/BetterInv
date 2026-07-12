@@ -2321,9 +2321,9 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
               <summary>
                 <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
                 <span class="betterinv-sub-indent">↳</span>
-                <span class="betterinv-category-name">${escapeHtml(sub)}</span>
+                <span class="betterinv-category-name" title="${escapeAttr(sub)}">${escapeHtml(sub)}</span>
                 ${features.categoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht", renderCache) : ""}
-                <span class="betterinv-category-count">${subItems.length}</span>
+                <span class="betterinv-category-count" title="${escapeAttr(formatBetterInvNumber(subItems.length))} Gegenstände">${escapeHtml(formatBetterInvNumber(subItems.length))}</span>
                 <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
               </summary>
               <div class="betterinv-items betterinv-subitems">${subRows}</div>
@@ -2335,9 +2335,9 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         <details class="betterinv-category" open draggable="true" data-category="${escapeAttr(section.id)}">
           <summary>
             <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
-            <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
+            <span class="betterinv-category-name" title="${escapeAttr(section.name)}">${escapeHtml(section.name)}</span>
             ${features.categoryWeights ? betterInvCategoryWeightHtml(categoryItems, "Kategoriegewicht", renderCache) : ""}
-            <span class="betterinv-category-count">${directItems.length}</span>
+            <span class="betterinv-category-count" title="${escapeAttr(formatBetterInvNumber(directItems.length))} direkte Gegenstände">${escapeHtml(formatBetterInvNumber(directItems.length))}</span>
             ${features.subcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
             <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
           </summary>
@@ -2355,7 +2355,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         <div class="betterinv-unknown-header">
           <span class="betterinv-category-name">Gegenstände</span>
           ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Gegenstände", renderCache) : ""}
-          <span class="betterinv-category-count">${regularItems.length}</span>
+          <span class="betterinv-category-count">${escapeHtml(formatBetterInvNumber(regularItems.length))}</span>
         </div>
         <div class="betterinv-items">${flatRows}</div>
       </section>`;
@@ -2367,7 +2367,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
         ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Gegenstände", renderCache) : ""}
-        <span class="betterinv-category-count">${unknownItems.length}</span>
+        <span class="betterinv-category-count">${escapeHtml(formatBetterInvNumber(unknownItems.length))}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
         ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")}
@@ -2379,7 +2379,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       <div class="betterinv-favorites-header">
         <span class="betterinv-favorites-icon" aria-hidden="true">★</span>
         <span class="betterinv-category-name">Favoriten</span>
-        <span class="betterinv-category-count">${favoriteItems.length}</span>
+        <span class="betterinv-category-count">${escapeHtml(formatBetterInvNumber(favoriteItems.length))}</span>
       </div>
       <div class="betterinv-items betterinv-favorite-items">
         ${favoriteItems.map(item => favoriteItemRowHtml(item, { settings: userSettings, features, renderCache })).join("")}
@@ -5194,11 +5194,19 @@ async function renderContainerCards(actor, containers, { showCapacity = true, in
           ${row.map(container => {
             const alias = getContainerAlias(actor, container);
             const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems, renderCache) : null;
+            const parentReference = getItemContainerId(container, renderCache);
+            const parentContainer = parentReference
+              ? containers.find(candidate => candidate.id !== container.id && betterInvContainerReferenceMatches(parentReference, candidate))
+              : null;
+            const metadata = [
+              alias !== container.name ? container.name : null,
+              parentContainer ? `In: ${getContainerAlias(actor, parentContainer)}` : null
+            ].filter(Boolean).join(" · ");
             return `
-              <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
+              <div class="betterinv-container-card${parentContainer ? " betterinv-container-card-nested" : ""}" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(`${alias} öffnen${parentContainer ? ` – liegt in ${getContainerAlias(actor, parentContainer)}` : ""}`)}">
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
                 <span>${escapeHtml(alias)}</span>
-                ${alias !== container.name ? `<small>${escapeHtml(container.name)}</small>` : ""}
+                ${metadata ? `<small title="${escapeAttr(metadata)}">${escapeHtml(metadata)}</small>` : ""}
                 ${showCapacity ? betterInvContainerCapacityHtml(capacity, { compact: true }) : ""}
               </div>`;
           }).join("")}
@@ -5227,13 +5235,21 @@ function renderContainerBreadcrumb(actor, container, { showCapacity = true, show
     </div>`;
 }
 
+const BETTER_INV_MAX_QUANTITY = Number.MAX_SAFE_INTEGER;
+
+function normalizeBetterInvItemQuantity(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.max(0, Math.min(BETTER_INV_MAX_QUANTITY, Math.floor(Number(fallback) || 0)));
+  return Math.max(0, Math.min(BETTER_INV_MAX_QUANTITY, Math.floor(parsed)));
+}
+
 function getItemQuantityData(item, renderCache = null) {
   if (renderCache?.quantity?.has(item)) return renderCache.quantity.get(item);
   const raw = foundry.utils.getProperty(item, "system.quantity");
   const nested = foundry.utils.getProperty(item, "system.quantity.value");
-  const value = Number(typeof raw === "object" && raw !== null ? nested : raw);
+  const sourceValue = typeof raw === "object" && raw !== null ? nested : raw;
   const result = {
-    value: Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 1,
+    value: normalizeBetterInvItemQuantity(sourceValue, 1),
     updatePath: typeof raw === "object" && raw !== null ? "system.quantity.value" : "system.quantity"
   };
   renderCache?.quantity?.set(item, result);
@@ -5243,9 +5259,7 @@ function getItemQuantityData(item, renderCache = null) {
 async function setItemQuantity(item, value, operation = {}) {
   if (!item) return;
   const quantity = getItemQuantityData(item);
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return;
-  const next = Math.max(0, Math.floor(parsed));
+  const next = normalizeBetterInvItemQuantity(value, quantity.value);
   if (next === quantity.value) return;
   await item.update({ [quantity.updatePath]: next }, operation);
 }
@@ -5253,7 +5267,11 @@ async function setItemQuantity(item, value, operation = {}) {
 async function changeItemQuantity(item, delta) {
   if (!item || !Number.isFinite(delta)) return;
   const quantity = getItemQuantityData(item);
-  await setItemQuantity(item, quantity.value + Math.trunc(delta));
+  const safeDelta = Math.trunc(delta);
+  const rawNext = safeDelta > 0 && quantity.value > BETTER_INV_MAX_QUANTITY - safeDelta
+    ? BETTER_INV_MAX_QUANTITY
+    : quantity.value + safeDelta;
+  await setItemQuantity(item, rawNext);
 }
 
 function getItemEquippedData(item, renderCache = null) {
@@ -7603,7 +7621,7 @@ function favoriteItemRowHtml(item, { settings = null, features = null, renderCac
       <span class="betterinv-item-grip" title="Favorit – das Original bleibt in seiner Kategorie">★</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="Gegenstand öffnen">${escapeHtml(item.name)}</button>
+        <button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>
       </div>
       ${featurePlan.quantityControls && Number(quantity) > 1 ? `<span class="betterinv-favorite-quantity" title="Anzahl">×${escapeHtml(String(quantity))}</span>` : ""}
       ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Gegenstandsaktionen" aria-label="Weitere Gegenstandsaktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
@@ -7633,7 +7651,7 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
       <span class="betterinv-item-grip" title="Gedrückt halten und Gegenstand verschieben">☰</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="Gegenstand öffnen">${escapeHtml(item.name)}</button>
+        <button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>
         <div class="betterinv-item-meta-row">
           <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
           ${priceHtml}
@@ -7645,7 +7663,7 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
             <span class="betterinv-resource-label">Anzahl</span>
             <div class="betterinv-quantity-controls">
               <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen"><i class="fas fa-chevron-up" aria-hidden="true"></i></button>
-              <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
+              <input type="number" class="betterinv-quantity-value" min="0" max="${BETTER_INV_MAX_QUANTITY}" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anzahl: ${escapeAttr(formatBetterInvNumber(qty))} – anklicken und direkt ändern" aria-label="Aktuelle Anzahl direkt ändern">
               <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
             </div>
           </div>
@@ -7938,8 +7956,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     const item = actor?.items?.get(row?.dataset?.itemId);
     if (!item || field.dataset.saving === "true") return;
     const oldValue = getItemQuantityData(item).value;
-    const parsed = Number(field.value);
-    const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
+    const next = normalizeBetterInvItemQuantity(field.value, oldValue);
     field.value = String(next);
     if (next === oldValue) {
       field.dataset.originalValue = String(oldValue);
@@ -8347,8 +8364,31 @@ function enableItemToContainerDrop(windowEl, actor, activeContainer = null) {
   }
 }
 
+function wouldBetterInvCreateContainerCycle(item, targetContainer) {
+  if (!item || !targetContainer || !isContainerLike(item)) return false;
+  if (item.id === targetContainer.id) return true;
+  const actor = item.parent ?? targetContainer.parent;
+  const seen = new Set();
+  let current = targetContainer;
+  while (current) {
+    if (current.id === item.id) return true;
+    if (seen.has(current.id)) return true;
+    seen.add(current.id);
+    const parentReference = getItemContainerId(current);
+    if (!parentReference) return false;
+    current = Array.from(actor?.items ?? []).find(candidate => betterInvContainerReferenceMatches(parentReference, candidate)) ?? null;
+  }
+  return false;
+}
+
 async function moveItemToContainer(item, targetContainer = null) {
   if (!item) return;
+  if (wouldBetterInvCreateContainerCycle(item, targetContainer)) {
+    const error = new Error("Ein Rucksack kann nicht in sich selbst oder in einen eigenen Unterrucksack gelegt werden.");
+    logBetterInvDiagnostic("warn", "BI-CONTAINER-004", "Ungültige verschachtelte Rucksackzuordnung verhindert", error);
+    ui.notifications.warn(error.message);
+    return false;
+  }
   const current = foundry.utils.getProperty(item, "system.container");
   const targetValue = targetContainer ? targetContainer.id : null;
   const update = {};
@@ -8361,13 +8401,14 @@ async function moveItemToContainer(item, targetContainer = null) {
     update["system.container"] = targetValue ?? "";
   }
 
-  try { await item.update(update); return; }
+  try { await item.update(update); return true; }
   catch (err) { logBetterInvDiagnostic("warn", "BI-CONTAINER-002", "Direktes Rucksack-Update fehlgeschlagen; ID-Fallback wird versucht", err); }
 
-  try { await item.update({ "system.container": targetContainer?.id ?? "" }); return; }
+  try { await item.update({ "system.container": targetContainer?.id ?? "" }); return true; }
   catch (err) { logBetterInvDiagnostic("warn", "BI-CONTAINER-003", "Rucksack-Update über ID ist fehlgeschlagen", err); }
 
   ui.notifications.warn("Der Gegenstand konnte nicht automatisch in den Rucksack verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
+  return false;
 }
 
 
