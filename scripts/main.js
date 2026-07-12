@@ -3,11 +3,60 @@
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
-const BETTER_INV_USER_SETTINGS_VERSION = 1;
+const BETTER_INV_USER_SETTINGS_VERSION = 2;
 const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   version: BETTER_INV_USER_SETTINGS_VERSION,
-  showItemValues: true
+  showCategories: true,
+  showSubcategories: true,
+  showFavorites: true,
+  showUnknownItems: true,
+  showEncumbrance: true,
+  showCategoryWeights: true,
+  showContainerCapacity: true,
+  showCurrency: true,
+  showCurrencyCalculator: true,
+  showItemValues: true,
+  showQuantityControls: true,
+  showEditButton: true,
+  showAddItemButton: true,
+  showItemActionsMenu: true,
+  showEquipActions: true,
+  showCategoryDropdown: true
 });
+
+const BETTER_INV_SETTINGS_GROUPS = [
+  {
+    title: "Struktur",
+    settings: [
+      ["showCategories", "Kategorien", "Zeigt die Kategorien und ihre Verwaltungsfunktionen."],
+      ["showSubcategories", "Unterkategorien", "Zeigt Unterkategorien innerhalb der Hauptkategorien."],
+      ["showFavorites", "Favoriten", "Zeigt den Favoritenbereich und die Favoritenaktion."],
+      ["showUnknownItems", "Unbekannte Items", "Zeigt nicht identifizierte Items in einem eigenen Bereich."]
+    ]
+  },
+  {
+    title: "Informationen",
+    settings: [
+      ["showEncumbrance", "Traglast", "Zeigt die gesamte Traglast des Charakters."],
+      ["showCategoryWeights", "Kategoriegewicht", "Zeigt Gewichte an Kategorien und Unterkategorien."],
+      ["showContainerCapacity", "Containerkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."],
+      ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
+      ["showItemValues", "Itempreise", "Zeigt den gespeicherten Wert direkt am Item."]
+    ]
+  },
+  {
+    title: "Bedienung",
+    settings: [
+      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen und Wechseln."],
+      ["showQuantityControls", "Mengensteuerung", "Zeigt Anzahl sowie Plus- und Minussteuerung."],
+      ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Item."],
+      ["showAddItemButton", "Item hinzufügen", "Zeigt den Button zum Erstellen eines neuen Items."],
+      ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Itemaktionen wie Duplizieren und Löschen."],
+      ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
+      ["showCategoryDropdown", "Kategorie-Dropdown", "Zeigt die kleine Kategorienauswahl direkt am Item."]
+    ]
+  }
+];
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
 let betterInvActionMenuButton = null;
@@ -79,10 +128,12 @@ function registerBetterInvSettings() {
 
 function normalizeBetterInvUserSettings(raw = {}) {
   const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-  return {
-    version: BETTER_INV_USER_SETTINGS_VERSION,
-    showItemValues: source.showItemValues !== false
-  };
+  const normalized = { version: BETTER_INV_USER_SETTINGS_VERSION };
+  for (const [key, defaultValue] of Object.entries(DEFAULT_BETTER_INV_USER_SETTINGS)) {
+    if (key === "version") continue;
+    normalized[key] = source[key] === undefined ? defaultValue : source[key] !== false;
+  }
+  return normalized;
 }
 
 function getBetterInvUserSettings() {
@@ -107,8 +158,7 @@ async function initializeBetterInvUserSettings() {
   const existing = game.user.getFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG);
   if (existing && typeof existing === "object" && !Array.isArray(existing)) {
     const normalized = normalizeBetterInvUserSettings(existing);
-    const needsUpdate = existing.version !== normalized.version
-      || existing.showItemValues !== normalized.showItemValues;
+    const needsUpdate = JSON.stringify(existing) !== JSON.stringify(normalized);
     if (needsUpdate) await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, normalized);
     return;
   }
@@ -740,90 +790,131 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const currentContainer = betterInvState.containerId ? actor.items.get(betterInvState.containerId) : null;
   if (betterInvState.containerId && !currentContainer) betterInvState.containerId = null;
   const activeContainer = betterInvState.containerId ? currentContainer : null;
+  const userSettings = getBetterInvUserSettings();
   const query = String(betterInvState.search ?? "").trim().toLowerCase();
   const allVisibleItems = await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer), activeContainer?.id ?? null);
   const visibleItems = query ? allVisibleItems.filter(item => itemMatchesSearch(item, query)) : allVisibleItems;
   const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor));
   const categories = await getCategories(actor, activeContainer?.id ?? null);
-  const categoryOptions = await getCategoryOptions(actor, categories, activeContainer?.id ?? null);
+  let categoryOptions = await getCategoryOptions(actor, categories, activeContainer?.id ?? null);
+  if (!userSettings.showUnknownItems) categoryOptions = categoryOptions.filter(id => id !== "__unknown");
+  if (!userSettings.showSubcategories) categoryOptions = categoryOptions.filter(id => !String(id).includes("::"));
 
-  const topContainerHtml = !activeContainer ? await renderContainerCards(actor, containers) : renderContainerBreadcrumb(actor, activeContainer);
-  const actorEncumbranceHtml = !activeContainer ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor)) : "";
-  const actorCurrencyHtml = betterInvActorCurrencyHtml(
+  const topContainerHtml = !activeContainer
+    ? await renderContainerCards(actor, containers, { showCapacity: userSettings.showContainerCapacity })
+    : renderContainerBreadcrumb(actor, activeContainer, { showCapacity: userSettings.showContainerCapacity });
+  const actorEncumbranceHtml = (!activeContainer && userSettings.showEncumbrance)
+    ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor))
+    : "";
+  const actorCurrencyHtml = userSettings.showCurrency ? betterInvActorCurrencyHtml(
     getBetterInvActorCurrency(actor),
     getBetterInvCurrencyDraft(actor),
-    { editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor) }
-  );
-  const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
-  const order = await getCategoryOrder(actor, activeContainer?.id ?? null, categories);
-  const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
-  const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
-
-  const sectionHtmlParts = [];
-  for (const section of sections) {
-    const contextContainerId = activeContainer?.id ?? null;
-    const directItems = visibleItems.filter(item => itemCategory(item, contextContainerId) === section.id);
-    const categoryItems = visibleItems.filter(item => {
-      const category = itemCategory(item, contextContainerId);
-      return category === section.id || (section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
-    });
-    const rows = directItems.length
-      ? directItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, section.id)).join("")
-      : `<p class="betterinv-empty">Leer</p>`;
-
-    let subcategoryHtml = "";
-    if (section.id !== "__unsorted") {
-      const subs = await getSubcategories(actor, section.id, activeContainer?.id ?? null);
-      subcategoryHtml = subs.map(sub => {
-        const subId = makeSubcategoryId(section.id, sub);
-        const subItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === subId);
-        const subRows = subItems.length
-          ? subItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, subId)).join("")
-          : `<p class="betterinv-empty">Leer</p>`;
-        return `
-          <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
-            <summary>
-              <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
-              <span class="betterinv-sub-indent">↳</span>
-              <span class="betterinv-category-name">${escapeHtml(sub)}</span>
-              ${betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht")}
-              <span class="betterinv-category-count">${subItems.length}</span>
-              <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
-            </summary>
-            <div class="betterinv-items betterinv-subitems">${subRows}</div>
-          </details>`;
-      }).join("");
+    {
+      editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor),
+      showCalculator: userSettings.showCurrencyCalculator
     }
+  ) : "";
+  const searchContainersHtml = (!activeContainer && query) ? renderSearchContainerHits(actor, containers, query) : "";
+  const contextContainerId = activeContainer?.id ?? null;
+  const displayCategoryForItem = item => {
+    const raw = itemCategory(item, contextContainerId);
+    if (raw === "__unknown" && !userSettings.showUnknownItems) return "__unsorted";
+    if (!userSettings.showSubcategories && String(raw).includes("::")) return parseCategoryId(raw).parent;
+    return raw;
+  };
 
-    sectionHtmlParts.push(`
-      <details class="betterinv-category" open draggable="true" data-category="${escapeAttr(section.id)}">
-        <summary>
-          <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
-          <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
-          ${betterInvCategoryWeightHtml(categoryItems)}
-          <span class="betterinv-category-count">${directItems.length}</span>
-          ${section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
-          <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
-        </summary>
-        <div class="betterinv-items">${rows}</div>
-        ${subcategoryHtml}
-      </details>`);
+  const unknownItems = userSettings.showUnknownItems
+    ? visibleItems.filter(item => itemCategory(item, contextContainerId) === "__unknown")
+    : [];
+  const regularItems = userSettings.showUnknownItems
+    ? visibleItems.filter(item => itemCategory(item, contextContainerId) !== "__unknown")
+    : visibleItems;
+
+  let sectionHtml = "";
+  if (userSettings.showCategories) {
+    const order = await getCategoryOrder(actor, contextContainerId, categories);
+    const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
+    const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
+    const sectionHtmlParts = [];
+
+    for (const section of sections) {
+      const directItems = regularItems.filter(item => displayCategoryForItem(item) === section.id);
+      const categoryItems = regularItems.filter(item => {
+        const category = displayCategoryForItem(item);
+        return category === section.id || (userSettings.showSubcategories && section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
+      });
+      const rows = directItems.length
+        ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+        : `<p class="betterinv-empty">Leer</p>`;
+
+      let subcategoryHtml = "";
+      if (userSettings.showSubcategories && section.id !== "__unsorted") {
+        const subs = await getSubcategories(actor, section.id, contextContainerId);
+        subcategoryHtml = subs.map(sub => {
+          const subId = makeSubcategoryId(section.id, sub);
+          const subItems = regularItems.filter(item => displayCategoryForItem(item) === subId);
+          const subRows = subItems.length
+            ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+            : `<p class="betterinv-empty">Leer</p>`;
+          return `
+            <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
+              <summary>
+                <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
+                <span class="betterinv-sub-indent">↳</span>
+                <span class="betterinv-category-name">${escapeHtml(sub)}</span>
+                ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht") : ""}
+                <span class="betterinv-category-count">${subItems.length}</span>
+                <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
+              </summary>
+              <div class="betterinv-items betterinv-subitems">${subRows}</div>
+            </details>`;
+        }).join("");
+      }
+
+      sectionHtmlParts.push(`
+        <details class="betterinv-category" open draggable="true" data-category="${escapeAttr(section.id)}">
+          <summary>
+            <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
+            <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
+            ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(categoryItems) : ""}
+            <span class="betterinv-category-count">${directItems.length}</span>
+            ${userSettings.showSubcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
+            <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
+          </summary>
+          <div class="betterinv-items">${rows}</div>
+          ${subcategoryHtml}
+        </details>`);
+    }
+    sectionHtml = sectionHtmlParts.join("");
+  } else {
+    const flatRows = regularItems.length
+      ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+      : `<p class="betterinv-empty">Keine Items vorhanden.</p>`;
+    sectionHtml = `
+      <section class="betterinv-system-category betterinv-flat-category">
+        <div class="betterinv-unknown-header">
+          <span class="betterinv-category-name">Items</span>
+          ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items") : ""}
+          <span class="betterinv-category-count">${regularItems.length}</span>
+        </div>
+        <div class="betterinv-items">${flatRows}</div>
+      </section>`;
   }
-  const sectionHtml = sectionHtmlParts.join("");
-  const unknownItems = visibleItems.filter(item => itemCategory(item, activeContainer?.id ?? null) === "__unknown");
+
   const unknownHtml = unknownItems.length ? `
     <section class="betterinv-system-category betterinv-unknown-category" data-category="__unknown">
       <div class="betterinv-unknown-header">
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
-        ${betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items")}
+        ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items") : ""}
         <span class="betterinv-category-count">${unknownItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
-        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null)).join("")}
+        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")}
       </div>
     </section>` : "";
-  const favoriteItems = visibleItems.filter(item => isBetterInvFavorite(item));
+
+  const favoriteItems = userSettings.showFavorites ? visibleItems.filter(item => isBetterInvFavorite(item)) : [];
   const favoritesHtml = favoriteItems.length ? `
     <section class="betterinv-favorites">
       <div class="betterinv-favorites-header">
@@ -832,7 +923,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <span class="betterinv-category-count">${favoriteItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-favorite-items">
-        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, activeContainer?.id ?? null, { favoriteView: true })).join("")}
+        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { favoriteView: true, settings: userSettings })).join("")}
       </div>
     </section>` : "";
 
@@ -860,8 +951,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       ${topContainerHtml}
       <div class="betterinv-toolbar">
         <input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">
-        <button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>
-        <button type="button" class="betterinv-add-category">+ Kategorie</button>
+        ${userSettings.showAddItemButton ? `<button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>` : ""}
+        ${userSettings.showCategories ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>` : ""}
       </div>
       ${searchContainersHtml}
       ${favoritesHtml}
@@ -889,7 +980,19 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 
 function baseShellHtml(bodyHtml) {
   const settingsOpen = betterInvState.settingsOpen === true;
-  const showItemValues = betterInvShowsItemValues();
+  const userSettings = getBetterInvUserSettings();
+  const settingsGroupsHtml = BETTER_INV_SETTINGS_GROUPS.map(group => `
+    <section class="betterinv-settings-group">
+      <h3>${escapeHtml(group.title)}</h3>
+      ${group.settings.map(([key, label, description]) => `
+        <label class="betterinv-settings-row">
+          <span>
+            <strong>${escapeHtml(label)}</strong>
+            <small>${escapeHtml(description)}</small>
+          </span>
+          <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
+        </label>`).join("")}
+    </section>`).join("");
   return `
     <header class="betterinv-header">
       <h2>Better Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
@@ -909,13 +1012,9 @@ function baseShellHtml(bodyHtml) {
         </div>
         <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
       </div>
-      <label class="betterinv-settings-row">
-        <span>
-          <strong>Itempreise anzeigen</strong>
-          <small>Zeigt den gespeicherten Wert direkt am Item.</small>
-        </span>
-        <input type="checkbox" class="betterinv-setting-show-item-values" ${showItemValues ? "checked" : ""}>
-      </label>
+      <div class="betterinv-settings-scroll">
+        ${settingsGroupsHtml}
+      </div>
       <div class="betterinv-settings-coming-soon">
         <i class="fas fa-user-check" aria-hidden="true"></i>
         <span>Persönlich für deinen Foundry-Nutzer in dieser Welt gespeichert.</span>
@@ -1284,30 +1383,34 @@ function getBetterInvCurrencyDraft(actor) {
   ]));
 }
 
-function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } = {}) {
+function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, showCalculator = true } = {}) {
   if (!Array.isArray(currencies) || !currencies.length) return "";
   const totalCoins = currencies.reduce((sum, currency) => sum + (Number(currency.value) || 0), 0);
+  const calculatorClass = showCalculator ? "" : " betterinv-currency-display-only";
   return `
-    <section class="betterinv-currency" aria-label="Währungen" title="Münzbestand: ${escapeAttr(formatBetterInvNumber(totalCoins))} Münzen">
-      <div class="betterinv-currency-heading betterinv-currency-heading-actions">
-        <button
-          type="button"
-          class="betterinv-currency-action betterinv-currency-exchange-up"
-          title="Gewünschte Zielmünzen aus niedrigeren Münzarten bilden, zum Beispiel bei Silber 2: 20 CP werden zu 2 SP"
-          ${editable ? "" : "disabled"}
-        >
-          <i class="fas fa-arrow-up" aria-hidden="true"></i>
-          <span>Aufrunden</span>
-        </button>
-        <button
-          type="button"
-          class="betterinv-currency-action betterinv-currency-exchange-down"
-          title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 2 SP in 20 CP"
-          ${editable ? "" : "disabled"}
-        >
-          <i class="fas fa-arrow-down" aria-hidden="true"></i>
-          <span>Abrunden</span>
-        </button>
+    <section class="betterinv-currency${calculatorClass}" aria-label="Währungen" title="Münzbestand: ${escapeAttr(formatBetterInvNumber(totalCoins))} Münzen">
+      <div class="betterinv-currency-heading ${showCalculator ? "betterinv-currency-heading-actions" : "betterinv-currency-heading-label"}">
+        ${showCalculator ? `
+          <button
+            type="button"
+            class="betterinv-currency-action betterinv-currency-exchange-up"
+            title="Gewünschte Zielmünzen aus niedrigeren Münzarten bilden, zum Beispiel bei Silber 2: 20 CP werden zu 2 SP"
+            ${editable ? "" : "disabled"}
+          >
+            <i class="fas fa-arrow-up" aria-hidden="true"></i>
+            <span>Aufrunden</span>
+          </button>
+          <button
+            type="button"
+            class="betterinv-currency-action betterinv-currency-exchange-down"
+            title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 2 SP in 20 CP"
+            ${editable ? "" : "disabled"}
+          >
+            <i class="fas fa-arrow-down" aria-hidden="true"></i>
+            <span>Abrunden</span>
+          </button>` : `
+          <i class="fas fa-coins" aria-hidden="true"></i>
+          <span>Währungen</span>`}
       </div>
       <div class="betterinv-currency-main">
         <div class="betterinv-currency-list">
@@ -1316,42 +1419,44 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
               <span class="betterinv-currency-name">${escapeHtml(currency.name)}</span>
               <strong>${escapeHtml(formatBetterInvNumber(currency.value))}</strong>
               <small>${escapeHtml(currency.abbreviation)}</small>
-              <input
-                type="text"
-                class="betterinv-currency-input"
-                data-currency-key="${escapeAttr(currency.key)}"
-                value="${escapeAttr(draft[currency.key] ?? "")}"
-                placeholder="0"
-                inputmode="numeric"
-                pattern="[0-9]*"
-                maxlength="12"
-                autocomplete="off"
-                aria-label="${escapeAttr(`${currency.name} eingeben`)}"
-                title="${escapeAttr(`Änderungsbetrag in ${currency.name} eingeben`)}"
-                ${editable ? "" : "disabled"}
-              >
+              ${showCalculator ? `
+                <input
+                  type="text"
+                  class="betterinv-currency-input"
+                  data-currency-key="${escapeAttr(currency.key)}"
+                  value="${escapeAttr(draft[currency.key] ?? "")}"
+                  placeholder="0"
+                  inputmode="numeric"
+                  pattern="[0-9]*"
+                  maxlength="12"
+                  autocomplete="off"
+                  aria-label="${escapeAttr(`${currency.name} eingeben`)}"
+                  title="${escapeAttr(`Änderungsbetrag in ${currency.name} eingeben`)}"
+                  ${editable ? "" : "disabled"}
+                >` : ""}
             </div>`).join("")}
         </div>
-        <div class="betterinv-currency-actions-row">
-          <button
-            type="button"
-            class="betterinv-currency-action betterinv-currency-add"
-            title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
-            ${editable ? "" : "disabled"}
-          >
-            <i class="fas fa-plus" aria-hidden="true"></i>
-            <span>Hinzufügen</span>
-          </button>
-          <button
-            type="button"
-            class="betterinv-currency-action betterinv-currency-remove"
-            title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
-            ${editable ? "" : "disabled"}
-          >
-            <i class="fas fa-minus" aria-hidden="true"></i>
-            <span>Bezahlen / Entfernen</span>
-          </button>
-        </div>
+        ${showCalculator ? `
+          <div class="betterinv-currency-actions-row">
+            <button
+              type="button"
+              class="betterinv-currency-action betterinv-currency-add"
+              title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
+              ${editable ? "" : "disabled"}
+            >
+              <i class="fas fa-plus" aria-hidden="true"></i>
+              <span>Hinzufügen</span>
+            </button>
+            <button
+              type="button"
+              class="betterinv-currency-action betterinv-currency-remove"
+              title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
+              ${editable ? "" : "disabled"}
+            >
+              <i class="fas fa-minus" aria-hidden="true"></i>
+              <span>Bezahlen / Entfernen</span>
+            </button>
+          </div>` : ""}
       </div>
     </section>`;
 }
@@ -2513,7 +2618,7 @@ function betterInvActorEncumbranceHtml(encumbrance) {
     </section>`;
 }
 
-async function renderContainerCards(actor, containers) {
+async function renderContainerCards(actor, containers, { showCapacity = true } = {}) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
   const layerCount = savedLayerCount ?? Math.max(1, Math.ceil(containers.length / 4));
@@ -2543,13 +2648,13 @@ async function renderContainerCards(actor, containers) {
         <div class="betterinv-container-row ${row.length ? "" : "betterinv-container-row-empty"}" data-row-index="${rowIndex}">
           ${row.map(container => {
             const alias = getContainerAlias(actor, container);
-            const capacity = getBetterInvContainerCapacity(actor, container);
+            const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container) : null;
             return `
               <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
                 <span>${escapeHtml(alias)}</span>
                 ${alias !== container.name ? `<small>${escapeHtml(container.name)}</small>` : ""}
-                ${betterInvContainerCapacityHtml(capacity, { compact: true })}
+                ${showCapacity ? betterInvContainerCapacityHtml(capacity, { compact: true }) : ""}
               </div>`;
           }).join("")}
         </div>
@@ -2557,9 +2662,9 @@ async function renderContainerCards(actor, containers) {
     </div>`;
 }
 
-function renderContainerBreadcrumb(actor, container) {
+function renderContainerBreadcrumb(actor, container, { showCapacity = true } = {}) {
   const count = getVisibleItems(actor, container).length;
-  const capacity = getBetterInvContainerCapacity(actor, container);
+  const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container) : null;
   return `
     <div class="betterinv-container-view">
       <button type="button" class="betterinv-back">← Alle Rucksäcke</button>
@@ -2571,7 +2676,7 @@ function renderContainerBreadcrumb(actor, container) {
             <small>${count} Inhalt(e)</small>
           </div>
         </div>
-        ${betterInvContainerCapacityHtml(capacity)}
+        ${showCapacity ? betterInvContainerCapacityHtml(capacity) : ""}
       </div>
       <div class="betterinv-remove-from-container" title="Item hier ablegen, um es zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
     </div>`;
@@ -2779,11 +2884,12 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.id = "betterinv-item-action-menu";
   menu.className = "betterinv-item-actions-menu";
   menu.setAttribute("role", "menu");
+  const userSettings = getBetterInvUserSettings();
   const equipped = getItemEquippedData(item);
   const favorite = isBetterInvFavorite(item);
   menu.innerHTML = `
-    ${equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
-    <button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>
+    ${userSettings.showEquipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
+    ${userSettings.showFavorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -2870,7 +2976,8 @@ function openBetterInvItemActionMenu(button, actor, item) {
   window.addEventListener("scroll", close, { once: true, capture: true });
 }
 
-function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false } = {}) {
+function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null } = {}) {
+  const userSettings = settings ?? getBetterInvUserSettings();
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = getItemQuantityData(item).value;
   const equipped = getItemEquippedData(item);
@@ -2881,6 +2988,7 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
   const options = (categoryOptions ?? ["__unsorted"]).map(cat =>
     `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(categoryOptionLabel(cat))}</option>`
   ).join("");
+  const showCategoryPicker = userSettings.showCategories && userSettings.showCategoryDropdown;
 
   return `
     <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
@@ -2893,22 +3001,24 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
           ${betterInvItemPriceHtml(item, { unidentified })}
         </div>
       </div>
-      <div class="betterinv-item-resources">
-        <div class="betterinv-resource-block betterinv-quantity-resource" aria-label="Anzahl ändern">
-          <span class="betterinv-resource-label">Anzahl</span>
-          <div class="betterinv-quantity-controls">
-            <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen"><i class="fas fa-chevron-up" aria-hidden="true"></i></button>
-            <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
-            <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+      ${userSettings.showQuantityControls ? `
+        <div class="betterinv-item-resources">
+          <div class="betterinv-resource-block betterinv-quantity-resource" aria-label="Anzahl ändern">
+            <span class="betterinv-resource-label">Anzahl</span>
+            <div class="betterinv-quantity-controls">
+              <button type="button" class="betterinv-quantity-plus" title="Anzahl um 1 erhöhen" aria-label="Anzahl erhöhen"><i class="fas fa-chevron-up" aria-hidden="true"></i></button>
+              <input type="number" class="betterinv-quantity-value" min="0" step="1" inputmode="numeric" value="${escapeAttr(String(qty))}" data-original-value="${escapeAttr(String(qty))}" title="Anklicken und Anzahl direkt eingeben" aria-label="Aktuelle Anzahl direkt ändern">
+              <button type="button" class="betterinv-quantity-minus" title="Anzahl um 1 verringern" aria-label="Anzahl verringern"><i class="fas fa-chevron-down" aria-hidden="true"></i></button>
+            </div>
           </div>
-        </div>
-      </div>
-      <button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>
-      <span class="betterinv-category-picker" title="Kategorie ändern">
-        <i class="fas fa-chevron-down" aria-hidden="true"></i>
-        <select class="betterinv-category-select" aria-label="Kategorie wählen">${options}</select>
-      </span>
-      <button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>
+        </div>` : ""}
+      ${userSettings.showEditButton ? `<button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
+      ${showCategoryPicker ? `
+        <span class="betterinv-category-picker" title="Kategorie ändern">
+          <i class="fas fa-chevron-down" aria-hidden="true"></i>
+          <select class="betterinv-category-select" aria-label="Kategorie wählen">${options}</select>
+        </span>` : ""}
+      ${userSettings.showItemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
     </article>`;
 }
 
@@ -2939,21 +3049,25 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     event.preventDefault();
     setSettingsOpen(false);
   });
-  windowEl.querySelector(".betterinv-setting-show-item-values")?.addEventListener("change", async event => {
-    const input = event.currentTarget;
-    if (!(input instanceof HTMLInputElement)) return;
-    const previous = betterInvShowsItemValues();
-    input.disabled = true;
-    betterInvState.settingsOpen = true;
-    try {
-      await saveBetterInvUserSettings({ showItemValues: input.checked });
-      if (document.getElementById("betterinv-window")) renderBetterInvWindow();
-    } catch (error) {
-      console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
-      ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
-      input.checked = previous;
-      input.disabled = false;
-    }
+  windowEl.querySelectorAll(".betterinv-setting-toggle").forEach(input => {
+    input.addEventListener("change", async event => {
+      const checkbox = event.currentTarget;
+      if (!(checkbox instanceof HTMLInputElement)) return;
+      const key = String(checkbox.dataset.settingKey ?? "");
+      if (!Object.prototype.hasOwnProperty.call(DEFAULT_BETTER_INV_USER_SETTINGS, key) || key === "version") return;
+      const previous = getBetterInvUserSettings()[key] !== false;
+      checkbox.disabled = true;
+      betterInvState.settingsOpen = true;
+      try {
+        await saveBetterInvUserSettings({ [key]: checkbox.checked });
+        if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+      } catch (error) {
+        console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+        ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
+        checkbox.checked = previous;
+        checkbox.disabled = false;
+      }
+    });
   });
   makeBetterInvDraggable(windowEl);
 

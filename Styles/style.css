@@ -2860,3 +2860,145 @@
     }
   }
 }
+
+/* Phase 5.3: full personal feature switches. */
+.betterinv-settings-panel {
+  max-height: min(74vh, 620px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.betterinv-settings-scroll {
+  min-height: 0;
+  margin-top: 7px;
+  padding-right: 3px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--bi-border) #111;
+}
+
+.betterinv-settings-scroll::-webkit-scrollbar { width: 7px; }
+.betterinv-settings-scroll::-webkit-scrollbar-track { background: #111; }
+.betterinv-settings-scroll::-webkit-scrollbar-thumb { background: #5e5438; border: 1px solid #111; }
+
+.betterinv-settings-group + .betterinv-settings-group {
+  margin-top: 10px;
+}
+
+.betterinv-settings-group h3 {
+  margin: 0 0 5px;
+  padding: 0 2px 4px;
+  border-bottom: 1px solid rgba(200,168,90,.16);
+  color: #b7a476;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+
+.betterinv-settings-group .betterinv-settings-row {
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 6px 7px;
+}
+
+.betterinv-settings-group .betterinv-settings-row strong {
+  font-size: 11px;
+}
+
+.betterinv-settings-group .betterinv-settings-row small {
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.18;
+}
+
+.betterinv-settings-coming-soon {
+  flex: 0 0 auto;
+}
+
+/* Currency can remain as a compact read-only overview when the calculator is disabled. */
+.betterinv-currency-display-only .betterinv-currency-heading-label {
+  min-width: 0;
+  padding: 0 8px 0 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-right: 1px solid rgba(200,168,90,.22);
+  color: #b7a476;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.betterinv-currency-display-only .betterinv-currency-entry {
+  grid-template-areas:
+    "name name"
+    "value unit";
+  row-gap: 4px;
+}
+
+/* Let optional item controls disappear without leaving wide empty columns. */
+.betterinv-item {
+  grid-template-columns: 18px 42px minmax(90px, 1fr) !important;
+  grid-auto-flow: column;
+  grid-auto-columns: auto;
+}
+
+@media (max-width: 720px) {
+  .betterinv-item {
+    grid-template-columns: 18px 38px minmax(72px, 1fr) !important;
+    grid-auto-columns: auto;
+  }
+}
+
+@media (max-width: 560px) {
+  .betterinv-item {
+    grid-template-columns: 18px 38px minmax(0, 1fr) !important;
+    grid-template-rows: auto auto;
+    grid-auto-flow: column;
+    grid-auto-columns: 30px;
+  }
+
+  .betterinv-item > .betterinv-item-grip {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+  }
+
+  .betterinv-item > img {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .betterinv-item > .betterinv-item-main {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .betterinv-item > .betterinv-item-resources {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: start;
+  }
+
+  .betterinv-item > .betterinv-edit-item,
+  .betterinv-item > .betterinv-category-picker,
+  .betterinv-item > .betterinv-item-actions-button {
+    grid-column: auto;
+    grid-row: 1 / span 2;
+    align-self: center;
+  }
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 560px) {
+    .betterinv-currency-display-only .betterinv-currency-heading-label {
+      padding: 0 0 6px;
+      border-right: 0;
+      border-bottom: 1px solid rgba(200,168,90,.18);
+    }
+  }
+}
