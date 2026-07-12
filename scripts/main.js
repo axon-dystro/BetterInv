@@ -43,34 +43,34 @@ const BETTER_INV_SETTINGS_GROUPS = [
   },
   {
     id: "items",
-    title: "Items",
+    title: "Gegenstände",
     icon: "fa-list",
     settings: [
-      ["showItems", "Items anzeigen", "Blendet die vollständige Itemliste ein oder aus."],
-      ["showSearch", "Suchleiste", "Zeigt die Suche oberhalb der Items und Rucksäcke."],
+      ["showItems", "Gegenstände anzeigen", "Blendet die vollständige Gegenstandsliste ein oder aus."],
+      ["showSearch", "Suchleiste", "Zeigt die Suche oberhalb der Gegenstände und Rucksäcke."],
       ["showCategories", "Kategorien", "Zeigt Kategorien und ihre Verwaltungsfunktionen."],
       ["showSubcategories", "Unterkategorien", "Zeigt Unterkategorien innerhalb der Hauptkategorien."],
       ["showFavorites", "Favoriten", "Zeigt den Favoritenbereich und die Favoritenaktion."],
-      ["showUnknownItems", "Unbekannte Items", "Zeigt nicht identifizierte Items in einem eigenen Bereich."],
+      ["showUnknownItems", "Unbekannte Gegenstände", "Zeigt nicht identifizierte Gegenstände in einem eigenen Bereich."],
       ["showCategoryWeights", "Kategoriegewicht", "Zeigt Gewichte an Kategorien und Unterkategorien."],
-      ["showItemValues", "Itempreise", "Zeigt den gespeicherten Wert direkt am Item."],
+      ["showItemValues", "Gegenstandswerte", "Zeigt den gespeicherten Wert direkt am Gegenstand."],
       ["showQuantityControls", "Mengensteuerung", "Zeigt Anzahl sowie Plus- und Minussteuerung."],
-      ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Item."],
-      ["showAddItemButton", "Item hinzufügen", "Zeigt den Button zum Erstellen eines neuen Items."],
-      ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Itemaktionen wie Duplizieren und Löschen."],
-      ["showItemTransfer", "Item handeln / übertragen", "Zeigt Übertragen im Drei-Punkte-Menü und erlaubt die Übergabe per Drag-and-drop auf Spieler-Tokens."],
+      ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Gegenstand."],
+      ["showAddItemButton", "Gegenstand hinzufügen", "Zeigt den Button zum Erstellen eines neuen Gegenstands."],
+      ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Gegenstandsaktionen wie Duplizieren und Löschen."],
+      ["showItemTransfer", "Gegenstand handeln / übertragen", "Zeigt Übertragen im Drei-Punkte-Menü und erlaubt die Übergabe per Drag-and-drop auf Spieler-Tokens."],
       ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
-      [null, "Einstimmung", "Unterstützung für eingestimmte Gegenstände folgt in einer späteren Version.", { disabled: true, badge: "Coming soon" }],
-      ["showCategoryDropdown", "Kategorie-Dropdown", "Zeigt die kleine Kategorienauswahl direkt am Item."]
+      [null, "Einstimmung", "Unterstützung für eingestimmte Gegenstände folgt in einer späteren Version.", { disabled: true, badge: "Demnächst" }],
+      ["showCategoryDropdown", "Kategorieauswahl", "Zeigt die kleine Kategorieauswahl direkt am Gegenstand."]
     ]
   },
   {
     id: "containers",
-    title: "Container",
+    title: "Rucksäcke",
     icon: "fa-box-open",
     settings: [
-      ["showContainers", "Rucksäcke anzeigen", "Blendet Rucksackkarten und Containeransicht vollständig ein oder aus."],
-      ["showContainerCapacity", "Containerkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."]
+      ["showContainers", "Rucksäcke anzeigen", "Blendet Rucksackkarten und die Rucksackansicht vollständig ein oder aus."],
+      ["showContainerCapacity", "Rucksackkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."]
     ]
   },
   {
@@ -219,8 +219,8 @@ function installBetterInvOperationalHooks() {
     try {
       await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
     } catch (error) {
-      console.error("Axon’s Inventory | Item konnte nicht auf den Token übertragen werden", error);
-      ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Item konnte nicht auf den Token übertragen werden.");
+      console.error("Axon’s Inventory | Gegenstand konnte nicht auf den Token übertragen werden", error);
+      ui.notifications.error(error?.betterInvUserMessage || error?.message || "Der Gegenstand konnte nicht auf den Token übertragen werden.");
     }
   });
 }
@@ -287,7 +287,7 @@ function registerBetterInvSettings() {
   // Legacy client setting from Phase 3.2. It stays registered so existing
   // choices can be migrated once into the per-user Foundry flag below.
   game.settings.register(MODULE_ID, "showItemValues", {
-    name: "Itemwerte anzeigen (veraltet)",
+    name: "Gegenstandswerte anzeigen (veraltet)",
     hint: "Diese ältere Einstellung wird automatisch in die persönlichen Inventareinstellungen übernommen.",
     scope: "client",
     config: false,
@@ -1459,7 +1459,7 @@ async function deleteSubcategory(actor, parentCategory, subName, containerId = n
     danger: true,
     confirmLabel: "Löschen",
     contentHtml: `<p><strong>${escapeHtml(subName)}</strong> wirklich löschen?</p>`,
-    note: `Enthaltene Items werden nach ${parentCategory} verschoben.`
+    note: `Enthaltene Gegenstände werden nach ${parentCategory} verschoben.`
   });
   if (!confirmed) return false;
   const subs = (await getSubcategories(actor, parentCategory, containerId)).filter(s => s !== subName);
@@ -1527,7 +1527,7 @@ async function deleteCategory(actor, categoryName, containerId = null) {
     danger: true,
     confirmLabel: "Löschen",
     contentHtml: `<p><strong>${escapeHtml(categoryName)}</strong> wirklich löschen?</p>`,
-    note: "Enthaltene Items werden nach Unsortiert verschoben."
+    note: "Enthaltene Gegenstände werden nach Unsortiert verschoben."
   });
   if (!confirmed) return false;
   const categories = (await getCategories(actor, containerId)).filter(c => c !== categoryName);
@@ -2116,8 +2116,8 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     sectionHtml = `
       <section class="betterinv-system-category betterinv-flat-category">
         <div class="betterinv-unknown-header">
-          <span class="betterinv-category-name">Items</span>
-          ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items", renderCache) : ""}
+          <span class="betterinv-category-name">Gegenstände</span>
+          ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Gegenstände", renderCache) : ""}
           <span class="betterinv-category-count">${regularItems.length}</span>
         </div>
         <div class="betterinv-items">${flatRows}</div>
@@ -2129,7 +2129,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       <div class="betterinv-unknown-header">
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
-        ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items", renderCache) : ""}
+        ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Gegenstände", renderCache) : ""}
         <span class="betterinv-category-count">${unknownItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
@@ -2158,9 +2158,9 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       <div class="betterinv-actor-right">
         ${activeContainer ? `
           <span class="betterinv-actor-meta">
-            ${features.items ? `Inhalt · ${visibleItems.length} Items` : "Rucksack geöffnet"}
+            ${features.items ? `Inhalt · ${visibleItems.length} Gegenstände` : "Rucksack geöffnet"}
             ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-            <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>
+            <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksacknamen ändern">✎</button>
           </span>` : `
           ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
           ${features.containers ? `
@@ -2173,10 +2173,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     </div>` : "";
 
   const searchFieldHtml = features.search && (features.items || features.containers)
-    ? `<input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">`
+    ? `<input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Gegenstand, Pergament, Pfeil, Rucksack …">`
     : "";
   const addItemHtml = features.items && features.addItemButton
-    ? `<button type="button" class="betterinv-add-item" title="Item hinzufügen: leer erstellen oder aus einem Kompendium übernehmen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>`
+    ? `<button type="button" class="betterinv-add-item" title="Gegenstand hinzufügen: neu erstellen oder aus einem Kompendium übernehmen"><i class="fas fa-plus" aria-hidden="true"></i><span>Gegenstand</span></button>`
     : "";
   const addCategoryHtml = features.categories
     ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>`
@@ -2439,7 +2439,7 @@ function betterInvPerformanceContentHtml() {
       <h3><i class="fas fa-sitemap" aria-hidden="true"></i>Inventar-DOM</h3>
       <div class="betterinv-performance-grid">
         ${betterInvPerformanceMetricHtml("DOM-Knoten", String(last?.domNodes ?? "–"))}
-        ${betterInvPerformanceMetricHtml("Itemzeilen", String(last?.itemRows ?? "–"))}
+        ${betterInvPerformanceMetricHtml("Gegenstandszeilen", String(last?.itemRows ?? "–"))}
         ${betterInvPerformanceMetricHtml("Kategorien", String(last?.categoryNodes ?? "–"))}
         ${betterInvPerformanceMetricHtml("Rucksackkarten", String(last?.containerCards ?? "–"))}
         ${betterInvPerformanceMetricHtml("Aktive Listener", String(last?.delegatedListeners ?? snapshot.activeDelegatedListeners), "Gezählt werden die zentral verwalteten Listener des Inventarfensters.")}
@@ -2463,8 +2463,8 @@ function betterInvPerformanceContentHtml() {
       <div class="betterinv-performance-grid">
         ${betterInvPerformanceMetricHtml("Treffer", String(snapshot.cacheHits), "Bereits berechnete Inventardaten, die bei einem späteren Render wiederverwendet wurden.")}
         ${betterInvPerformanceMetricHtml("Neu berechnet", String(snapshot.cacheMisses), "Cache-Bereiche, die noch nicht vorhanden oder zuvor ungültig geworden waren.")}
-        ${betterInvPerformanceMetricHtml("Ungültig gemacht", String(snapshot.cacheInvalidations), "Gezielte Cache-Löschungen nach relevanten Actor- oder Itemänderungen.")}
-        ${betterInvPerformanceMetricHtml("Actor-Caches", `${snapshot.cacheEntries}/${BETTER_INV_ACTOR_CACHE_LIMIT}`, "Der Cache behält höchstens einige zuletzt verwendete Actors und entfernt ältere automatisch.")}
+        ${betterInvPerformanceMetricHtml("Ungültig gemacht", String(snapshot.cacheInvalidations), "Gezielte Cache-Löschungen nach relevanten Charakter- oder Gegenstandsänderungen.")}
+        ${betterInvPerformanceMetricHtml("Charakter-Caches", `${snapshot.cacheEntries}/${BETTER_INV_ACTOR_CACHE_LIMIT}`, "Der Cache behält höchstens einige zuletzt verwendete Charaktere und entfernt ältere automatisch.")}
       </div>
     </section>
 
@@ -2723,7 +2723,7 @@ function baseShellHtml(bodyHtml) {
   const settingsOpen = Boolean(document.getElementById("betterinv-settings-window"));
   return `
     <header class="betterinv-header">
-      <h2>Axon’s Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
+      <h2>Axon’s Inventory<small>von <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
@@ -2994,7 +2994,7 @@ function betterInvItemPriceHtml(item, { unidentified = false, enabled = betterIn
   const totalValue = quantity > 1 && !price?.text ? formatBetterInvPrice(price, quantity) : "";
   const title = totalValue
     ? `Stückwert: ${unitValue} · Gesamtwert bei ${quantity} Stück: ${totalValue}`
-    : `Itemwert: ${unitValue}`;
+    : `Gegenstandswert: ${unitValue}`;
   return `
     <span class="betterinv-item-price" title="${escapeAttr(title)}">
       <i class="fas fa-coins" aria-hidden="true"></i>
@@ -3141,7 +3141,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
           ${showTransfer ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-transfer"
-            title="Eingegebene Münzen exakt an einen anderen Actor übertragen"
+            title="Eingegebene Münzen exakt an einen anderen Charakter übertragen"
             ${editable ? "" : "disabled"}
           >
             <i class="fas fa-handshake" aria-hidden="true"></i>
@@ -3244,7 +3244,7 @@ function getBetterInvCurrencyWallet(actor) {
       throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
     }
     if (seenPaths.has(storage.updatePath)) {
-      throw new Error("Mehrere Währungen würden denselben Actor-Pfad verändern.");
+      throw new Error("Mehrere Währungen würden denselben Speicherpfad des Charakters verändern.");
     }
     seenPaths.add(storage.updatePath);
 
@@ -3400,14 +3400,14 @@ function formatBetterInvCurrencyAmounts(amounts) {
 }
 
 async function commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfers) {
-  if (!sourceActor || !targetActor) throw new Error("Quell- oder Ziel-Actor fehlt.");
-  if (sourceActor.id === targetActor.id) throw new Error("Quell- und Ziel-Actor sind identisch.");
-  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error(`Du darfst ${sourceActor.name} nicht bearbeiten.`);
-  if (!canBetterInvUserModifyActor(targetActor)) throw new Error(`Du darfst ${targetActor.name} nicht bearbeiten.`);
+  if (!sourceActor || !targetActor) throw new Error("Quell- oder Zielcharakter fehlt.");
+  if (sourceActor.id === targetActor.id) throw new Error("Quell- und Zielcharakter sind identisch.");
+  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error(`Du darfst den Charakter ${sourceActor.name} nicht bearbeiten.`);
+  if (!canBetterInvUserModifyActor(targetActor)) throw new Error(`Du darfst den Charakter ${targetActor.name} nicht bearbeiten.`);
 
   const sourceKey = getBetterInvCurrencyActorKey(sourceActor);
   const targetKey = getBetterInvCurrencyActorKey(targetActor);
-  if (!sourceKey || !targetKey) throw new Error("Ein Actor besitzt keine eindeutige ID.");
+  if (!sourceKey || !targetKey) throw new Error("Ein Charakter besitzt keine eindeutige ID.");
   if (betterInvCurrencyTransactions.has(sourceKey) || betterInvCurrencyTransactions.has(targetKey)) {
     ui.notifications.warn("Für einen der beteiligten Charaktere läuft bereits eine Geldänderung.");
     return false;
@@ -4332,7 +4332,7 @@ function getBetterInvContainerCapacity(actor, container, inventoryItems = null, 
   if (countMaximum !== null && countMaximum > 0) {
     type = "items";
     maximum = countMaximum;
-    unit = game.i18n?.localize?.("DND5E.Items") ?? "Items";
+    unit = game.i18n?.localize?.("DND5E.Items") ?? "Gegenstände";
   } else if (weightMaximum !== null && weightMaximum > 0) {
     type = "weight";
     maximum = weightMaximum;
@@ -4372,7 +4372,7 @@ function getBetterInvContainerCapacity(actor, container, inventoryItems = null, 
       foundry.utils.getProperty(container, "system.capacity.current")
     );
     if (current === null) current = contents.reduce((sum, item) => sum + getItemQuantityData(item, renderCache).value, 0);
-    if (!unit) unit = game.i18n?.localize?.("DND5E.Items") ?? "Items";
+    if (!unit) unit = game.i18n?.localize?.("DND5E.Items") ?? "Gegenstände";
   } else if (type === "volume") {
     current = firstFiniteNumber(
       foundry.utils.getProperty(container, "system.contentsVolume"),
@@ -4516,7 +4516,7 @@ function betterInvActorEncumbranceHtml(encumbrance) {
 }
 
 async function renderContainerCards(actor, containers, { showCapacity = true, inventoryItems = null, renderCache = null } = {}) {
-  if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
+  if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke gefunden. Gegenstände im Hauptinventar werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
   const layerCount = savedLayerCount ?? Math.max(1, Math.ceil(containers.length / 4));
   const rows = Array.from({ length: layerCount }, () => []);
@@ -4575,7 +4575,7 @@ function renderContainerBreadcrumb(actor, container, { showCapacity = true, show
         </div>
         ${showCapacity ? betterInvContainerCapacityHtml(capacity) : ""}
       </div>
-      <div class="betterinv-remove-from-container" title="Item hier ablegen, um es zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
+      <div class="betterinv-remove-from-container" title="Gegenstand hier ablegen, um ihn zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
     </div>`;
 }
 
@@ -4637,7 +4637,7 @@ function getItemEquippedData(item, renderCache = null) {
 async function toggleBetterInvItemEquipped(item) {
   const equipped = getItemEquippedData(item);
   if (!equipped.supported || !equipped.updatePath) {
-    ui.notifications.warn("Dieses Item unterstützt keinen Ausrüstungsstatus.");
+    ui.notifications.warn("Dieser Gegenstand unterstützt keinen Ausrüstungsstatus.");
     return;
   }
   await item.update({ [equipped.updatePath]: !equipped.value });
@@ -4687,7 +4687,7 @@ async function duplicateBetterInvItem(actor, item) {
 async function deleteBetterInvItem(item) {
   if (!item) return;
   const confirmed = await openBetterInvConfirmDialog({
-    title: "Item löschen",
+    title: "Gegenstand löschen",
     kicker: "Dauerhaft entfernen",
     image: item.img || "icons/svg/item-bag.svg",
     danger: true,
@@ -4733,7 +4733,7 @@ function getBetterInvActorTypeLabel(actor) {
     catch (_error) { return raw; }
   }
   const labels = { character: "Charakter", npc: "NSC", vehicle: "Fahrzeug", group: "Gruppe" };
-  return labels[actor?.type] ?? String(actor?.type ?? "Actor");
+  return labels[actor?.type] ?? String(actor?.type ?? "Charakter");
 }
 
 
@@ -4747,7 +4747,7 @@ async function promptBetterInvActorTarget(sourceActor, {
 } = {}) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Actor gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
     return null;
   }
 
@@ -4782,17 +4782,17 @@ async function promptBetterInvActorTarget(sourceActor, {
           <header class="betterinv-transfer-header">
             <span class="betterinv-transfer-header-icon"><i class="fas ${escapeAttr(icon)}" aria-hidden="true"></i></span>
             <div>
-              <span class="betterinv-transfer-kicker">Von ${escapeHtml(sourceActor?.name ?? "Actor")}</span>
+              <span class="betterinv-transfer-kicker">Von ${escapeHtml(sourceActor?.name ?? "Charakter")}</span>
               <h3>${escapeHtml(heading)}</h3>
               <p>${escapeHtml(description)}</p>
             </div>
             ${summary ? `<span class="betterinv-transfer-stock">${escapeHtml(summary)}</span>` : ""}
           </header>
           <label class="betterinv-transfer-search betterinv-actor-target-search">
-            <span>Actor suchen</span>
+            <span>Charakter suchen</span>
             <span class="betterinv-transfer-search-wrap">
               <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-              <input type="search" data-transfer-search placeholder="Name oder Actortyp …" autocomplete="off">
+              <input type="search" data-transfer-search placeholder="Name oder Charaktertyp …" autocomplete="off">
             </span>
           </label>
           <div class="betterinv-transfer-summary" data-transfer-result-count>${escapeHtml(formatBetterInvNumber(targets.length))} mögliche Empfänger</div>
@@ -4924,7 +4924,7 @@ async function resolveBetterInvNativeTransferSource(item) {
         return { document: resolved, dragData, usedNativeDropData: true };
       }
     } catch (error) {
-      console.debug("Axon’s Inventory | Foundrys fromDropData konnte das Item nicht auflösen; direkter Dokument-Fallback", error);
+      console.debug("Axon’s Inventory | Foundrys fromDropData konnte den Gegenstand nicht auflösen; direkter Dokument-Fallback", error);
     }
   }
 
@@ -4962,9 +4962,9 @@ function getBetterInvTransferOperation(sourceActor, sourceItem, targetActor, qua
 }
 
 function prepareBetterInvTransferredItemData(item, quantity) {
-  if (!item || typeof item.toObject !== "function") throw new Error("Das Item konnte nicht gelesen werden.");
+  if (!item || typeof item.toObject !== "function") throw new Error("Der Gegenstand konnte nicht gelesen werden.");
   const data = item.toObject();
-  if (!data || typeof data !== "object") throw new Error("Das Item enthält keine gültigen Daten.");
+  if (!data || typeof data !== "object") throw new Error("Der Gegenstand enthält keine gültigen Daten.");
 
   delete data._id;
   delete data.folder;
@@ -5015,7 +5015,7 @@ function prepareBetterInvTransferredItemData(item, quantity) {
 async function promptBetterInvItemTransfer(sourceActor, item) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Actor gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
     return null;
   }
 
@@ -5046,7 +5046,7 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
     };
 
     dialog = new Dialog({
-      title: "Item übertragen",
+      title: "Gegenstand übertragen",
       content: `
         <div class="betterinv-transfer-dialog" data-betterinv-transfer-dialog>
           <header class="betterinv-transfer-header">
@@ -5061,10 +5061,10 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
 
           <div class="betterinv-transfer-controls">
             <label class="betterinv-transfer-search">
-              <span>Actor suchen</span>
+              <span>Charakter suchen</span>
               <span class="betterinv-transfer-search-wrap">
                 <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
-                <input type="search" data-transfer-search placeholder="Name oder Actortyp …" autocomplete="off">
+                <input type="search" data-transfer-search placeholder="Name oder Charaktertyp …" autocomplete="off">
               </span>
             </label>
             <label class="betterinv-transfer-quantity">
@@ -5200,10 +5200,10 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
 
 async function transferBetterInvItemToActor(sourceActor, item, targetActor, requestedQuantity = null, { notify = true } = {}) {
   if (!sourceActor || !item || !targetActor) return null;
-  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error("Du darfst den Quell-Actor nicht bearbeiten.");
-  if (targetActor.id === sourceActor.id) throw new Error("Quell- und Ziel-Actor sind identisch.");
+  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error("Du darfst den Quellcharakter nicht bearbeiten.");
+  if (targetActor.id === sourceActor.id) throw new Error("Quell- und Zielcharakter sind identisch.");
   if (!canBetterInvUserModifyActor(targetActor)) {
-    throw new Error(`Du darfst ${targetActor.name} nicht bearbeiten.`);
+    throw new Error(`Du darfst den Charakter ${targetActor.name} nicht bearbeiten.`);
   }
 
   const availableQuantity = getItemQuantityData(item).value;
@@ -5214,7 +5214,7 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
 
   const containedItems = getBetterInvItemContainedChildren(sourceActor, item);
   if (containedItems.length) {
-    ui.notifications.warn(`${item.name} enthält noch ${containedItems.length} Item(s). Leere den Container vor der Übertragung.`);
+    ui.notifications.warn(`${item.name} enthält noch Gegenstände (${containedItems.length}). Leere den Rucksack vor der Übertragung.`);
     return null;
   }
 
@@ -5230,7 +5230,7 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
 
   try {
     createdItem = await createBetterInvTransferredItem(targetActor, data, operation);
-    if (!createdItem) throw new Error("Foundry hat auf dem Ziel-Actor kein Item erstellt.");
+    if (!createdItem) throw new Error("Foundry hat auf dem Zielcharakter keinen Gegenstand erstellt.");
 
     if (getItemQuantityData(createdItem).value !== quantity) {
       await setItemQuantity(createdItem, quantity, operation);
@@ -5243,8 +5243,8 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
     if (createdItem) {
       try { await createdItem.delete({ ...operation, betterInventoryRollback: true }); }
       catch (rollbackError) {
-        console.error("Axon’s Inventory | Rollback des übertragenen Items fehlgeschlagen", rollbackError);
-        ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf ein zusätzliches Item.`);
+        console.error("Axon’s Inventory | Rollback des übertragenen Gegenstands fehlgeschlagen", rollbackError);
+        ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf einen zusätzlichen Gegenstand.`);
       }
     }
     throw error;
@@ -5258,7 +5258,7 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
 
 async function transferBetterInvItem(sourceActor, item) {
   if (!sourceActor || !item) return null;
-  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error("Du darfst den Quell-Actor nicht bearbeiten.");
+  if (!canBetterInvUserModifyActor(sourceActor)) throw new Error("Du darfst den Quellcharakter nicht bearbeiten.");
 
   const availableQuantity = getItemQuantityData(item).value;
   if (availableQuantity < 1) {
@@ -5268,7 +5268,7 @@ async function transferBetterInvItem(sourceActor, item) {
 
   const containedItems = getBetterInvItemContainedChildren(sourceActor, item);
   if (containedItems.length) {
-    ui.notifications.warn(`${item.name} enthält noch ${containedItems.length} Item(s). Leere den Container vor der Übertragung.`);
+    ui.notifications.warn(`${item.name} enthält noch Gegenstände (${containedItems.length}). Leere den Rucksack vor der Übertragung.`);
     return null;
   }
 
@@ -5355,7 +5355,7 @@ async function importBetterInvDroppedItem(actor, sourceItem, { targetContainer =
   if (!canBetterInvUserModifyActor(actor)) throw new Error(`Du darfst ${actor.name} nicht bearbeiten.`);
 
   const documentName = String(sourceItem.documentName ?? sourceItem.constructor?.documentName ?? "Item").toLowerCase();
-  if (documentName !== "item") throw new Error("Der abgelegte Eintrag ist kein Item.");
+  if (documentName !== "item") throw new Error("Der abgelegte Eintrag ist kein Gegenstand.");
 
   const data = prepareBetterInvCompendiumItemData(sourceItem, {
     name: sourceItem.name,
@@ -5368,13 +5368,13 @@ async function importBetterInvDroppedItem(actor, sourceItem, { targetContainer =
     sourceUuid: sourceItem.uuid ?? null
   });
   const item = created?.[0] ?? null;
-  if (!item) throw new Error("Foundry hat beim Ablegen kein Item erstellt.");
+  if (!item) throw new Error("Foundry hat beim Ablegen keinen Gegenstand erstellt.");
 
   try {
     if (targetContainer) await moveItemToContainer(item, targetContainer);
     await setItemCategory(item, targetCategory || "__unsorted", targetContainer?.id ?? null);
   } catch (error) {
-    console.warn("Axon’s Inventory | Gedropptes Item wurde erstellt, aber nicht vollständig einsortiert", error);
+    console.warn("Axon’s Inventory | Abgelegter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde hinzugefügt, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -5456,7 +5456,7 @@ function enableBetterInvExternalItemDrops(windowEl, actor, activeContainer = nul
         { forceRefresh: true }
       );
     } catch (error) {
-      console.error("Axon’s Inventory | Externes Item konnte nicht importiert werden", error);
+      console.error("Axon’s Inventory | Externer Gegenstand konnte nicht importiert werden", error);
       ui.notifications.error(error?.message || "Der Gegenstand konnte nicht in das Inventar gezogen werden.");
     }
   });
@@ -5697,7 +5697,7 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
   event?.stopPropagation?.();
   const token = findBetterInvTokenAtCanvasPoint(canvasInstance, data.x, data.y);
   if (!token?.actor) {
-    ui.notifications.warn("Lege das Item direkt auf einem Token ab.");
+    ui.notifications.warn("Lege den Gegenstand direkt auf einem Spieler-Token ab.");
     return;
   }
 
@@ -5714,18 +5714,18 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
   }
   sourceItem ??= sourceActor?.items?.get?.(data.sourceItemId) ?? null;
 
-  if (!sourceActor || !sourceItem) throw new Error("Das gezogene Quellitem existiert nicht mehr.");
+  if (!sourceActor || !sourceItem) throw new Error("Der gezogene Gegenstand existiert nicht mehr.");
   const targetActor = token.actor;
   if (targetActor.id === sourceActor.id) {
-    ui.notifications.info("Das Item liegt bereits bei diesem Charakter.");
+    ui.notifications.info("Der Gegenstand liegt bereits bei diesem Charakter.");
     return;
   }
   if (!isBetterInvPlayerCharacterActor(targetActor)) {
-    ui.notifications.warn("Items können per Token-Drop nur an Spielercharaktere übergeben werden, nicht an NPCs.");
+    ui.notifications.warn("Gegenstände können nur an Spielercharaktere übergeben werden, nicht an NSCs.");
     return;
   }
   if (!canBetterInvUserModifyActor(targetActor)) {
-    ui.notifications.warn(`Du darfst ${targetActor.name} nicht bearbeiten.`);
+    ui.notifications.warn(`Du darfst den Charakter ${targetActor.name} nicht bearbeiten.`);
     return;
   }
 
@@ -5784,7 +5784,7 @@ function getBetterInvItemTypeLabel(type) {
   const key = CONFIG.Item?.typeLabels?.[type] ?? `TYPES.Item.${type}`;
   const localized = game.i18n?.localize?.(key);
   if (localized && localized !== key) return localized;
-  return String(type ?? "Item").replace(/(^|[-_\s])([a-z])/g, (_match, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
+  return String(type ?? "Gegenstand").replace(/(^|[-_\s])([a-z])/g, (_match, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
 }
 
 
@@ -5897,18 +5897,18 @@ function deleteBetterInvNestedProperty(object, path) {
 
 function prepareBetterInvCompendiumItemData(sourceItem, selected = null) {
   if (!sourceItem || typeof sourceItem.toObject !== "function") {
-    throw new Error("Das ausgewählte Kompendium-Item konnte nicht gelesen werden.");
+    throw new Error("Der ausgewählte Gegenstand aus dem Kompendium konnte nicht gelesen werden.");
   }
 
   const data = sourceItem.toObject();
   if (!data || typeof data !== "object") {
-    throw new Error("Das Kompendium-Item enthält keine gültigen Itemdaten.");
+    throw new Error("Der Gegenstand aus dem Kompendium enthält keine gültigen Daten.");
   }
 
   const itemType = String(data.type ?? sourceItem.type ?? selected?.type ?? "").toLowerCase();
   const creatableTypes = new Set(getBetterInvCreatableItemTypes().map(type => String(type).toLowerCase()));
   if (!isBetterInvInventoryItemType(itemType) || !creatableTypes.has(itemType)) {
-    throw new Error(`Der Gegenstandstyp „${getBetterInvItemTypeLabel(itemType || "unbekannt")}“ wird vom aktuellen Spielsystem nicht als Inventargegenstand unterstützt.`);
+    throw new Error(`Die Gegenstandsart „${getBetterInvItemTypeLabel(itemType || "unbekannt")}“ wird vom aktuellen Spielsystem nicht als Inventargegenstand unterstützt.`);
   }
 
   data.name = String(data.name ?? sourceItem.name ?? selected?.name ?? "Unbenannter Gegenstand");
@@ -5979,14 +5979,14 @@ async function getBetterInvCompendiumDocument(pack, selected) {
   }
 
   const detail = primaryError?.message ? ` (${primaryError.message})` : "";
-  throw new Error(`Das ausgewählte Item wurde im Kompendium nicht gefunden${detail}.`);
+  throw new Error(`Der ausgewählte Gegenstand wurde im Kompendium nicht gefunden${detail}.`);
 }
 
 async function importBetterInvCompendiumItem(actor, selected, activeContainer = null) {
-  if (!actor) throw new Error("Kein Actor für den Import ausgewählt.");
-  if (!selected?.packId || !selected?.id) throw new Error("Das ausgewählte Kompendium-Item ist unvollständig.");
+  if (!actor) throw new Error("Kein Charakter für den Import ausgewählt.");
+  if (!selected?.packId || !selected?.id) throw new Error("Der ausgewählte Kompendiumseintrag ist unvollständig.");
   if (typeof actor.canUserModify === "function" && !actor.canUserModify(game.user, "update")) {
-    throw new Error(`Du hast keine Berechtigung, Items auf ${actor.name} zu erstellen.`);
+    throw new Error(`Du hast keine Berechtigung, Gegenstände für ${actor.name} zu erstellen.`);
   }
 
   const pack = getBetterInvCompendiumById(selected.packId);
@@ -5997,19 +5997,19 @@ async function importBetterInvCompendiumItem(actor, selected, activeContainer = 
   const sourceItem = await getBetterInvCompendiumDocument(pack, selected);
   const documentName = String(sourceItem.documentName ?? sourceItem.constructor?.documentName ?? "Item").toLowerCase();
   if (documentName !== "item") {
-    throw new Error("Der ausgewählte Kompendiumseintrag ist kein Item.");
+    throw new Error("Der ausgewählte Kompendiumseintrag ist kein Gegenstand.");
   }
 
   const itemData = prepareBetterInvCompendiumItemData(sourceItem, selected);
   const created = await actor.createEmbeddedDocuments("Item", [itemData]);
   const item = created?.[0] ?? null;
-  if (!item) throw new Error("Foundry hat nach dem Import kein Item zurückgegeben.");
+  if (!item) throw new Error("Foundry hat nach dem Import keinen Gegenstand zurückgegeben.");
 
   try {
     if (activeContainer) await moveItemToContainer(item, activeContainer);
     await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
   } catch (error) {
-    console.warn("Axon’s Inventory | Importiertes Item wurde erstellt, aber nicht vollständig einsortiert", error);
+    console.warn("Axon’s Inventory | Importierter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde importiert, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -6218,7 +6218,7 @@ async function promptBetterInvCompendiumItem(packs) {
   const { items, failedPacks, stats } = await loadBetterInvCompendiumIndexItems(availablePacks);
   if (!items.length) {
     const failedSuffix = failedPacks.length ? ` ${failedPacks.length} Kompendium/Kompendien konnten nicht gelesen werden.` : "";
-    ui.notifications.warn(`In den zugänglichen Item-Kompendien wurden keine Inventargegenstände gefunden.${failedSuffix}`);
+    ui.notifications.warn(`In den zugänglichen Kompendien wurden keine Inventargegenstände gefunden.${failedSuffix}`);
     return null;
   }
 
@@ -6273,7 +6273,7 @@ async function promptBetterInvCompendiumItem(packs) {
     };
 
     dialog = new Dialog({
-      title: "Gegenstand aus Kompendium auswählen",
+      title: "Gegenstand aus einem Kompendium auswählen",
       content: `
         <div class="betterinv-compendium-browser" data-betterinv-compendium-browser>
           <header class="betterinv-compendium-browser-header">
@@ -6570,7 +6570,7 @@ async function promptBetterInvItemSource() {
   const packLabels = itemPacks.slice(0, 3).map(getBetterInvCompendiumLabel);
   const packPreview = packLabels.length
     ? `${packLabels.join(" · ")}${packCount > packLabels.length ? ` · +${packCount - packLabels.length} weitere` : ""}`
-    : "Keine für dich sichtbaren Item-Kompendien gefunden.";
+    : "Keine für dich sichtbaren Kompendien mit Gegenständen gefunden.";
 
   return await new Promise(resolve => {
     let settled = false;
@@ -6587,20 +6587,20 @@ async function promptBetterInvItemSource() {
     };
 
     dialog = new Dialog({
-      title: "Item hinzufügen",
+      title: "Gegenstand hinzufügen",
       content: `
         <div class="betterinv-item-source-choice" data-betterinv-item-source>
           <div class="betterinv-item-source-heading">
-            <span class="betterinv-item-source-kicker">Neue Quelle auswählen</span>
-            <p>Wie möchtest du das Item hinzufügen?</p>
+            <span class="betterinv-item-source-kicker">Quelle auswählen</span>
+            <p>Wie möchtest du den Gegenstand hinzufügen?</p>
           </div>
 
           <div class="betterinv-item-source-options">
             <button type="button" class="betterinv-item-source-option" data-source="empty">
               <span class="betterinv-item-source-icon"><i class="fas fa-file" aria-hidden="true"></i></span>
               <span class="betterinv-item-source-copy">
-                <strong>Leeres Item</strong>
-                <span>Name und Itemtyp selbst festlegen. Danach öffnet sich das normale Foundry-Itemfenster.</span>
+                <strong>Neuer Gegenstand</strong>
+                <span>Name und Gegenstandsart selbst festlegen. Danach öffnet sich das normale Foundry-Fenster des Gegenstands.</span>
               </span>
               <span class="betterinv-item-source-status">Sofort erstellen</span>
             </button>
@@ -6658,24 +6658,24 @@ async function promptNewBetterInvItem() {
       resolve(value);
     };
     const dialog = new Dialog({
-      title: "Neues Item erstellen",
+      title: "Neuen Gegenstand erstellen",
       content: `
         <form class="betterinv-new-item-form">
           <div class="form-group">
-            <label>Itemname</label>
-            <input name="name" type="text" value="Neues Item" maxlength="120" autofocus>
+            <label>Name</label>
+            <input name="name" type="text" value="Neuer Gegenstand" maxlength="120" autofocus>
           </div>
           <div class="form-group">
-            <label>Itemtyp</label>
+            <label>Gegenstandsart</label>
             <select name="type">${options}</select>
           </div>
-          <p class="notes">Das normale Foundry-Itemfenster öffnet sich direkt nach dem Erstellen.</p>
+          <p class="notes">Das normale Foundry-Fenster des Gegenstands öffnet sich direkt nach dem Erstellen.</p>
         </form>`,
       buttons: {
         create: {
           label: "Erstellen",
           callback: html => {
-            const name = sanitizePlainText(html.find('[name="name"]').val(), { max: 120 }) || "Neues Item";
+            const name = sanitizePlainText(html.find('[name="name"]').val(), { max: 120 }) || "Neuer Gegenstand";
             const type = String(html.find('[name="type"]').val() ?? defaultType);
             done({ name, type: types.includes(type) ? type : defaultType });
           }
@@ -6707,7 +6707,7 @@ async function createBetterInvItem(actor, activeContainer = null) {
   if (source === "compendium") {
     const itemPacks = getBetterInvAccessibleItemCompendiums();
     if (!itemPacks.length) {
-      ui.notifications.warn("Es wurden keine zugänglichen Item-Kompendien gefunden.");
+      ui.notifications.warn("Es wurden keine zugänglichen Kompendien mit Gegenständen gefunden.");
       return null;
     }
 
@@ -6724,7 +6724,7 @@ async function createBetterInvItem(actor, activeContainer = null) {
     type: input.type
   }]);
   const item = created?.[0] ?? null;
-  if (!item) throw new Error("Foundry returned no created item document.");
+  if (!item) throw new Error("Foundry hat keinen erstellten Gegenstand zurückgegeben.");
 
   if (activeContainer) await moveItemToContainer(item, activeContainer);
   await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
@@ -6804,7 +6804,7 @@ function openBetterInvCategoryMenu(button, actor, item, categoryOptions, contain
         );
       } catch (error) {
         console.error("Axon’s Inventory | Kategorie konnte nicht geändert werden", error);
-        ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
+        ui.notifications.error("Die Kategorie des Gegenstands konnte nicht geändert werden.");
       }
     })();
   }, { signal: menuController.signal });
@@ -6911,11 +6911,11 @@ function openBetterInvItemActionMenu(button, actor, item) {
         const labels = {
           equipped: ["Ausrüstungsstatus konnte nicht geändert werden", "Der Ausrüstungsstatus konnte nicht geändert werden."],
           favorite: ["Favoritenstatus konnte nicht geändert werden", "Der Favoritenstatus konnte nicht geändert werden."],
-          transfer: ["Item konnte nicht übertragen werden", error?.message || "Das Item konnte nicht übertragen werden."],
-          duplicate: ["Item konnte nicht dupliziert werden", "Das Item konnte nicht dupliziert werden."],
-          delete: ["Item konnte nicht gelöscht werden", "Das Item konnte nicht gelöscht werden."]
+          transfer: ["Gegenstand konnte nicht übertragen werden", error?.message || "Der Gegenstand konnte nicht übertragen werden."],
+          duplicate: ["Gegenstand konnte nicht dupliziert werden", "Der Gegenstand konnte nicht dupliziert werden."],
+          delete: ["Gegenstand konnte nicht gelöscht werden", "Der Gegenstand konnte nicht gelöscht werden."]
         };
-        const [logLabel, userMessage] = labels[action] ?? ["Itemaktion fehlgeschlagen", "Die Itemaktion konnte nicht ausgeführt werden."];
+        const [logLabel, userMessage] = labels[action] ?? ["Gegenstandsaktion fehlgeschlagen", "Die Gegenstandsaktion konnte nicht ausgeführt werden."];
         console.error(`Axon’s Inventory | ${logLabel}`, error);
         ui.notifications.error(userMessage);
       }
@@ -6942,10 +6942,10 @@ function favoriteItemRowHtml(item, { settings = null, features = null, renderCac
       <span class="betterinv-item-grip" title="Favorit – das Original bleibt in seiner Kategorie">★</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
+        <button type="button" class="betterinv-open-item" title="Gegenstand öffnen">${escapeHtml(item.name)}</button>
       </div>
       ${featurePlan.quantityControls && Number(quantity) > 1 ? `<span class="betterinv-favorite-quantity" title="Anzahl">×${escapeHtml(String(quantity))}</span>` : ""}
-      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
+      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Gegenstandsaktionen" aria-label="Weitere Gegenstandsaktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
     </article>`;
 }
 
@@ -6969,10 +6969,10 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
 
   return `
     <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
-      <span class="betterinv-item-grip" title="Gedrückt halten und Item verschieben">☰</span>
+      <span class="betterinv-item-grip" title="Gedrückt halten und Gegenstand verschieben">☰</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
+        <button type="button" class="betterinv-open-item" title="Gegenstand öffnen">${escapeHtml(item.name)}</button>
         <div class="betterinv-item-meta-row">
           <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
           ${priceHtml}
@@ -6989,12 +6989,12 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
             </div>
           </div>
         </div>` : ""}
-      ${featurePlan.editButton ? `<button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
+      ${featurePlan.editButton ? `<button type="button" class="betterinv-edit-item" title="Gegenstand bearbeiten" aria-label="Gegenstand bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
       ${showCategoryPicker ? `
         <button type="button" class="betterinv-category-picker" title="Kategorie ändern" aria-label="Kategorie ändern">
           <i class="fas fa-chevron-down" aria-hidden="true"></i>
         </button>` : ""}
-      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
+      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Gegenstandsaktionen" aria-label="Weitere Gegenstandsaktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
     </article>`;
 }
 
@@ -7170,8 +7170,8 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
 
     if (button.matches(".betterinv-open-item")) {
       void useOrOpenItem(item, event).catch(error => {
-        console.error("Axon’s Inventory | Item konnte nicht geöffnet oder benutzt werden", error);
-        ui.notifications.error("Das Item konnte nicht geöffnet oder benutzt werden.");
+        console.error("Axon’s Inventory | Gegenstand konnte nicht geöffnet oder benutzt werden", error);
+        ui.notifications.error("Der Gegenstand konnte nicht geöffnet oder benutzt werden.");
       });
       return;
     }
@@ -7184,7 +7184,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         await changeItemQuantity(item, delta);
       } catch (error) {
         console.error("Axon’s Inventory | Menge konnte nicht geändert werden", error);
-        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+        ui.notifications.error("Die Anzahl konnte nicht geändert werden.");
       } finally {
         if (button.isConnected) button.disabled = false;
       }
@@ -7294,7 +7294,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
       } catch (error) {
         if (field.isConnected) field.value = String(oldValue);
         console.error("Axon’s Inventory | Menge konnte nicht direkt geändert werden", error);
-        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+        ui.notifications.error("Die Anzahl konnte nicht geändert werden.");
       } finally {
         delete field.dataset.saving;
         if (field.isConnected) field.disabled = false;
@@ -7387,11 +7387,11 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     try {
       await createBetterInvItem(actor, activeContainer);
     } catch (error) {
-      console.error("Axon’s Inventory | Item konnte nicht erstellt oder importiert werden", error);
+      console.error("Axon’s Inventory | Gegenstand konnte nicht erstellt oder importiert werden", error);
       const reason = sanitizePlainText(error?.message, { max: 220 });
       ui.notifications.error(reason
-        ? `Das Item konnte nicht erstellt oder importiert werden: ${reason}`
-        : "Das Item konnte nicht erstellt oder importiert werden.");
+        ? `Der Gegenstand konnte nicht erstellt oder importiert werden: ${reason}`
+        : "Der Gegenstand konnte nicht erstellt oder importiert werden.");
     } finally {
       button.disabled = false;
     }
@@ -7698,7 +7698,7 @@ async function moveItemToContainer(item, targetContainer = null) {
   try { await item.update({ "system.container": targetContainer?.id ?? "" }); return; }
   catch (err) { console.warn("Axon’s Inventory | id container update failed", err); }
 
-  ui.notifications.warn("Item konnte nicht automatisch in den Container verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
+  ui.notifications.warn("Der Gegenstand konnte nicht automatisch in den Rucksack verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
 }
 
 
