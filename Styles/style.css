@@ -4445,3 +4445,76 @@
     width: 100%;
   }
 }
+
+/* Phase 6.8: external item drops, token transfer and currency trading. */
+.betterinv-currency-transfer {
+  border: 1px solid rgba(141, 111, 174, .56);
+  background: linear-gradient(180deg, rgba(66, 43, 83, .98), rgba(35, 24, 47, .98));
+  color: #d9bee9;
+}
+.betterinv-currency-transfer:hover:not(:disabled),
+.betterinv-currency-transfer:focus-visible:not(:disabled) {
+  border-color: rgba(187, 145, 222, .9);
+  background: linear-gradient(180deg, rgba(86, 54, 108, .98), rgba(47, 30, 62, .98));
+  color: #f2ddff;
+}
+.betterinv-currency-heading-actions .betterinv-currency-transfer {
+  min-width: 0;
+}
+
+.betterinv-external-drop-target {
+  position: relative;
+  outline: 2px solid rgba(216, 190, 112, .92) !important;
+  outline-offset: -2px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.72) inset, 0 0 18px rgba(200,168,90,.24) !important;
+}
+.betterinv-external-drop-target::after {
+  content: "Hier ablegen";
+  position: absolute;
+  z-index: 20;
+  top: 4px;
+  right: 5px;
+  padding: 2px 6px;
+  border: 1px solid rgba(200,168,90,.62);
+  border-radius: 3px;
+  background: rgba(18,16,10,.94);
+  color: #ecd99e;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.betterinv-transfer-header-icon {
+  width: 54px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.42);
+  border-radius: 5px;
+  background: linear-gradient(180deg, #29232f, #15131a);
+  color: #dbc17c;
+  font-size: 22px;
+}
+.betterinv-actor-target-search {
+  padding: 12px 16px 10px;
+  display: grid;
+  gap: 5px;
+  color: #978b70;
+  background: #111116;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+.betterinv-actor-target-dialog .betterinv-transfer-header > div {
+  min-width: 0;
+}
+
+@media (max-width: 460px) {
+  .betterinv-transfer-header-icon {
+    width: 46px;
+    height: 46px;
+  }
+}
