@@ -89,6 +89,12 @@ let betterInvActiveItemDrag = null;
 let betterInvTokenDropOverlay = null;
 let betterInvTokenDropTargetId = null;
 let betterInvTokenDropFeedbackInstalled = false;
+let betterInvButtonRetryTimer = null;
+let betterInvRefreshFrame = null;
+let betterInvRefreshPreserveScroll = true;
+let betterInvRenderSequence = 0;
+let betterInvDialogMutationFrame = null;
+const betterInvPendingDialogElements = new Set();
 let betterInvState = {
   actorId: null,
   containerId: null,
@@ -120,7 +126,7 @@ Hooks.once("ready", async () => {
 Hooks.on("renderHotbar", () => ensureBetterInvButton());
 Hooks.on("controlToken", () => {
   if (getBetterInvUserSettings().moduleEnabled === false) return;
-  if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+  scheduleBetterInvRefresh();
 });
 Hooks.on("updateActor", actor => refreshIfCurrentActor(actor));
 Hooks.on("createItem", item => refreshIfItemActor(item));
@@ -138,7 +144,7 @@ Hooks.on("updateUser", (user, changes) => {
   if (user?.id !== game.user?.id) return;
   const settingsChange = foundry.utils.getProperty(changes, `flags.${MODULE_ID}.${BETTER_INV_USER_SETTINGS_FLAG}`);
   if (settingsChange === undefined) return;
-  if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+  scheduleBetterInvRefresh();
 });
 
 function registerBetterInvHotkey() {
@@ -273,23 +279,44 @@ function installBetterInvInputGuard() {
   });
 }
 
-function bringFoundryDialogsToFront({ avoidOverlap = false } = {}) {
-  const selectors = [
-    ".dialog.app.window-app",
-    ".application.dialog",
-    ".dnd5e2.dialog",
-    ".dnd5e.dialog",
-    ".app.window-app",
-    ".application",
-    "[role='dialog']"
-  ];
+const BETTER_INV_FOUNDRY_APP_SELECTOR = [
+  ".dialog.app.window-app",
+  ".application.dialog",
+  ".dnd5e2.dialog",
+  ".dnd5e.dialog",
+  ".app.window-app",
+  ".application",
+  "[role='dialog']"
+].join(",");
+
+function elevateBetterInvFoundryElement(el, { avoidOverlap = false } = {}) {
+  if (!(el instanceof Element)) return;
+  if (el.id === "betterinv-window" || el.closest?.("#betterinv-window")) return;
+  el.style.zIndex = "20000";
+  el.classList.add("betterinv-dialog-top");
   const betterInv = document.getElementById("betterinv-window");
-  for (const el of document.querySelectorAll(selectors.join(","))) {
-    if (!el || el.id === "betterinv-window" || el.closest?.("#betterinv-window")) continue;
-    el.style.zIndex = "20000";
-    el.classList.add("betterinv-dialog-top");
-    if (avoidOverlap && betterInv) moveElementOutsideBetterInv(el, betterInv);
+  if (avoidOverlap && betterInv) moveElementOutsideBetterInv(el, betterInv);
+}
+
+function bringFoundryDialogsToFront({ avoidOverlap = false } = {}) {
+  for (const el of document.querySelectorAll(BETTER_INV_FOUNDRY_APP_SELECTOR)) {
+    elevateBetterInvFoundryElement(el, { avoidOverlap });
   }
+}
+
+function queueBetterInvDialogElement(el) {
+  if (!(el instanceof Element)) return;
+  if (el.matches?.(BETTER_INV_FOUNDRY_APP_SELECTOR)) betterInvPendingDialogElements.add(el);
+  for (const child of el.querySelectorAll?.(BETTER_INV_FOUNDRY_APP_SELECTOR) ?? []) {
+    betterInvPendingDialogElements.add(child);
+  }
+  if (!betterInvPendingDialogElements.size || betterInvDialogMutationFrame !== null) return;
+  betterInvDialogMutationFrame = requestAnimationFrame(() => {
+    betterInvDialogMutationFrame = null;
+    const pending = Array.from(betterInvPendingDialogElements);
+    betterInvPendingDialogElements.clear();
+    for (const element of pending) elevateBetterInvFoundryElement(element);
+  });
 }
 
 function moveElementOutsideBetterInv(el, betterInv) {
@@ -407,23 +434,46 @@ async function openBetterInvConfirmDialog({
 }
 
 function elevateRecentFoundryApps() {
-  for (const delay of [0, 60, 140, 260, 500]) {
-    setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: true }), delay);
-  }
+  bringFoundryDialogsToFront({ avoidOverlap: true });
+  setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: true }), 160);
 }
 
 function installBetterInvDialogZGuard() {
   if (document.body?.dataset?.betterInvDialogZGuard === "1") return;
   if (document.body?.dataset) document.body.dataset.betterInvDialogZGuard = "1";
   bringFoundryDialogsToFront();
-  const observer = new MutationObserver(() => bringFoundryDialogsToFront());
-  observer.observe(document.body, { childList: true, subtree: true });
+  const observer = new MutationObserver(mutations => {
+    for (const mutation of mutations) {
+      if (mutation.type === "attributes") queueBetterInvDialogElement(mutation.target);
+      for (const node of mutation.addedNodes ?? []) queueBetterInvDialogElement(node);
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["class", "role"]
+  });
 }
 
 function ensureBetterInvButton() {
-  if (document.getElementById("betterinv-button")) return;
+  if (document.getElementById("betterinv-button")) {
+    if (betterInvButtonRetryTimer !== null) clearTimeout(betterInvButtonRetryTimer);
+    betterInvButtonRetryTimer = null;
+    return;
+  }
   const hotbar = document.getElementById("hotbar") ?? document.querySelector("#interface #hotbar") ?? document.querySelector(".hotbar");
-  if (!hotbar) { setTimeout(ensureBetterInvButton, 500); return; }
+  if (!hotbar) {
+    if (betterInvButtonRetryTimer === null) {
+      betterInvButtonRetryTimer = setTimeout(() => {
+        betterInvButtonRetryTimer = null;
+        ensureBetterInvButton();
+      }, 500);
+    }
+    return;
+  }
+  if (betterInvButtonRetryTimer !== null) clearTimeout(betterInvButtonRetryTimer);
+  betterInvButtonRetryTimer = null;
   const button = document.createElement("button");
   button.id = "betterinv-button";
   button.type = "button";
@@ -471,18 +521,37 @@ function actorChooserHtml(actors) {
     </div>`;
 }
 
+function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
+  if (!document.getElementById("betterinv-window")) return;
+  betterInvRefreshPreserveScroll = betterInvRefreshPreserveScroll && preserveScroll !== false;
+  if (betterInvRefreshFrame !== null) return;
+  betterInvRefreshFrame = requestAnimationFrame(() => {
+    const keepScroll = betterInvRefreshPreserveScroll;
+    betterInvRefreshFrame = null;
+    betterInvRefreshPreserveScroll = true;
+    if (!document.getElementById("betterinv-window")) return;
+    renderBetterInvWindow({ preserveScroll: keepScroll });
+  });
+}
+
+function cancelScheduledBetterInvRefresh() {
+  if (betterInvRefreshFrame !== null) cancelAnimationFrame(betterInvRefreshFrame);
+  betterInvRefreshFrame = null;
+  betterInvRefreshPreserveScroll = true;
+}
+
 function refreshIfCurrentActor(actor) {
   const features = getBetterInvFeaturePlan();
   if (!features.needsActorRefresh) return;
   const current = getCurrentActor();
-  if (current?.id === actor?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
+  if (current?.id === actor?.id) scheduleBetterInvRefresh();
 }
 
 function refreshIfItemActor(item) {
   const features = getBetterInvFeaturePlan();
   if (!features.needsItemDocumentRefresh) return;
   const current = getCurrentActor();
-  if (current?.id === item?.parent?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
+  if (current?.id === item?.parent?.id) scheduleBetterInvRefresh();
 }
 
 function getInventoryItems(actor) {
@@ -931,6 +1000,8 @@ function toggleBetterInvWindow() {
 }
 
 async function renderBetterInvWindow({ preserveScroll = true } = {}) {
+  cancelScheduledBetterInvRefresh();
+  const renderSequence = ++betterInvRenderSequence;
   closeBetterInvItemActionMenu();
   let windowEl = document.getElementById("betterinv-window");
   const previousBody = windowEl?.querySelector?.(".betterinv-body");
@@ -1011,21 +1082,50 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   // The same array is reused for item rows, container detection, capacity and
   // encumbrance fallbacks instead of repeatedly traversing actor.items.
   const inventoryItems = features.needsInventoryCollection ? getInventoryItems(actor) : null;
-  const allVisibleItems = features.items
-    ? await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems), activeContainer?.id ?? null)
-    : [];
+  const contextContainerId = activeContainer?.id ?? null;
+  const [allVisibleItems, containers, categories] = await Promise.all([
+    features.items
+      ? sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems), contextContainerId)
+      : Promise.resolve([]),
+    features.containers
+      ? sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems))
+      : Promise.resolve([]),
+    features.categories
+      ? getCategories(actor, contextContainerId)
+      : Promise.resolve([])
+  ]);
+  if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
+
   const visibleItems = query && features.items
     ? allVisibleItems.filter(item => itemMatchesSearch(item, query))
     : allVisibleItems;
-  const containers = features.containers
-    ? await sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems))
-    : [];
-  const categories = features.categories ? await getCategories(actor, activeContainer?.id ?? null) : [];
-  let categoryOptions = features.categoryDropdown
-    ? await getCategoryOptions(actor, categories, activeContainer?.id ?? null)
-    : [];
+
+  // Read all subcategories once per render. The previous implementation read
+  // the same actor flag once for every category and again while rendering.
+  const subcategoriesByCategory = new Map();
+  if (features.subcategories) {
+    const allSubcategories = actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {};
+    const contextSubcategories = allSubcategories?.[getContextKey(contextContainerId)] ?? {};
+    for (const category of categories) {
+      const stored = contextSubcategories?.[category];
+      const clean = Array.isArray(stored)
+        ? stored.map(value => sanitizePlainText(value, { max: 48 })).filter(Boolean)
+        : [];
+      subcategoriesByCategory.set(category, clean);
+    }
+  }
+
+  let categoryOptions = [];
+  if (features.categoryDropdown) {
+    categoryOptions = ["__unknown", "__unsorted"];
+    for (const category of categories) {
+      categoryOptions.push(category);
+      for (const subcategory of subcategoriesByCategory.get(category) ?? []) {
+        categoryOptions.push(makeSubcategoryId(category, subcategory));
+      }
+    }
+  }
   if (!features.unknownItems) categoryOptions = categoryOptions.filter(id => id !== "__unknown");
-  if (!features.subcategories) categoryOptions = categoryOptions.filter(id => !String(id).includes("::"));
 
   const topContainerHtml = features.containers
     ? (!activeContainer
@@ -1039,6 +1139,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
           inventoryItems
         }))
     : "";
+  if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
+
   const actorEncumbranceHtml = (!activeContainer && features.encumbrance)
     ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor, { inventoryItems }))
     : "";
@@ -1054,44 +1156,68 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const searchContainersHtml = (features.containers && features.search && !activeContainer && query)
     ? renderSearchContainerHits(actor, containers, query)
     : "";
-  const contextContainerId = activeContainer?.id ?? null;
-  const displayCategoryForItem = item => {
-    const raw = itemCategory(item, contextContainerId);
-    if (raw === "__unknown" && !features.unknownItems) return "__unsorted";
-    if (!features.subcategories && String(raw).includes("::")) return parseCategoryId(raw).parent;
-    return raw;
-  };
 
-  const unknownItems = features.unknownItems
-    ? visibleItems.filter(item => itemCategory(item, contextContainerId) === "__unknown")
-    : [];
-  const regularItems = features.unknownItems
-    ? visibleItems.filter(item => itemCategory(item, contextContainerId) !== "__unknown")
-    : visibleItems;
+  // Resolve each item's display category exactly once, then index items by
+  // category. This avoids repeatedly filtering the whole inventory for every
+  // category and every subcategory.
+  const itemDisplayCategory = new Map();
+  const unknownItems = [];
+  const regularItems = [];
+  for (const item of visibleItems) {
+    const rawCategory = itemCategory(item, contextContainerId);
+    if (features.unknownItems && rawCategory === "__unknown") {
+      unknownItems.push(item);
+      continue;
+    }
+    let displayCategory = rawCategory;
+    if (displayCategory === "__unknown") displayCategory = "__unsorted";
+    if (!features.subcategories && String(displayCategory).includes("::")) {
+      displayCategory = parseCategoryId(displayCategory).parent;
+    }
+    itemDisplayCategory.set(item.id, displayCategory);
+    regularItems.push(item);
+  }
 
+  const regularItemsByCategory = new Map();
+  const nestedItemsByParentCategory = new Map();
+  for (const item of regularItems) {
+    const category = itemDisplayCategory.get(item.id) ?? "__unsorted";
+    const bucket = regularItemsByCategory.get(category);
+    if (bucket) bucket.push(item);
+    else regularItemsByCategory.set(category, [item]);
+
+    if (String(category).includes("::")) {
+      const parent = parseCategoryId(category).parent;
+      const parentBucket = nestedItemsByParentCategory.get(parent);
+      if (parentBucket) parentBucket.push(item);
+      else nestedItemsByParentCategory.set(parent, [item]);
+    }
+  }
   let sectionHtml = "";
   if (features.categories) {
     const order = await getCategoryOrder(actor, contextContainerId, categories);
+    if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
     const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
     const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
     const sectionHtmlParts = [];
 
     for (const section of sections) {
-      const directItems = regularItems.filter(item => displayCategoryForItem(item) === section.id);
-      const categoryItems = regularItems.filter(item => {
-        const category = displayCategoryForItem(item);
-        return category === section.id || (features.subcategories && section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
-      });
+      const directItems = regularItemsByCategory.get(section.id) ?? [];
+      const subs = features.subcategories && section.id !== "__unsorted"
+        ? (subcategoriesByCategory.get(section.id) ?? [])
+        : [];
+      const categoryItems = section.id === "__unsorted"
+        ? directItems
+        : directItems.concat(nestedItemsByParentCategory.get(section.id) ?? []);
       const rows = directItems.length
         ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
         : `<p class="betterinv-empty">Leer</p>`;
 
       let subcategoryHtml = "";
-      if (features.subcategories && section.id !== "__unsorted") {
-        const subs = await getSubcategories(actor, section.id, contextContainerId);
+      if (subs.length) {
         subcategoryHtml = subs.map(sub => {
           const subId = makeSubcategoryId(section.id, sub);
-          const subItems = regularItems.filter(item => displayCategoryForItem(item) === subId);
+          const subItems = regularItemsByCategory.get(subId) ?? [];
           const subRows = subItems.length
             ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
             : `<p class="betterinv-empty">Leer</p>`;
@@ -1206,6 +1332,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   const toolbarHtml = searchFieldHtml || addItemHtml || addCategoryHtml
     ? `<div class="${toolbarClasses}">${searchFieldHtml}${addItemHtml}${addCategoryHtml}</div>`
     : "";
+
+  if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
 
   windowEl.innerHTML = baseShellHtml(`
     <div class="betterinv-content" style="zoom: ${escapeAttr(String(betterInvState.scale || 1))}">
