@@ -856,37 +856,52 @@ function refreshIfItemActor(item, changes = null, options = null, { lifecycle = 
   scheduleBetterInvRefresh();
 }
 
+const BETTER_INV_INVENTORY_TYPES = new Set(["weapon", "equipment", "consumable", "tool", "loot", "container", "backpack"]);
+
 function getInventoryItems(actor) {
-  return Array.from(actor?.items ?? []).filter(item => ["weapon", "equipment", "consumable", "tool", "loot", "container", "backpack"].includes(item.type));
+  return Array.from(actor?.items ?? []).filter(item => BETTER_INV_INVENTORY_TYPES.has(item.type));
 }
 
-function isContainerLike(item) {
+function isContainerLike(item, renderCache = null) {
   if (!item) return false;
-  if (["container", "backpack"].includes(item.type)) return true;
+  if (renderCache?.containerLike?.has(item)) return renderCache.containerLike.get(item);
+
+  let result = false;
+  if (["container", "backpack"].includes(item.type)) result = true;
 
   // DnD5e v5+ stores real inventory containers with capacity/contents data,
   // even if not every container is shown in the sheet's short top strip.
-  const capacity = foundry.utils.getProperty(item, "system.capacity");
-  const contents = foundry.utils.getProperty(item, "system.contents");
-  const containerType = foundry.utils.getProperty(item, "system.type.value") ?? foundry.utils.getProperty(item, "system.type");
-  if (containerType === "container" || containerType === "backpack") return true;
-  if (capacity && typeof capacity === "object") return true;
-  if (Array.isArray(contents)) return true;
+  if (!result) {
+    const capacity = foundry.utils.getProperty(item, "system.capacity");
+    const contents = foundry.utils.getProperty(item, "system.contents");
+    const containerType = foundry.utils.getProperty(item, "system.type.value") ?? foundry.utils.getProperty(item, "system.type");
+    if (containerType === "container" || containerType === "backpack") result = true;
+    else if (capacity && typeof capacity === "object") result = true;
+    else if (Array.isArray(contents)) result = true;
+  }
 
-  // Conservative name fallback for common D&D containers that may be imported oddly.
-  // Avoid obvious non-containers like Bagpipes, Bag of Beans, Bag of Tricks, Bag of Sand.
-  const name = String(item.name ?? "").toLowerCase();
-  const falseBags = ["bagpipes", "bag of beans", "bag of tricks", "bag of sand"];
-  if (falseBags.some(x => name.includes(x))) return false;
-  return /\b(backpack|saddlebags?|pouch|sack|chest|case|box|quiver|bag of holding|bag of devouring)\b/i.test(item.name ?? "");
+  if (!result) {
+    // Conservative name fallback for common D&D containers that may be imported oddly.
+    // Avoid obvious non-containers like Bagpipes, Bag of Beans, Bag of Tricks, Bag of Sand.
+    const name = String(item.name ?? "").toLowerCase();
+    const falseBags = ["bagpipes", "bag of beans", "bag of tricks", "bag of sand"];
+    if (!falseBags.some(x => name.includes(x))) {
+      result = /\b(backpack|saddlebags?|pouch|sack|chest|case|box|quiver|bag of holding|bag of devouring)\b/i.test(item.name ?? "");
+    }
+  }
+
+  renderCache?.containerLike?.set(item, result);
+  return result;
 }
 
-function getContainerItems(actor, inventoryItems = null) {
+function getContainerItems(actor, inventoryItems = null, renderCache = null) {
+  if (renderCache?.inventoryItems === inventoryItems && Array.isArray(renderCache.containers)) return renderCache.containers;
   const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
-  return items.filter(item => isContainerLike(item));
+  return items.filter(item => isContainerLike(item, renderCache));
 }
 
-function getItemContainerId(item) {
+function getItemContainerId(item, renderCache = null) {
+  if (renderCache?.containerId?.has(item)) return renderCache.containerId.get(item);
   const candidates = [
     foundry.utils.getProperty(item, "system.container"),
     foundry.utils.getProperty(item, "system.container.id"),
@@ -898,35 +913,99 @@ function getItemContainerId(item) {
     foundry.utils.getProperty(item, "flags.itemcollection.container")
   ].filter(v => v !== undefined && v !== null && v !== "");
 
+  let result = null;
   for (const value of candidates) {
-    if (typeof value === "string") return value;
+    if (typeof value === "string") {
+      result = value;
+      break;
+    }
     if (typeof value === "object") {
-      if (value.id) return String(value.id);
-      if (value._id) return String(value._id);
-      if (value.uuid) return String(value.uuid);
-      if (value.value) return String(value.value);
+      if (value.id) result = String(value.id);
+      else if (value._id) result = String(value._id);
+      else if (value.uuid) result = String(value.uuid);
+      else if (value.value) result = String(value.value);
+      if (result) break;
     }
   }
-  return null;
+  renderCache?.containerId?.set(item, result);
+  return result;
 }
 
-function itemIsInContainer(item, container) {
-  if (!container) return !getItemContainerId(item);
-  const cid = getItemContainerId(item);
-  if (!cid) return false;
+function betterInvContainerReferenceMatches(containerId, container) {
+  if (!containerId || !container) return false;
+  const cid = String(containerId);
   return cid === container.id || cid === container.uuid || cid.endsWith(`.${container.id}`) || cid.includes(container.id);
 }
 
-function getVisibleItems(actor, container, inventoryItems = null) {
+function itemIsInContainer(item, container, renderCache = null) {
+  if (!container) return !getItemContainerId(item, renderCache);
+  const cid = getItemContainerId(item, renderCache);
+  return betterInvContainerReferenceMatches(cid, container);
+}
+
+function createBetterInvRenderCache(inventoryItems = []) {
+  const items = Array.isArray(inventoryItems) ? inventoryItems : [];
+  const renderCache = {
+    inventoryItems: items,
+    containerId: new WeakMap(),
+    containerLike: new WeakMap(),
+    quantity: new WeakMap(),
+    weight: new WeakMap(),
+    displayWeight: new WeakMap(),
+    price: new WeakMap(),
+    searchText: new WeakMap(),
+    unidentified: new WeakMap(),
+    equipped: new WeakMap(),
+    favorite: new WeakMap(),
+    categoryByContext: new Map(),
+    contentsByContainerId: new Map(),
+    containerByReference: new Map(),
+    topLevelItems: [],
+    containers: [],
+    weightUnit: null
+  };
+
+  for (const item of items) {
+    getItemContainerId(item, renderCache);
+    if (isContainerLike(item, renderCache)) renderCache.containers.push(item);
+  }
+
+  for (const container of renderCache.containers) {
+    renderCache.contentsByContainerId.set(container.id, []);
+    for (const reference of [container.id, container.uuid].filter(Boolean)) {
+      renderCache.containerByReference.set(String(reference), container);
+    }
+  }
+  for (const item of items) {
+    const containerId = getItemContainerId(item, renderCache);
+    if (!containerId) {
+      if (!isContainerLike(item, renderCache)) renderCache.topLevelItems.push(item);
+      continue;
+    }
+    const reference = String(containerId);
+    const lastSegment = reference.includes(".") ? reference.split(".").at(-1) : reference;
+    const container = renderCache.containerByReference.get(reference)
+      ?? renderCache.containerByReference.get(lastSegment)
+      ?? renderCache.containers.find(candidate => betterInvContainerReferenceMatches(reference, candidate));
+    if (container && item.id !== container.id) renderCache.contentsByContainerId.get(container.id)?.push(item);
+  }
+  return renderCache;
+}
+
+function getVisibleItems(actor, container, inventoryItems = null, renderCache = null) {
+  if (renderCache && renderCache.inventoryItems === inventoryItems) {
+    if (!container) return renderCache.topLevelItems;
+    return renderCache.contentsByContainerId.get(container.id) ?? [];
+  }
   const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
 
   // Actor overview: container-like items are shown as cards in the backpack strip,
   // not again as normal unsorted inventory rows.
-  if (!container) return items.filter(item => !getItemContainerId(item) && !isContainerLike(item));
+  if (!container) return items.filter(item => !getItemContainerId(item, renderCache) && !isContainerLike(item, renderCache));
 
   // Container view: show the contents of the selected container. If a nested
   // container is inside this container, keep it visible here as a normal item.
-  return items.filter(item => item.id !== container.id && itemIsInContainer(item, container));
+  return items.filter(item => item.id !== container.id && itemIsInContainer(item, container, renderCache));
 }
 
 function getContextKey(containerId) {
@@ -1160,17 +1239,23 @@ function getItemIdentificationData(item) {
   return { supported: false, identified: true };
 }
 
-function isBetterInvUnidentified(item) {
+function isBetterInvUnidentified(item, renderCache = null) {
+  if (renderCache?.unidentified?.has(item)) return renderCache.unidentified.get(item);
   const identification = getItemIdentificationData(item);
-  return identification.supported && !identification.identified;
+  const result = identification.supported && !identification.identified;
+  renderCache?.unidentified?.set(item, result);
+  return result;
 }
 
-function itemCategory(item, containerId = null) {
-  const all = item.getFlag(MODULE_ID, "categoryByContext") ?? {};
+function itemCategory(item, containerId = null, renderCache = null) {
   const ctx = getContextKey(containerId);
+  const cacheKey = `${ctx}:${item?.id ?? ""}`;
+  if (renderCache?.categoryByContext?.has(cacheKey)) return renderCache.categoryByContext.get(cacheKey);
+  const all = item.getFlag(MODULE_ID, "categoryByContext") ?? {};
   const explicit = all[ctx];
-  if (explicit) return explicit;
-  return isBetterInvUnidentified(item) ? "__unknown" : "__unsorted";
+  const result = explicit || (isBetterInvUnidentified(item, renderCache) ? "__unknown" : "__unsorted");
+  renderCache?.categoryByContext?.set(cacheKey, result);
+  return result;
 }
 
 async function setItemCategory(item, category, containerId = null) {
@@ -1464,13 +1549,14 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   // The same array is reused for item rows, container detection, capacity and
   // encumbrance fallbacks instead of repeatedly traversing actor.items.
   const inventoryItems = features.needsInventoryCollection ? getInventoryItems(actor) : null;
+  const renderCache = createBetterInvRenderCache(inventoryItems ?? []);
   const contextContainerId = activeContainer?.id ?? null;
   const [allVisibleItems, containers, categories] = await Promise.all([
     features.items
-      ? sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems), contextContainerId)
+      ? sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems, renderCache), contextContainerId)
       : Promise.resolve([]),
     features.containers
-      ? sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems))
+      ? sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems, renderCache))
       : Promise.resolve([]),
     features.categories
       ? getCategories(actor, contextContainerId)
@@ -1483,7 +1569,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
 
   const visibleItems = query && features.items
-    ? allVisibleItems.filter(item => itemMatchesSearch(item, query))
+    ? allVisibleItems.filter(item => itemMatchesSearch(item, query, renderCache))
     : allVisibleItems;
 
   // Read all subcategories once per render. The previous implementation read
@@ -1517,18 +1603,20 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     ? (!activeContainer
       ? await renderContainerCards(actor, containers, {
           showCapacity: features.containerCapacity,
-          inventoryItems
+          inventoryItems,
+          renderCache
         })
       : renderContainerBreadcrumb(actor, activeContainer, {
           showCapacity: features.containerCapacity,
           showCount: features.items,
-          inventoryItems
+          inventoryItems,
+          renderCache
         }))
     : "";
   if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
 
   const actorEncumbranceHtml = (!activeContainer && features.encumbrance)
-    ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor, { inventoryItems }))
+    ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor, { inventoryItems, renderCache }))
     : "";
   const actorCurrencyHtml = features.currency ? betterInvActorCurrencyHtml(
     getBetterInvActorCurrency(actor),
@@ -1540,7 +1628,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     }
   ) : "";
   const searchContainersHtml = (features.containers && features.search && !activeContainer && query)
-    ? renderSearchContainerHits(actor, containers, query)
+    ? renderSearchContainerHits(actor, containers, query, { inventoryItems, renderCache })
     : "";
 
   // Resolve each item's display category exactly once, then index items by
@@ -1549,8 +1637,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   const itemDisplayCategory = new Map();
   const unknownItems = [];
   const regularItems = [];
+  const favoriteItems = [];
   for (const item of visibleItems) {
-    const rawCategory = itemCategory(item, contextContainerId);
+    if (features.favorites && isBetterInvFavorite(item, renderCache)) favoriteItems.push(item);
+    const rawCategory = itemCategory(item, contextContainerId, renderCache);
     if (features.unknownItems && rawCategory === "__unknown") {
       unknownItems.push(item);
       continue;
@@ -1596,7 +1686,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         ? directItems
         : directItems.concat(nestedItemsByParentCategory.get(section.id) ?? []);
       const rows = directItems.length
-        ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
+        ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")
         : "";
 
       let subcategoryHtml = "";
@@ -1605,7 +1695,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
           const subId = makeSubcategoryId(section.id, sub);
           const subItems = regularItemsByCategory.get(subId) ?? [];
           const subRows = subItems.length
-            ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
+            ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")
             : "";
           return `
             <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
@@ -1613,7 +1703,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
                 <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
                 <span class="betterinv-sub-indent">↳</span>
                 <span class="betterinv-category-name">${escapeHtml(sub)}</span>
-                ${features.categoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht") : ""}
+                ${features.categoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht", renderCache) : ""}
                 <span class="betterinv-category-count">${subItems.length}</span>
                 <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
               </summary>
@@ -1627,7 +1717,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
           <summary>
             <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
             <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
-            ${features.categoryWeights ? betterInvCategoryWeightHtml(categoryItems) : ""}
+            ${features.categoryWeights ? betterInvCategoryWeightHtml(categoryItems, "Kategoriegewicht", renderCache) : ""}
             <span class="betterinv-category-count">${directItems.length}</span>
             ${features.subcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
             <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
@@ -1639,13 +1729,13 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     sectionHtml = sectionHtmlParts.join("");
   } else if (features.items) {
     const flatRows = regularItems.length
-      ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
+      ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")
       : "";
     sectionHtml = `
       <section class="betterinv-system-category betterinv-flat-category">
         <div class="betterinv-unknown-header">
           <span class="betterinv-category-name">Items</span>
-          ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items") : ""}
+          ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items", renderCache) : ""}
           <span class="betterinv-category-count">${regularItems.length}</span>
         </div>
         <div class="betterinv-items">${flatRows}</div>
@@ -1657,15 +1747,14 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       <div class="betterinv-unknown-header">
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
-        ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items") : ""}
+        ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items", renderCache) : ""}
         <span class="betterinv-category-count">${unknownItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
-        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")}
+        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")}
       </div>
     </section>` : "";
 
-  const favoriteItems = features.favorites ? visibleItems.filter(item => isBetterInvFavorite(item)) : [];
   const favoritesHtml = favoriteItems.length ? `
     <section class="betterinv-favorites">
       <div class="betterinv-favorites-header">
@@ -1674,7 +1763,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         <span class="betterinv-category-count">${favoriteItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-favorite-items">
-        ${favoriteItems.map(item => favoriteItemRowHtml(item, { settings: userSettings, features })).join("")}
+        ${favoriteItems.map(item => favoriteItemRowHtml(item, { settings: userSettings, features, renderCache })).join("")}
       </div>
     </section>` : "";
 
@@ -1737,7 +1826,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   `);
 
   markBetterInvPerformancePhase(performanceSample, "domCommitted");
-  activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems, categoryOptions });
+  activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems, categoryOptions, renderCache });
   markBetterInvPerformancePhase(performanceSample, "listenersReady");
   performanceSample.committed = true;
   windowEl.dataset.betterInvRenderedSearch = String(betterInvState.search ?? "");
@@ -2266,18 +2355,22 @@ function betterInvDisabledShellHtml() {
     </div>`;
 }
 
-function itemMatchesSearch(item, query) {
+function itemMatchesSearch(item, query, renderCache = null) {
   if (!query) return true;
-  const haystack = [item.name, item.type, foundry.utils.getProperty(item, "system.type.value"), foundry.utils.getProperty(item, "system.identifier")]
-    .map(v => String(v ?? "").toLowerCase()).join(" ");
+  let haystack = renderCache?.searchText?.get(item);
+  if (haystack === undefined) {
+    haystack = [item.name, item.type, foundry.utils.getProperty(item, "system.type.value"), foundry.utils.getProperty(item, "system.identifier")]
+      .map(v => String(v ?? "").toLowerCase()).join(" ");
+    renderCache?.searchText?.set(item, haystack);
+  }
   return haystack.includes(query);
 }
 
-function renderSearchContainerHits(actor, containers, query) {
+function renderSearchContainerHits(actor, containers, query, { inventoryItems = null, renderCache = null } = {}) {
   const hits = containers.filter(container => {
     if (String(container.name ?? "").toLowerCase().includes(query)) return true;
     if (String(getContainerAlias(actor, container) ?? "").toLowerCase().includes(query)) return true;
-    return getVisibleItems(actor, container).some(item => itemMatchesSearch(item, query));
+    return getVisibleItems(actor, container, inventoryItems, renderCache).some(item => itemMatchesSearch(item, query, renderCache));
   });
   if (!hits.length) return "";
   return `
@@ -2466,17 +2559,22 @@ function parseBetterInvPrice(raw, depth = 0) {
   return null;
 }
 
-function getBetterInvItemPrice(item) {
+function getBetterInvItemPrice(item, renderCache = null) {
   if (!item) return null;
+  if (renderCache?.price?.has(item)) return renderCache.price.get(item);
   const candidates = [
     foundry.utils.getProperty(item, "system.price"),
     foundry.utils.getProperty(item, "system.cost")
   ];
+  let result = null;
   for (const candidate of candidates) {
     const parsed = parseBetterInvPrice(candidate);
-    if (parsed) return parsed;
+    if (!parsed) continue;
+    result = parsed;
+    break;
   }
-  return null;
+  renderCache?.price?.set(item, result);
+  return result;
 }
 
 function formatBetterInvPrice(price, multiplier = 1) {
@@ -2491,12 +2589,12 @@ function formatBetterInvPrice(price, multiplier = 1) {
   }).join(" · ");
 }
 
-function betterInvItemPriceHtml(item, { unidentified = false, enabled = betterInvShowsItemValues() } = {}) {
+function betterInvItemPriceHtml(item, { unidentified = false, enabled = betterInvShowsItemValues(), renderCache = null } = {}) {
   if (!enabled || unidentified) return "";
-  const price = getBetterInvItemPrice(item);
+  const price = getBetterInvItemPrice(item, renderCache);
   const unitValue = formatBetterInvPrice(price);
   if (!unitValue) return "";
-  const quantity = getItemQuantityData(item).value;
+  const quantity = getItemQuantityData(item, renderCache).value;
   const totalValue = quantity > 1 && !price?.text ? formatBetterInvPrice(price, quantity) : "";
   const title = totalValue
     ? `Stückwert: ${unitValue} · Gesamtwert bei ${quantity} Stück: ${totalValue}`
@@ -3761,8 +3859,9 @@ async function removeBetterInvCurrency(actor) {
   return true;
 }
 
-function getBetterInvItemWeight(item) {
+function getBetterInvItemWeight(item, renderCache = null) {
   if (!item) return 0;
+  if (renderCache?.weight?.has(item)) return renderCache.weight.get(item);
 
   // Prefer values which are already calculated for the complete stack.
   const completeStack = firstFiniteNumber(
@@ -3770,23 +3869,32 @@ function getBetterInvItemWeight(item) {
     foundry.utils.getProperty(item, "system.weight.total"),
     foundry.utils.getProperty(item, "system.weight.computed")
   );
-  if (completeStack !== null) return Math.max(0, completeStack);
+  if (completeStack !== null) {
+    const result = Math.max(0, completeStack);
+    renderCache?.weight?.set(item, result);
+    return result;
+  }
 
   const rawWeight = foundry.utils.getProperty(item, "system.weight");
   const unitWeight = firstFiniteNumber(
     typeof rawWeight === "object" && rawWeight !== null ? rawWeight.value : rawWeight,
     foundry.utils.getProperty(item, "system.weight.value")
   ) ?? 0;
-  return Math.max(0, unitWeight) * getItemQuantityData(item).value;
+  const result = Math.max(0, unitWeight) * getItemQuantityData(item, renderCache).value;
+  renderCache?.weight?.set(item, result);
+  return result;
 }
 
-function getBetterInvItemsWeight(items) {
-  return Array.from(items ?? []).reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+function getBetterInvItemsWeight(items, renderCache = null) {
+  let total = 0;
+  for (const item of Array.from(items ?? [])) total += getBetterInvItemWeight(item, renderCache);
+  return total;
 }
 
-function betterInvCategoryWeightHtml(items, label = "Kategoriegewicht") {
-  const weight = getBetterInvItemsWeight(items);
-  const unit = getBetterInvWeightUnit();
+function betterInvCategoryWeightHtml(items, label = "Kategoriegewicht", renderCache = null) {
+  const weight = getBetterInvItemsWeight(items, renderCache);
+  const unit = renderCache?.weightUnit ?? getBetterInvWeightUnit();
+  if (renderCache && !renderCache.weightUnit) renderCache.weightUnit = unit;
   const amount = `${formatBetterInvNumber(weight)} ${unit}`;
   return `
     <span class="betterinv-category-weight" title="${escapeAttr(`${label}: ${amount}`)}">
@@ -3795,12 +3903,12 @@ function betterInvCategoryWeightHtml(items, label = "Kategoriegewicht") {
     </span>`;
 }
 
-function getBetterInvContainerCapacity(actor, container, inventoryItems = null) {
+function getBetterInvContainerCapacity(actor, container, inventoryItems = null, renderCache = null) {
   if (!actor || !container) return null;
 
   const capacity = foundry.utils.getProperty(container, "system.capacity");
   const capacityObject = capacity && typeof capacity === "object" ? capacity : {};
-  const contents = getVisibleItems(actor, container, inventoryItems);
+  const contents = getVisibleItems(actor, container, inventoryItems, renderCache);
 
   // D&D5e 5.x / Foundry V14 stores container limits in nested fields:
   // capacity.count, capacity.weight.value and capacity.volume.value.
@@ -3867,7 +3975,7 @@ function getBetterInvContainerCapacity(actor, container, inventoryItems = null) 
       foundry.utils.getProperty(container, "system.capacity.used"),
       foundry.utils.getProperty(container, "system.capacity.current")
     );
-    if (current === null) current = contents.reduce((sum, item) => sum + getItemQuantityData(item).value, 0);
+    if (current === null) current = contents.reduce((sum, item) => sum + getItemQuantityData(item, renderCache).value, 0);
     if (!unit) unit = game.i18n?.localize?.("DND5E.Items") ?? "Items";
   } else if (type === "volume") {
     current = firstFiniteNumber(
@@ -3887,7 +3995,7 @@ function getBetterInvContainerCapacity(actor, container, inventoryItems = null) 
       foundry.utils.getProperty(container, "system.capacity.current"),
       foundry.utils.getProperty(container, "system.capacity.valueUsed")
     );
-    if (current === null) current = contents.reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+    if (current === null) current = contents.reduce((sum, item) => sum + getBetterInvItemWeight(item, renderCache), 0);
     if (!unit) unit = getBetterInvWeightUnit();
   }
 
@@ -3924,7 +4032,7 @@ function betterInvContainerCapacityHtml(capacity, { compact = false } = {}) {
     </div>`;
 }
 
-function getBetterInvActorEncumbrance(actor, { inventoryItems = null } = {}) {
+function getBetterInvActorEncumbrance(actor, { inventoryItems = null, renderCache = null } = {}) {
   if (!actor) return null;
 
   const encumbrance = foundry.utils.getProperty(actor, "system.attributes.encumbrance");
@@ -3953,8 +4061,8 @@ function getBetterInvActorEncumbrance(actor, { inventoryItems = null } = {}) {
   if (current === null) {
     const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
     current = items
-      .filter(item => !getItemContainerId(item))
-      .reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
+      .filter(item => !getItemContainerId(item, renderCache))
+      .reduce((sum, item) => sum + getBetterInvItemWeight(item, renderCache), 0);
   }
 
   // D&D5e fallback only. Custom/system-prepared maximums always win above.
@@ -4011,7 +4119,7 @@ function betterInvActorEncumbranceHtml(encumbrance) {
     </section>`;
 }
 
-async function renderContainerCards(actor, containers, { showCapacity = true, inventoryItems = null } = {}) {
+async function renderContainerCards(actor, containers, { showCapacity = true, inventoryItems = null, renderCache = null } = {}) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
   const layerCount = savedLayerCount ?? Math.max(1, Math.ceil(containers.length / 4));
@@ -4041,7 +4149,7 @@ async function renderContainerCards(actor, containers, { showCapacity = true, in
         <div class="betterinv-container-row ${row.length ? "" : "betterinv-container-row-empty"}" data-row-index="${rowIndex}">
           ${row.map(container => {
             const alias = getContainerAlias(actor, container);
-            const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems) : null;
+            const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems, renderCache) : null;
             return `
               <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
@@ -4055,9 +4163,9 @@ async function renderContainerCards(actor, containers, { showCapacity = true, in
     </div>`;
 }
 
-function renderContainerBreadcrumb(actor, container, { showCapacity = true, showCount = true, inventoryItems = null } = {}) {
-  const count = showCount ? getVisibleItems(actor, container, inventoryItems).length : null;
-  const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems) : null;
+function renderContainerBreadcrumb(actor, container, { showCapacity = true, showCount = true, inventoryItems = null, renderCache = null } = {}) {
+  const count = showCount ? getVisibleItems(actor, container, inventoryItems, renderCache).length : null;
+  const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems, renderCache) : null;
   return `
     <div class="betterinv-container-view">
       <button type="button" class="betterinv-back">← Alle Rucksäcke</button>
@@ -4075,14 +4183,17 @@ function renderContainerBreadcrumb(actor, container, { showCapacity = true, show
     </div>`;
 }
 
-function getItemQuantityData(item) {
+function getItemQuantityData(item, renderCache = null) {
+  if (renderCache?.quantity?.has(item)) return renderCache.quantity.get(item);
   const raw = foundry.utils.getProperty(item, "system.quantity");
   const nested = foundry.utils.getProperty(item, "system.quantity.value");
   const value = Number(typeof raw === "object" && raw !== null ? nested : raw);
-  return {
+  const result = {
     value: Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 1,
     updatePath: typeof raw === "object" && raw !== null ? "system.quantity.value" : "system.quantity"
   };
+  renderCache?.quantity?.set(item, result);
+  return result;
 }
 
 async function setItemQuantity(item, value, operation = {}) {
@@ -4101,23 +4212,30 @@ async function changeItemQuantity(item, delta) {
   await setItemQuantity(item, quantity.value + Math.trunc(delta));
 }
 
-function getItemEquippedData(item) {
+function getItemEquippedData(item, renderCache = null) {
   if (!item) return { supported: false, value: false, updatePath: null };
+  if (renderCache?.equipped?.has(item)) return renderCache.equipped.get(item);
 
   const direct = foundry.utils.getProperty(item, "system.equipped");
   if (typeof direct === "boolean") {
-    return { supported: true, value: direct, updatePath: "system.equipped" };
+    const result = { supported: true, value: direct, updatePath: "system.equipped" };
+    renderCache?.equipped?.set(item, result);
+    return result;
   }
 
   if (direct && typeof direct === "object") {
     for (const key of ["value", "equipped"]) {
       if (typeof direct[key] === "boolean") {
-        return { supported: true, value: direct[key], updatePath: `system.equipped.${key}` };
+        const result = { supported: true, value: direct[key], updatePath: `system.equipped.${key}` };
+        renderCache?.equipped?.set(item, result);
+        return result;
       }
     }
   }
 
-  return { supported: false, value: false, updatePath: null };
+  const result = { supported: false, value: false, updatePath: null };
+  renderCache?.equipped?.set(item, result);
+  return result;
 }
 
 async function toggleBetterInvItemEquipped(item) {
@@ -4130,8 +4248,11 @@ async function toggleBetterInvItemEquipped(item) {
   ui.notifications.info(`${item.name} wurde ${equipped.value ? "abgelegt" : "ausgerüstet"}.`);
 }
 
-function isBetterInvFavorite(item) {
-  return item?.getFlag?.(MODULE_ID, "favorite") === true;
+function isBetterInvFavorite(item, renderCache = null) {
+  if (renderCache?.favorite?.has(item)) return renderCache.favorite.get(item);
+  const result = item?.getFlag?.(MODULE_ID, "favorite") === true;
+  renderCache?.favorite?.set(item, result);
+  return result;
 }
 
 async function toggleBetterInvFavorite(item) {
@@ -6402,13 +6523,13 @@ function openBetterInvItemActionMenu(button, actor, item) {
 
 }
 
-function favoriteItemRowHtml(item, { settings = null, features = null } = {}) {
+function favoriteItemRowHtml(item, { settings = null, features = null, renderCache = null } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
   const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   const img = item.img || "icons/svg/item-bag.svg";
-  const quantity = featurePlan.quantityControls ? getItemQuantityData(item).value : null;
-  const equipped = getItemEquippedData(item);
-  const unidentified = isBetterInvUnidentified(item);
+  const quantity = featurePlan.quantityControls ? getItemQuantityData(item, renderCache).value : null;
+  const equipped = getItemEquippedData(item, renderCache);
+  const unidentified = isBetterInvUnidentified(item, renderCache);
   return `
     <article class="betterinv-item betterinv-favorite-view betterinv-favorite-compact ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" draggable="false">
       <span class="betterinv-item-grip" title="Favorit – das Original bleibt in seiner Kategorie">★</span>
@@ -6421,19 +6542,23 @@ function favoriteItemRowHtml(item, { settings = null, features = null } = {}) {
     </article>`;
 }
 
-function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null } = {}) {
-  if (favoriteView) return favoriteItemRowHtml(item, { settings, features });
+function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null, renderCache = null } = {}) {
+  if (favoriteView) return favoriteItemRowHtml(item, { settings, features, renderCache });
   const userSettings = settings ?? getBetterInvUserSettings();
   const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   const img = item.img || "icons/svg/item-bag.svg";
-  const qty = featurePlan.quantityControls ? getItemQuantityData(item).value : null;
-  const equipped = getItemEquippedData(item);
-  const unidentified = isBetterInvUnidentified(item);
-  const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
-  const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
-  const current = itemCategory(item, containerId);
+  const qty = featurePlan.quantityControls ? getItemQuantityData(item, renderCache).value : null;
+  const equipped = getItemEquippedData(item, renderCache);
+  const unidentified = isBetterInvUnidentified(item, renderCache);
+  let weight = renderCache?.displayWeight?.get(item);
+  if (weight === undefined) {
+    const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
+    weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
+    renderCache?.displayWeight?.set(item, weight);
+  }
+  const current = itemCategory(item, containerId, renderCache);
   const showCategoryPicker = featurePlan.categoryDropdown;
-  const priceHtml = featurePlan.itemValues ? betterInvItemPriceHtml(item, { unidentified, enabled: true }) : "";
+  const priceHtml = featurePlan.itemValues ? betterInvItemPriceHtml(item, { unidentified, enabled: true, renderCache }) : "";
 
   return `
     <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
