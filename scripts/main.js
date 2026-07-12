@@ -102,6 +102,23 @@ let betterInvRenderPromise = null;
 let betterInvQueuedRenderOptions = null;
 let betterInvDialogMutationFrame = null;
 const betterInvPendingDialogElements = new Set();
+
+// Phase 7.6: lightweight runtime diagnostics. Measurements stay local to the
+// current browser session and are never transmitted or persisted.
+const BETTER_INV_PERFORMANCE_SAMPLE_LIMIT = 60;
+const BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT = 120;
+const betterInvPerformanceState = {
+  renders: [],
+  refreshRequests: 0,
+  refreshFrames: 0,
+  coalescedRefreshRequests: 0,
+  discardedRenders: 0,
+  activeDelegatedListeners: 0,
+  eventLoopLag: [],
+  monitorTimer: null,
+  monitorLastTick: null
+};
+
 let betterInvState = {
   actorId: null,
   containerId: null,
@@ -663,16 +680,122 @@ function betterInvItemChangesAffectFeatures(item, changes, features, { lifecycle
   return betterInvPathsTouch(changedPaths, watched);
 }
 
+function getBetterInvPerformanceNow() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+function getBetterInvHeapUsed() {
+  const memory = globalThis.performance?.memory;
+  const used = Number(memory?.usedJSHeapSize);
+  return Number.isFinite(used) && used >= 0 ? used : null;
+}
+
+function beginBetterInvPerformanceSample() {
+  return {
+    startedAt: getBetterInvPerformanceNow(),
+    heapBefore: getBetterInvHeapUsed(),
+    marks: {},
+    committed: false,
+    mode: "inventory",
+    itemCount: 0,
+    containerCount: 0,
+    categoryCount: 0
+  };
+}
+
+function markBetterInvPerformancePhase(sample, name) {
+  if (!sample || !name) return;
+  sample.marks[name] = getBetterInvPerformanceNow();
+}
+
+function getBetterInvPerformancePhaseDuration(sample, from, to) {
+  const start = from === "start" ? sample?.startedAt : sample?.marks?.[from];
+  const end = to === "finish" ? sample?.finishedAt : sample?.marks?.[to];
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  return Math.max(0, end - start);
+}
+
+function finishBetterInvPerformanceSample(sample, windowEl) {
+  if (!sample) return;
+  sample.finishedAt = getBetterInvPerformanceNow();
+  if (!sample.committed) {
+    betterInvPerformanceState.discardedRenders += 1;
+    return;
+  }
+
+  const root = windowEl?.isConnected ? windowEl : document.getElementById("betterinv-window");
+  const diagnosticsActive = Boolean(document.getElementById("betterinv-performance-window"));
+  let domNodes = null;
+  let itemRows = null;
+  let categoryNodes = null;
+  let containerCards = null;
+  if (diagnosticsActive && root) {
+    const elements = root.querySelectorAll("*");
+    domNodes = elements.length + 1;
+    itemRows = 0;
+    categoryNodes = 0;
+    containerCards = 0;
+    for (const element of elements) {
+      if (element.classList?.contains("betterinv-item")) itemRows += 1;
+      if (element.classList?.contains("betterinv-category") || element.classList?.contains("betterinv-subcategory")) categoryNodes += 1;
+      if (element.classList?.contains("betterinv-container-card")) containerCards += 1;
+    }
+  }
+  const heapAfter = getBetterInvHeapUsed();
+  const entry = {
+    at: Date.now(),
+    mode: sample.mode,
+    totalMs: getBetterInvPerformancePhaseDuration(sample, "start", "finish") ?? 0,
+    contextMs: getBetterInvPerformancePhaseDuration(sample, "start", "contextReady"),
+    dataMs: getBetterInvPerformancePhaseDuration(sample, "contextReady", "dataReady"),
+    htmlMs: getBetterInvPerformancePhaseDuration(sample, "dataReady", "htmlReady"),
+    domMs: getBetterInvPerformancePhaseDuration(sample, "htmlReady", "domCommitted"),
+    listenersMs: getBetterInvPerformancePhaseDuration(sample, "domCommitted", "listenersReady"),
+    heapBefore: sample.heapBefore,
+    heapAfter,
+    heapDelta: Number.isFinite(sample.heapBefore) && Number.isFinite(heapAfter) ? heapAfter - sample.heapBefore : null,
+    domNodes,
+    itemRows,
+    categoryNodes,
+    containerCards,
+    delegatedListeners: Math.max(0, Number(root?._betterInvListenerCount) || 0),
+    itemCount: Math.max(0, Number(sample.itemCount) || 0),
+    containerCount: Math.max(0, Number(sample.containerCount) || 0),
+    categoryCount: Math.max(0, Number(sample.categoryCount) || 0)
+  };
+  betterInvPerformanceState.renders.push(entry);
+  if (betterInvPerformanceState.renders.length > BETTER_INV_PERFORMANCE_SAMPLE_LIMIT) {
+    betterInvPerformanceState.renders.splice(0, betterInvPerformanceState.renders.length - BETTER_INV_PERFORMANCE_SAMPLE_LIMIT);
+  }
+  updateBetterInvPerformanceWindow();
+}
+
+function resetBetterInvPerformanceMeasurements() {
+  betterInvPerformanceState.renders.length = 0;
+  betterInvPerformanceState.refreshRequests = 0;
+  betterInvPerformanceState.refreshFrames = 0;
+  betterInvPerformanceState.coalescedRefreshRequests = 0;
+  betterInvPerformanceState.discardedRenders = 0;
+  betterInvPerformanceState.eventLoopLag.length = 0;
+  updateBetterInvPerformanceWindow();
+}
+
 function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
   if (!document.getElementById("betterinv-window")) return;
+  betterInvPerformanceState.refreshRequests += 1;
   if (betterInvRefreshBatchDepth > 0) {
+    betterInvPerformanceState.coalescedRefreshRequests += 1;
     betterInvRefreshBatchRequested = true;
     betterInvRefreshBatchPreserveScroll = betterInvRefreshBatchPreserveScroll && preserveScroll !== false;
     return;
   }
   betterInvRefreshPreserveScroll = betterInvRefreshPreserveScroll && preserveScroll !== false;
-  if (betterInvRefreshFrame !== null) return;
+  if (betterInvRefreshFrame !== null) {
+    betterInvPerformanceState.coalescedRefreshRequests += 1;
+    return;
+  }
   betterInvRefreshFrame = requestAnimationFrame(() => {
+    betterInvPerformanceState.refreshFrames += 1;
     const keepScroll = betterInvRefreshPreserveScroll;
     betterInvRefreshFrame = null;
     betterInvRefreshPreserveScroll = true;
@@ -1196,6 +1319,7 @@ function toggleBetterInvWindow() {
     closeBetterInvItemActionMenu();
     closeBetterInvCategoryMenu();
     disposeBetterInvWindowEventCycle(existing);
+    closeBetterInvPerformanceWindow();
     existing.remove();
     return;
   }
@@ -1243,11 +1367,14 @@ function applyBetterInvScale(windowEl) {
 }
 
 async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
+  const performanceSample = beginBetterInvPerformanceSample();
+  let performanceWindowEl = document.getElementById("betterinv-window");
+  try {
   cancelScheduledBetterInvRefresh();
   const renderSequence = ++betterInvRenderSequence;
   closeBetterInvItemActionMenu();
   closeBetterInvCategoryMenu();
-  let windowEl = document.getElementById("betterinv-window");
+  let windowEl = performanceWindowEl;
   const previousBody = windowEl?.querySelector?.(".betterinv-body");
   const previousScrollTop = preserveScroll ? (previousBody?.scrollTop ?? 0) : 0;
   const activeEl = document.activeElement;
@@ -1262,6 +1389,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     windowEl.style.top = "110px";
     document.body.appendChild(windowEl);
   }
+  performanceWindowEl = windowEl;
   applyBetterInvScale(windowEl);
 
   const userSettings = getBetterInvUserSettings();
@@ -1273,6 +1401,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     const eventController = beginBetterInvWindowEventCycle(windowEl);
     addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
       disposeBetterInvWindowEventCycle(windowEl);
+      closeBetterInvPerformanceWindow();
       windowEl.remove();
     }, eventController);
     addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
@@ -1288,16 +1417,25 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       }
     }, eventController);
     makeBetterInvDraggable(windowEl);
+    performanceSample.mode = "disabled";
+    markBetterInvPerformancePhase(performanceSample, "domCommitted");
+    markBetterInvPerformancePhase(performanceSample, "listenersReady");
+    performanceSample.committed = true;
     return;
   }
 
   windowEl.classList.remove("betterinv-disabled-mode");
   const actor = getCurrentActor();
+  markBetterInvPerformancePhase(performanceSample, "contextReady");
 
   if (!actor && game.user.isGM) {
     const actors = getSelectablePlayerActors();
     windowEl.innerHTML = baseShellHtml(actorChooserHtml(actors));
+    markBetterInvPerformancePhase(performanceSample, "domCommitted");
     activateWindowListeners(windowEl, null, null);
+    markBetterInvPerformancePhase(performanceSample, "listenersReady");
+    performanceSample.mode = "actor-chooser";
+    performanceSample.committed = true;
     return;
   }
 
@@ -1306,7 +1444,11 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       <p>Kein Token ausgewählt und kein Charakter deinem User zugeordnet.</p>
       <p class="betterinv-hint">Wähle einen Token auf der Map aus oder ordne deinem User einen Charakter zu.</p>
     `);
+    markBetterInvPerformancePhase(performanceSample, "domCommitted");
     activateWindowListeners(windowEl, actor, null);
+    markBetterInvPerformancePhase(performanceSample, "listenersReady");
+    performanceSample.mode = "no-actor";
+    performanceSample.committed = true;
     return;
   }
 
@@ -1334,6 +1476,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       ? getCategories(actor, contextContainerId)
       : Promise.resolve([])
   ]);
+  markBetterInvPerformancePhase(performanceSample, "dataReady");
+  performanceSample.itemCount = allVisibleItems.length;
+  performanceSample.containerCount = containers.length;
+  performanceSample.categoryCount = categories.length;
   if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
 
   const visibleItems = query && features.items
@@ -1573,6 +1719,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     ? `<div class="${toolbarClasses}">${searchFieldHtml}${addItemHtml}${addCategoryHtml}</div>`
     : "";
 
+  markBetterInvPerformancePhase(performanceSample, "htmlReady");
   if (renderSequence !== betterInvRenderSequence || !windowEl.isConnected) return;
 
   windowEl.innerHTML = baseShellHtml(`
@@ -1589,7 +1736,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     </div>
   `);
 
+  markBetterInvPerformancePhase(performanceSample, "domCommitted");
   activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems, categoryOptions });
+  markBetterInvPerformancePhase(performanceSample, "listenersReady");
+  performanceSample.committed = true;
   windowEl.dataset.betterInvRenderedSearch = String(betterInvState.search ?? "");
   applyBetterInvScale(windowEl);
   const newBody = windowEl.querySelector(".betterinv-body");
@@ -1605,6 +1755,9 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         try { input.setSelectionRange(start, end); } catch (_) {}
       });
     }
+  }
+  } finally {
+    finishBetterInvPerformanceSample(performanceSample, performanceWindowEl);
   }
 }
 
@@ -1699,6 +1852,234 @@ function betterInvSettingsGroupsHtml(userSettings) {
   }).join("");
 }
 
+function getBetterInvAverage(values) {
+  const clean = Array.from(values ?? []).map(Number).filter(Number.isFinite);
+  if (!clean.length) return null;
+  return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function getBetterInvPercentile(values, percentile = 0.95) {
+  const clean = Array.from(values ?? []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+  if (!clean.length) return null;
+  const index = Math.min(clean.length - 1, Math.max(0, Math.ceil(clean.length * percentile) - 1));
+  return clean[index];
+}
+
+function formatBetterInvMilliseconds(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "–";
+  return `${number < 10 ? number.toFixed(1) : Math.round(number)} ms`;
+}
+
+function formatBetterInvBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes) || bytes < 0) return "nicht verfügbar";
+  const units = ["B", "KB", "MB", "GB"];
+  let amount = bytes;
+  let unitIndex = 0;
+  while (amount >= 1024 && unitIndex < units.length - 1) {
+    amount /= 1024;
+    unitIndex += 1;
+  }
+  const digits = unitIndex === 0 ? 0 : amount < 10 ? 2 : amount < 100 ? 1 : 0;
+  return `${amount.toFixed(digits)} ${units[unitIndex]}`;
+}
+
+function getBetterInvPerformanceRating(avgRenderMs) {
+  if (!Number.isFinite(avgRenderMs)) return { label: "Noch keine Messung", className: "is-neutral" };
+  if (avgRenderMs <= 16.7) return { label: "Sehr flüssig", className: "is-good" };
+  if (avgRenderMs <= 33.4) return { label: "Flüssig", className: "is-good" };
+  if (avgRenderMs <= 60) return { label: "Beobachten", className: "is-warn" };
+  return { label: "Optimierung nötig", className: "is-bad" };
+}
+
+function getBetterInvPerformanceSnapshot() {
+  const allRenders = betterInvPerformanceState.renders;
+  const inventoryRenders = allRenders.filter(entry => entry.mode === "inventory");
+  const renders = inventoryRenders.length ? inventoryRenders : allRenders;
+  const last = renders.at(-1) ?? null;
+  const renderTimes = renders.map(entry => entry.totalMs);
+  const lagValues = betterInvPerformanceState.eventLoopLag;
+  const avgRenderMs = getBetterInvAverage(renderTimes);
+  return {
+    last,
+    sampleCount: renders.length,
+    avgRenderMs,
+    p95RenderMs: getBetterInvPercentile(renderTimes, 0.95),
+    worstRenderMs: renderTimes.length ? Math.max(...renderTimes) : null,
+    avgEventLoopLagMs: getBetterInvAverage(lagValues),
+    worstEventLoopLagMs: lagValues.length ? Math.max(...lagValues) : null,
+    heapUsed: getBetterInvHeapUsed(),
+    refreshRequests: betterInvPerformanceState.refreshRequests,
+    refreshFrames: betterInvPerformanceState.refreshFrames,
+    coalescedRefreshRequests: betterInvPerformanceState.coalescedRefreshRequests,
+    discardedRenders: betterInvPerformanceState.discardedRenders,
+    activeDelegatedListeners: betterInvPerformanceState.activeDelegatedListeners,
+    rating: getBetterInvPerformanceRating(avgRenderMs)
+  };
+}
+
+function betterInvPerformanceMetricHtml(label, value, hint = "") {
+  return `
+    <div class="betterinv-performance-metric"${hint ? ` title="${escapeAttr(hint)}"` : ""}>
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(value)}</strong>
+    </div>`;
+}
+
+function betterInvPerformanceContentHtml() {
+  const snapshot = getBetterInvPerformanceSnapshot();
+  const last = snapshot.last;
+  const memoryDelta = last?.heapDelta;
+  const memoryDeltaText = Number.isFinite(memoryDelta)
+    ? `${memoryDelta >= 0 ? "+" : "−"}${formatBetterInvBytes(Math.abs(memoryDelta))}`
+    : "nicht verfügbar";
+
+  return `
+    <section class="betterinv-performance-summary">
+      <div>
+        <strong>Aktueller Zustand</strong>
+        <small>${snapshot.sampleCount} von maximal ${BETTER_INV_PERFORMANCE_SAMPLE_LIMIT} Render-Messungen im Arbeitsspeicher</small>
+      </div>
+      <span class="betterinv-performance-rating ${escapeAttr(snapshot.rating.className)}">${escapeHtml(snapshot.rating.label)}</span>
+    </section>
+
+    <section class="betterinv-performance-section">
+      <h3><i class="fas fa-stopwatch" aria-hidden="true"></i>Renderzeiten</h3>
+      <div class="betterinv-performance-grid">
+        ${betterInvPerformanceMetricHtml("Letzter Render", formatBetterInvMilliseconds(last?.totalMs))}
+        ${betterInvPerformanceMetricHtml("Durchschnitt", formatBetterInvMilliseconds(snapshot.avgRenderMs))}
+        ${betterInvPerformanceMetricHtml("95. Perzentil", formatBetterInvMilliseconds(snapshot.p95RenderMs), "95 Prozent der gespeicherten Render-Vorgänge waren höchstens so langsam.")}
+        ${betterInvPerformanceMetricHtml("Langsamster Render", formatBetterInvMilliseconds(snapshot.worstRenderMs))}
+      </div>
+      <div class="betterinv-performance-phases">
+        ${betterInvPerformanceMetricHtml("Daten", formatBetterInvMilliseconds(last?.dataMs))}
+        ${betterInvPerformanceMetricHtml("HTML", formatBetterInvMilliseconds(last?.htmlMs))}
+        ${betterInvPerformanceMetricHtml("DOM", formatBetterInvMilliseconds(last?.domMs))}
+        ${betterInvPerformanceMetricHtml("Listener", formatBetterInvMilliseconds(last?.listenersMs))}
+      </div>
+    </section>
+
+    <section class="betterinv-performance-section">
+      <h3><i class="fas fa-sitemap" aria-hidden="true"></i>Inventar-DOM</h3>
+      <div class="betterinv-performance-grid">
+        ${betterInvPerformanceMetricHtml("DOM-Knoten", String(last?.domNodes ?? "–"))}
+        ${betterInvPerformanceMetricHtml("Itemzeilen", String(last?.itemRows ?? "–"))}
+        ${betterInvPerformanceMetricHtml("Kategorien", String(last?.categoryNodes ?? "–"))}
+        ${betterInvPerformanceMetricHtml("Rucksackkarten", String(last?.containerCards ?? "–"))}
+        ${betterInvPerformanceMetricHtml("Aktive Listener", String(last?.delegatedListeners ?? snapshot.activeDelegatedListeners), "Gezählt werden die zentral verwalteten Listener des Inventarfensters.")}
+        ${betterInvPerformanceMetricHtml("Verworfene Render", String(snapshot.discardedRenders), "Veraltete Render-Vorgänge, die absichtlich nicht mehr in das Fenster geschrieben wurden.")}
+      </div>
+    </section>
+
+    <section class="betterinv-performance-section">
+      <h3><i class="fas fa-sync-alt" aria-hidden="true"></i>Aktualisierungen</h3>
+      <div class="betterinv-performance-grid">
+        ${betterInvPerformanceMetricHtml("Anfragen", String(snapshot.refreshRequests))}
+        ${betterInvPerformanceMetricHtml("Ausgeführte Frames", String(snapshot.refreshFrames))}
+        ${betterInvPerformanceMetricHtml("Zusammengefasst", String(snapshot.coalescedRefreshRequests), "Mehrere Aktualisierungen, die zu einem einzigen Render zusammengefasst wurden.")}
+        ${betterInvPerformanceMetricHtml("Event-Loop Ø", formatBetterInvMilliseconds(snapshot.avgEventLoopLagMs), "Verzögerung des gesamten Foundry-Browserfensters während diese Diagnose geöffnet ist.")}
+        ${betterInvPerformanceMetricHtml("Event-Loop Maximum", formatBetterInvMilliseconds(snapshot.worstEventLoopLagMs), "Dieser Wert betrifft das gesamte Foundry-Fenster und nicht ausschließlich Axon’s Inventory.")}
+      </div>
+    </section>
+
+    <section class="betterinv-performance-section">
+      <h3><i class="fas fa-memory" aria-hidden="true"></i>Arbeitsspeicher</h3>
+      <div class="betterinv-performance-grid">
+        ${betterInvPerformanceMetricHtml("JS-Heap aktuell", formatBetterInvBytes(snapshot.heapUsed), "Wird nicht von jedem Browser bereitgestellt.")}
+        ${betterInvPerformanceMetricHtml("Letzter Render Δ", memoryDeltaText, "Ungefähre Heap-Veränderung während des letzten Render-Vorgangs.")}
+      </div>
+      <p class="betterinv-performance-note">Ein exakter CPU-Prozentsatz ist innerhalb eines Browser-Moduls nicht zuverlässig verfügbar. Deshalb misst die Diagnose Renderzeiten und Verzögerungen des Hauptthreads. RAM-Werte erscheinen nur, wenn dein Foundry-Browser sie bereitstellt.</p>
+    </section>`;
+}
+
+function updateBetterInvPerformanceWindow() {
+  const windowEl = document.getElementById("betterinv-performance-window");
+  const content = windowEl?.querySelector?.(".betterinv-performance-content");
+  if (!content) return;
+  const scrollTop = content.scrollTop;
+  content.innerHTML = betterInvPerformanceContentHtml();
+  content.scrollTop = scrollTop;
+}
+
+function startBetterInvPerformanceMonitor() {
+  if (betterInvPerformanceState.monitorTimer !== null) return;
+  const intervalMs = 1000;
+  betterInvPerformanceState.monitorLastTick = getBetterInvPerformanceNow();
+  betterInvPerformanceState.monitorTimer = window.setInterval(() => {
+    const now = getBetterInvPerformanceNow();
+    const previous = betterInvPerformanceState.monitorLastTick ?? now;
+    const lag = Math.max(0, now - previous - intervalMs);
+    betterInvPerformanceState.monitorLastTick = now;
+    betterInvPerformanceState.eventLoopLag.push(lag);
+    if (betterInvPerformanceState.eventLoopLag.length > BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT) {
+      betterInvPerformanceState.eventLoopLag.splice(0, betterInvPerformanceState.eventLoopLag.length - BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT);
+    }
+    updateBetterInvPerformanceWindow();
+  }, intervalMs);
+}
+
+function stopBetterInvPerformanceMonitor() {
+  if (betterInvPerformanceState.monitorTimer !== null) clearInterval(betterInvPerformanceState.monitorTimer);
+  betterInvPerformanceState.monitorTimer = null;
+  betterInvPerformanceState.monitorLastTick = null;
+}
+
+function closeBetterInvPerformanceWindow() {
+  const windowEl = document.getElementById("betterinv-performance-window");
+  windowEl?._betterInvDragController?.abort?.();
+  windowEl?.remove();
+  stopBetterInvPerformanceMonitor();
+}
+
+function openBetterInvPerformanceWindow() {
+  const existing = document.getElementById("betterinv-performance-window");
+  if (existing) {
+    existing.style.zIndex = "20030";
+    updateBetterInvPerformanceWindow();
+    return existing;
+  }
+
+  const windowEl = document.createElement("section");
+  windowEl.id = "betterinv-performance-window";
+  windowEl.className = "betterinv-settings-window betterinv-performance-window";
+  windowEl.innerHTML = `
+    <header class="betterinv-settings-window-header">
+      <div>
+        <strong>Performance-Diagnose</strong>
+        <small>Lokale Live-Messung für Axon’s Inventory</small>
+      </div>
+      <div class="betterinv-performance-header-actions">
+        <button type="button" class="betterinv-performance-reset" title="Messwerte zurücksetzen" aria-label="Messwerte zurücksetzen"><i class="fas fa-undo" aria-hidden="true"></i></button>
+        <button type="button" class="betterinv-performance-close betterinv-settings-close" title="Diagnose schließen" aria-label="Diagnose schließen">×</button>
+      </div>
+    </header>
+    <div class="betterinv-settings-window-scroll betterinv-performance-content">${betterInvPerformanceContentHtml()}</div>
+    <footer class="betterinv-settings-window-footer">
+      <i class="fas fa-shield-alt" aria-hidden="true"></i>
+      <span>Die Messwerte bleiben nur in dieser Sitzung und werden nirgendwohin übertragen.</span>
+    </footer>`;
+
+  const settingsWindow = document.getElementById("betterinv-settings-window");
+  const anchorRect = settingsWindow?.getBoundingClientRect?.() ?? document.getElementById("betterinv-window")?.getBoundingClientRect?.();
+  const width = 440;
+  let left = anchorRect ? anchorRect.right + 12 : Math.max(10, window.innerWidth - width - 24);
+  if (left + width > window.innerWidth - 10 && anchorRect) left = Math.max(10, anchorRect.left - width - 12);
+  windowEl.style.left = `${Math.max(10, left)}px`;
+  windowEl.style.top = `${Math.max(10, anchorRect?.top ?? 80)}px`;
+  document.body.appendChild(windowEl);
+
+  windowEl.querySelector(".betterinv-performance-close")?.addEventListener("click", closeBetterInvPerformanceWindow);
+  windowEl.querySelector(".betterinv-performance-reset")?.addEventListener("click", event => {
+    event.preventDefault();
+    resetBetterInvPerformanceMeasurements();
+  });
+  makeBetterInvSettingsDraggable(windowEl);
+  startBetterInvPerformanceMonitor();
+  if (document.getElementById("betterinv-window")) renderBetterInvWindow({ preserveScroll: true });
+  return windowEl;
+}
+
 function openBetterInvSettingsWindow() {
   const existing = document.getElementById("betterinv-settings-window");
   if (existing) {
@@ -1736,6 +2117,15 @@ function openBetterInvSettingsWindow() {
             <i class="fas fa-times" aria-hidden="true"></i><span>Alle Haken raus</span>
           </button>
         </div>
+      </section>
+      <section class="betterinv-settings-performance-launch">
+        <div>
+          <strong><i class="fas fa-tachometer-alt" aria-hidden="true"></i>Performance-Diagnose</strong>
+          <small>Misst Renderzeiten, DOM-Größe, zusammengefasste Aktualisierungen und – falls dein Browser es zulässt – den JavaScript-Arbeitsspeicher.</small>
+        </div>
+        <button type="button" class="betterinv-performance-open">
+          <i class="fas fa-chart-line" aria-hidden="true"></i><span>Live-Messung öffnen</span>
+        </button>
       </section>
       ${betterInvSettingsGroupsHtml(userSettings)}
     </div>
@@ -1776,6 +2166,7 @@ function openBetterInvSettingsWindow() {
 
       syncBetterInvSettingsControls(settingsWindow, savedSettings);
       if (savedSettings.moduleEnabled === false) {
+        closeBetterInvPerformanceWindow();
         closeBetterInvSettingsWindow();
       }
       if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
@@ -1817,6 +2208,11 @@ function openBetterInvSettingsWindow() {
       const patch = Object.fromEntries(getBetterInvSettingsGroupKeys(selectedGroup).map(key => [key, checkbox.checked]));
       await applySettingsPatch(patch);
     });
+  });
+
+  settingsWindow.querySelector(".betterinv-performance-open")?.addEventListener("click", event => {
+    event.preventDefault();
+    openBetterInvPerformanceWindow();
   });
 
   settingsWindow.querySelectorAll("[data-settings-bulk]").forEach(button => {
@@ -6073,6 +6469,9 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
 function disposeBetterInvWindowEventCycle(windowEl) {
   if (!windowEl) return;
   if (betterInvCategoryMenuButton && windowEl.contains(betterInvCategoryMenuButton)) closeBetterInvCategoryMenu();
+  const activeListenerCount = Math.max(0, Number(windowEl._betterInvListenerCount) || 0);
+  betterInvPerformanceState.activeDelegatedListeners = Math.max(0, betterInvPerformanceState.activeDelegatedListeners - activeListenerCount);
+  windowEl._betterInvListenerCount = 0;
   windowEl._betterInvEventController?.abort?.();
   windowEl._betterInvEventController = null;
   windowEl._betterInvDragController?.abort?.();
@@ -6084,13 +6483,20 @@ function disposeBetterInvWindowEventCycle(windowEl) {
 function beginBetterInvWindowEventCycle(windowEl) {
   disposeBetterInvWindowEventCycle(windowEl);
   const controller = new AbortController();
+  controller._betterInvOwnerWindow = windowEl;
   windowEl._betterInvEventController = controller;
+  windowEl._betterInvListenerCount = 0;
   return controller;
 }
 
 function addBetterInvEventListener(target, type, listener, controller, options = {}) {
   if (!target?.addEventListener || !controller || controller.signal.aborted) return;
   target.addEventListener(type, listener, { ...options, signal: controller.signal });
+  const ownerWindow = controller._betterInvOwnerWindow;
+  if (ownerWindow) {
+    ownerWindow._betterInvListenerCount = Math.max(0, Number(ownerWindow._betterInvListenerCount) || 0) + 1;
+    betterInvPerformanceState.activeDelegatedListeners += 1;
+  }
 }
 
 
@@ -6375,6 +6781,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     closeBetterInvItemActionMenu();
     closeBetterInvCategoryMenu();
     disposeBetterInvWindowEventCycle(windowEl);
+    closeBetterInvPerformanceWindow();
     windowEl.remove();
   });
   listen(windowEl.querySelector(".betterinv-popout"), "pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
