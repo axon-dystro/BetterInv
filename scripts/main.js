@@ -3077,6 +3077,302 @@ function getBetterInvCompendiumLabel(pack) {
   return String(pack?.metadata?.label ?? pack?.title ?? pack?.collection ?? "Unbenanntes Kompendium");
 }
 
+
+function getBetterInvCompendiumId(pack) {
+  return String(pack?.collection ?? pack?.metadata?.id ?? pack?.metadata?.name ?? "");
+}
+
+function getBetterInvCollectionValues(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection.contents)) return collection.contents;
+  if (typeof collection.values === "function") return Array.from(collection.values());
+  if (Array.isArray(collection)) return collection;
+  try { return Array.from(collection); }
+  catch (_error) { return []; }
+}
+
+function normalizeBetterInvSearchText(value) {
+  const text = String(value ?? "");
+  try {
+    return text.normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLocaleLowerCase(game.i18n?.lang ?? undefined);
+  } catch (_error) {
+    return text.toLowerCase();
+  }
+}
+
+async function loadBetterInvCompendiumIndexItems(packs) {
+  const settled = await Promise.allSettled(Array.from(packs ?? []).map(async pack => {
+    const packId = getBetterInvCompendiumId(pack);
+    if (!packId) throw new Error("Kompendium ohne Kennung gefunden.");
+
+    const index = await pack.getIndex({ fields: ["name", "type", "img"] });
+    const entries = getBetterInvCollectionValues(index);
+    const packLabel = getBetterInvCompendiumLabel(pack);
+
+    return entries.map(entry => {
+      const id = String(entry?._id ?? entry?.id ?? "");
+      const name = String(entry?.name ?? "Unbenanntes Item");
+      const type = String(entry?.type ?? "");
+      const img = String(entry?.img ?? "icons/svg/item-bag.svg");
+      return {
+        key: `${packId}:${id}`,
+        id,
+        name,
+        type,
+        typeLabel: getBetterInvItemTypeLabel(type),
+        img,
+        packId,
+        packLabel,
+        uuid: id ? `Compendium.${packId}.${id}` : "",
+        searchText: normalizeBetterInvSearchText(`${name} ${type} ${getBetterInvItemTypeLabel(type)} ${packLabel}`)
+      };
+    }).filter(item => item.id);
+  }));
+
+  const items = [];
+  const failedPacks = [];
+  settled.forEach((result, index) => {
+    if (result.status === "fulfilled") items.push(...result.value);
+    else failedPacks.push({
+      pack: packs[index],
+      error: result.reason
+    });
+  });
+
+  items.sort((left, right) => {
+    const nameComparison = left.name.localeCompare(right.name, game.i18n?.lang ?? undefined, { sensitivity: "base" });
+    if (nameComparison) return nameComparison;
+    return left.packLabel.localeCompare(right.packLabel, game.i18n?.lang ?? undefined, { sensitivity: "base" });
+  });
+
+  return { items, failedPacks };
+}
+
+async function promptBetterInvCompendiumItem(packs) {
+  const availablePacks = Array.from(packs ?? []);
+  if (!availablePacks.length) return null;
+
+  const { items, failedPacks } = await loadBetterInvCompendiumIndexItems(availablePacks);
+  if (!items.length) {
+    const failedSuffix = failedPacks.length ? ` ${failedPacks.length} Kompendium/Kompendien konnten nicht gelesen werden.` : "";
+    ui.notifications.warn(`In den zugänglichen Item-Kompendien wurden keine Items gefunden.${failedSuffix}`);
+    return null;
+  }
+
+  const indexedPacks = Array.from(new Map(items.map(item => [item.packId, {
+    id: item.packId,
+    label: item.packLabel
+  }])).values()).sort((left, right) => left.label.localeCompare(right.label, game.i18n?.lang ?? undefined, { sensitivity: "base" }));
+  const packOptions = indexedPacks.map(pack => `<option value="${escapeAttr(pack.id)}">${escapeHtml(pack.label)}</option>`).join("");
+
+  const typeValues = Array.from(new Set(items.map(item => item.type).filter(Boolean)))
+    .sort((left, right) => getBetterInvItemTypeLabel(left).localeCompare(getBetterInvItemTypeLabel(right), game.i18n?.lang ?? undefined, { sensitivity: "base" }));
+  const typeOptions = typeValues.map(type => `<option value="${escapeAttr(type)}">${escapeHtml(getBetterInvItemTypeLabel(type))}</option>`).join("");
+
+  return await new Promise(resolve => {
+    let settled = false;
+    let selectedKey = "";
+    let dialog;
+
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const choose = value => {
+      done(value);
+      dialog?.close?.();
+    };
+
+    dialog = new Dialog({
+      title: "Item aus Kompendium auswählen",
+      content: `
+        <div class="betterinv-compendium-browser" data-betterinv-compendium-browser>
+          <header class="betterinv-compendium-browser-header">
+            <div>
+              <span class="betterinv-compendium-browser-kicker">Kompendien durchsuchen</span>
+              <h3>Item auswählen</h3>
+              <p>Durchsuche alle zugänglichen Item-Kompendien und wähle einen Eintrag aus.</p>
+            </div>
+            <span class="betterinv-compendium-browser-total">${escapeHtml(formatBetterInvNumber(items.length))} Items · ${escapeHtml(formatBetterInvNumber(indexedPacks.length))} Kompendien</span>
+          </header>
+
+          <div class="betterinv-compendium-browser-filters">
+            <label class="betterinv-compendium-browser-search">
+              <span>Suche</span>
+              <span class="betterinv-compendium-browser-input-wrap">
+                <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+                <input type="search" data-compendium-search placeholder="Name, Typ oder Kompendium …" autocomplete="off">
+              </span>
+            </label>
+            <label>
+              <span>Kompendium</span>
+              <select data-compendium-pack>
+                <option value="">Alle Kompendien</option>
+                ${packOptions}
+              </select>
+            </label>
+            <label>
+              <span>Itemtyp</span>
+              <select data-compendium-type>
+                <option value="">Alle Itemtypen</option>
+                ${typeOptions}
+              </select>
+            </label>
+          </div>
+
+          <div class="betterinv-compendium-browser-summary">
+            <span data-compendium-result-count></span>
+            ${failedPacks.length ? `<span class="betterinv-compendium-browser-warning" title="Einige Kompendien konnten nicht gelesen werden."><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>${failedPacks.length} nicht gelesen</span>` : ""}
+          </div>
+
+          <div class="betterinv-compendium-browser-results" data-compendium-results role="listbox" aria-label="Gefundene Kompendium-Items"></div>
+
+          <footer class="betterinv-compendium-browser-footer">
+            <span class="betterinv-compendium-browser-selection" data-compendium-selection>Kein Item ausgewählt</span>
+            <div>
+              <button type="button" class="betterinv-compendium-browser-cancel" data-compendium-cancel>
+                <i class="fas fa-xmark" aria-hidden="true"></i>
+                <span>Abbrechen</span>
+              </button>
+              <button type="button" class="betterinv-compendium-browser-confirm" data-compendium-confirm disabled>
+                <i class="fas fa-check" aria-hidden="true"></i>
+                <span>Auswählen</span>
+              </button>
+            </div>
+          </footer>
+        </div>`,
+      buttons: {},
+      close: () => done(null)
+    }, {
+      width: 720,
+      classes: ["betterinv-compendium-browser-dialog"]
+    });
+
+    dialog.render(true);
+    setTimeout(() => {
+      bringFoundryDialogsToFront({ avoidOverlap: false });
+      const dialogElement = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
+      dialogElement?.classList?.add("betterinv-compendium-browser-dialog");
+      const root = dialogElement?.querySelector?.("[data-betterinv-compendium-browser]");
+      if (!root) return;
+
+      const searchInput = root.querySelector("[data-compendium-search]");
+      const packSelect = root.querySelector("[data-compendium-pack]");
+      const typeSelect = root.querySelector("[data-compendium-type]");
+      const resultsElement = root.querySelector("[data-compendium-results]");
+      const countElement = root.querySelector("[data-compendium-result-count]");
+      const selectionElement = root.querySelector("[data-compendium-selection]");
+      const confirmButton = root.querySelector("[data-compendium-confirm]");
+      const cancelButton = root.querySelector("[data-compendium-cancel]");
+      const resultLimit = 200;
+
+      const getSelectedItem = () => items.find(item => item.key === selectedKey) ?? null;
+
+      const updateSelection = () => {
+        const selected = getSelectedItem();
+        if (selectionElement) {
+          selectionElement.textContent = selected
+            ? `${selected.name} · ${selected.packLabel}`
+            : "Kein Item ausgewählt";
+        }
+        if (confirmButton) confirmButton.disabled = !selected;
+      };
+
+      const renderResults = () => {
+        const query = normalizeBetterInvSearchText(searchInput?.value ?? "").trim();
+        const packId = String(packSelect?.value ?? "");
+        const type = String(typeSelect?.value ?? "");
+        const filtered = items.filter(item => {
+          if (packId && item.packId !== packId) return false;
+          if (type && item.type !== type) return false;
+          if (query && !item.searchText.includes(query)) return false;
+          return true;
+        });
+
+        const visible = filtered.slice(0, resultLimit);
+        if (countElement) {
+          countElement.textContent = filtered.length > resultLimit
+            ? `${formatBetterInvNumber(resultLimit)} von ${formatBetterInvNumber(filtered.length)} Treffern angezeigt`
+            : `${formatBetterInvNumber(filtered.length)} Treffer`;
+        }
+
+        if (!resultsElement) return;
+        if (!visible.length) {
+          resultsElement.innerHTML = `
+            <div class="betterinv-compendium-browser-empty">
+              <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
+              <strong>Keine Items gefunden</strong>
+              <span>Ändere die Suche oder einen Filter.</span>
+            </div>`;
+          return;
+        }
+
+        resultsElement.innerHTML = visible.map(item => `
+          <button type="button"
+            class="betterinv-compendium-result ${item.key === selectedKey ? "is-selected" : ""}"
+            data-compendium-item="${escapeAttr(item.key)}"
+            role="option"
+            aria-selected="${item.key === selectedKey ? "true" : "false"}"
+            title="${escapeAttr(`${item.name} · ${item.typeLabel} · ${item.packLabel}`)}">
+            <img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt="">
+            <span class="betterinv-compendium-result-copy">
+              <strong>${escapeHtml(item.name)}</strong>
+              <span>${escapeHtml(item.typeLabel)}</span>
+            </span>
+            <span class="betterinv-compendium-result-pack">${escapeHtml(item.packLabel)}</span>
+          </button>`).join("");
+
+        resultsElement.querySelectorAll("[data-compendium-item]").forEach(button => {
+          button.addEventListener("click", () => {
+            selectedKey = String(button.dataset.compendiumItem ?? "");
+            renderResults();
+            updateSelection();
+          });
+          button.addEventListener("dblclick", () => {
+            selectedKey = String(button.dataset.compendiumItem ?? "");
+            const selected = getSelectedItem();
+            if (selected) choose(selected);
+          });
+        });
+      };
+
+      [searchInput, packSelect, typeSelect].forEach(control => {
+        if (!control) return;
+        ["keydown", "keyup", "keypress", "beforeinput", "input", "change", "paste"].forEach(type => {
+          control.addEventListener(type, event => event.stopPropagation(), { capture: true });
+        });
+      });
+
+      searchInput?.addEventListener("input", renderResults);
+      packSelect?.addEventListener("change", renderResults);
+      typeSelect?.addEventListener("change", renderResults);
+      confirmButton?.addEventListener("click", () => {
+        const selected = getSelectedItem();
+        if (selected) choose(selected);
+      });
+      cancelButton?.addEventListener("click", () => choose(null));
+      root.addEventListener("keydown", event => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          choose(null);
+        }
+        if (event.key === "Enter" && getSelectedItem() && event.target !== searchInput) {
+          event.preventDefault();
+          choose(getSelectedItem());
+        }
+      });
+
+      renderResults();
+      updateSelection();
+      searchInput?.focus?.();
+    }, 50);
+  });
+}
+
 async function promptBetterInvItemSource() {
   const itemPacks = getBetterInvAccessibleItemCompendiums();
   const packCount = itemPacks.length;
@@ -3226,9 +3522,9 @@ async function createBetterInvItem(actor, activeContainer = null) {
       return null;
     }
 
-    const labels = itemPacks.slice(0, 4).map(getBetterInvCompendiumLabel);
-    const suffix = itemPacks.length > labels.length ? ` und ${itemPacks.length - labels.length} weitere` : "";
-    ui.notifications.info(`${itemPacks.length} zugängliche Item-Kompendien erkannt: ${labels.join(", ")}${suffix}. Die Itemsuche folgt in Phase 6.3.`);
+    const selected = await promptBetterInvCompendiumItem(itemPacks);
+    if (!selected) return null;
+    ui.notifications.info(`${selected.name} aus ${selected.packLabel} wurde ausgewählt. Die Übernahme auf den Charakter folgt in Phase 6.4.`);
     return null;
   }
 
