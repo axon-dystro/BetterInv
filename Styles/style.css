@@ -5799,3 +5799,82 @@ button.betterinv-category-picker:focus-visible {
     min-width: 300px;
   }
 }
+
+/* Phase 9.1: desktop layout hardening.
+   Floating windows stay readable on common desktop resolutions and long labels
+   no longer push header controls outside their frame. */
+:is(
+  .betterinv-window,
+  .betterinv-settings-window,
+  .betterinv-performance-window,
+  .betterinv-support-window
+),
+:is(
+  .betterinv-window,
+  .betterinv-settings-window,
+  .betterinv-performance-window,
+  .betterinv-support-window
+) * {
+  box-sizing: border-box;
+}
+
+
+.betterinv-header > h2,
+.betterinv-settings-window-header > div:first-child {
+  min-width: 0;
+}
+
+.betterinv-header > h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-header > h2 small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-header-actions,
+.betterinv-performance-header-actions {
+  flex: 0 0 auto;
+}
+
+.betterinv-settings-window-header strong,
+.betterinv-settings-window-header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.betterinv-body,
+.betterinv-settings-window-scroll {
+  overscroll-behavior: contain;
+}
+
+.betterinv-toolbar,
+.betterinv-currency,
+.betterinv-container-view,
+.betterinv-item,
+.betterinv-category summary {
+  min-width: 0;
+}
+
+.betterinv-header-actions > button,
+.betterinv-settings-window-header button,
+.betterinv-performance-header-actions button {
+  flex: 0 0 auto;
+}
+
+@media (min-width: 900px) and (min-height: 650px) {
+  .betterinv-window {
+    width: min(620px, calc(100vw - 20px));
+    height: min(640px, calc(100vh - 20px));
+  }
+
+  .betterinv-settings-window,
+  .betterinv-performance-window,
+  .betterinv-support-window {
+    max-height: calc(100vh - 20px);
+  }
+}

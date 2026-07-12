@@ -133,6 +133,12 @@ let betterInvQueuedRenderOptions = null;
 let betterInvDialogMutationFrame = null;
 const betterInvPendingDialogElements = new Set();
 
+// Phase 9.1: shared desktop window management keeps every Axon window
+// visible, non-overlapping where possible, and easy to bring to the front.
+let betterInvFloatingZIndex = 20030;
+let betterInvViewportFrame = null;
+let betterInvViewportGuardInstalled = false;
+
 // Phase 7.8: derived actor data can safely survive several UI-only renders.
 // The cache is deliberately small and is invalidated by Actor/Item hooks so it
 // never becomes a second source of truth beside Foundry's documents.
@@ -183,6 +189,7 @@ Hooks.once("ready", async () => {
   validateBetterInvSupportLinks();
   await initializeBetterInvUserSettings();
   ensureBetterInvButton();
+  installBetterInvDesktopViewportGuard();
   syncBetterInvRuntimeState(getBetterInvUserSettings());
 });
 
@@ -509,6 +516,102 @@ function moveElementOutsideBetterInv(el, betterInv) {
   el.style.bottom = "auto";
 }
 
+
+function bringBetterInvFloatingWindowToFront(windowEl) {
+  if (!(windowEl instanceof HTMLElement)) return;
+  // The main inventory intentionally stays below Foundry dialogs and the
+  // detachable helper windows. Only helper windows participate in this stack.
+  if (windowEl.id === "betterinv-window") {
+    windowEl.style.zIndex = "1200";
+    return;
+  }
+  betterInvFloatingZIndex = Math.min(25000, betterInvFloatingZIndex + 1);
+  windowEl.style.zIndex = String(betterInvFloatingZIndex);
+}
+
+function clampBetterInvWindowToViewport(windowEl, { margin = 10 } = {}) {
+  if (!(windowEl instanceof HTMLElement) || !windowEl.isConnected) return;
+  const rect = windowEl.getBoundingClientRect();
+  const viewportWidth = Math.max(1, window.innerWidth || document.documentElement.clientWidth || 1);
+  const viewportHeight = Math.max(1, window.innerHeight || document.documentElement.clientHeight || 1);
+  const usableWidth = Math.max(1, viewportWidth - margin * 2);
+  const usableHeight = Math.max(1, viewportHeight - margin * 2);
+  const visibleWidth = Math.min(rect.width || usableWidth, usableWidth);
+  const visibleHeight = Math.min(rect.height || usableHeight, usableHeight);
+  const maxLeft = Math.max(margin, viewportWidth - visibleWidth - margin);
+  const maxTop = Math.max(margin, viewportHeight - visibleHeight - margin);
+  const currentLeft = Number.parseFloat(windowEl.style.left) || rect.left || margin;
+  const currentTop = Number.parseFloat(windowEl.style.top) || rect.top || margin;
+  windowEl.style.left = `${Math.round(Math.max(margin, Math.min(maxLeft, currentLeft)))}px`;
+  windowEl.style.top = `${Math.round(Math.max(margin, Math.min(maxTop, currentTop)))}px`;
+  windowEl.style.right = "auto";
+  windowEl.style.bottom = "auto";
+}
+
+function betterInvRectOverlapArea(a, b) {
+  if (!a || !b) return 0;
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  return width * height;
+}
+
+function positionBetterInvAuxiliaryWindow(windowEl, anchorElements = [], { gap = 12, margin = 10 } = {}) {
+  if (!(windowEl instanceof HTMLElement) || !windowEl.isConnected) return;
+  const anchors = Array.from(anchorElements ?? [])
+    .filter(element => element instanceof HTMLElement && element.isConnected && element !== windowEl)
+    .map(element => element.getBoundingClientRect());
+  const rect = windowEl.getBoundingClientRect();
+  const width = Math.min(rect.width || 370, Math.max(1, window.innerWidth - margin * 2));
+  const height = Math.min(rect.height || 500, Math.max(1, window.innerHeight - margin * 2));
+  const primary = anchors[0];
+  const candidates = [];
+  if (primary) {
+    candidates.push(
+      { left: primary.right + gap, top: primary.top },
+      { left: primary.left - width - gap, top: primary.top },
+      { left: primary.left, top: primary.bottom + gap },
+      { left: primary.left, top: primary.top - height - gap }
+    );
+  }
+  candidates.push(
+    { left: window.innerWidth - width - margin, top: margin },
+    { left: margin, top: margin },
+    { left: window.innerWidth - width - margin, top: window.innerHeight - height - margin }
+  );
+
+  const scored = candidates.map(candidate => {
+    const left = Math.max(margin, Math.min(window.innerWidth - width - margin, candidate.left));
+    const top = Math.max(margin, Math.min(window.innerHeight - height - margin, candidate.top));
+    const candidateRect = { left, top, right: left + width, bottom: top + height };
+    const overlap = anchors.reduce((sum, anchor) => sum + betterInvRectOverlapArea(candidateRect, anchor), 0);
+    const verticalShift = primary ? Math.abs(top - primary.top) * 0.15 : 0;
+    return { left, top, score: overlap + verticalShift };
+  });
+  const best = scored.sort((a, b) => a.score - b.score)[0];
+  windowEl.style.left = `${Math.round(best?.left ?? margin)}px`;
+  windowEl.style.top = `${Math.round(best?.top ?? margin)}px`;
+  windowEl.style.right = "auto";
+  windowEl.style.bottom = "auto";
+  clampBetterInvWindowToViewport(windowEl, { margin });
+}
+
+function clampAllBetterInvDesktopWindows() {
+  for (const id of ["betterinv-window", "betterinv-settings-window", "betterinv-support-window", "betterinv-performance-window"]) {
+    clampBetterInvWindowToViewport(document.getElementById(id));
+  }
+}
+
+function installBetterInvDesktopViewportGuard() {
+  if (betterInvViewportGuardInstalled) return;
+  betterInvViewportGuardInstalled = true;
+  window.addEventListener("resize", () => {
+    if (betterInvViewportFrame !== null) cancelAnimationFrame(betterInvViewportFrame);
+    betterInvViewportFrame = requestAnimationFrame(() => {
+      betterInvViewportFrame = null;
+      clampAllBetterInvDesktopWindows();
+    });
+  }, { passive: true });
+}
 
 function decorateBetterInvDialog(dialog, { classes = [], avoidOverlap = false, focusSelector = null, selectInput = false } = {}) {
   bringFoundryDialogsToFront({ avoidOverlap });
@@ -1826,9 +1929,11 @@ async function renderBetterInvDisabledWindow() {
     windowEl.style.left = "120px";
     windowEl.style.top = "110px";
     document.body.appendChild(windowEl);
+    clampBetterInvWindowToViewport(windowEl);
   }
 
   applyBetterInvScale(windowEl);
+  clampBetterInvWindowToViewport(windowEl);
   disposeBetterInvWindowEventCycle(windowEl);
   windowEl.classList.add("betterinv-disabled-mode");
   windowEl.innerHTML = betterInvDisabledShellHtml();
@@ -1881,9 +1986,11 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     windowEl.style.left = "120px";
     windowEl.style.top = "110px";
     document.body.appendChild(windowEl);
+    clampBetterInvWindowToViewport(windowEl);
   }
   performanceWindowEl = windowEl;
   applyBetterInvScale(windowEl);
+  clampBetterInvWindowToViewport(windowEl);
 
   const userSettings = initialUserSettings;
   const features = getBetterInvFeaturePlan(userSettings);
@@ -2550,7 +2657,8 @@ function closeBetterInvPerformanceWindow() {
 function openBetterInvPerformanceWindow() {
   const existing = document.getElementById("betterinv-performance-window");
   if (existing) {
-    existing.style.zIndex = "20030";
+    bringBetterInvFloatingWindowToFront(existing);
+    clampBetterInvWindowToViewport(existing);
     updateBetterInvPerformanceWindow();
     return existing;
   }
@@ -2576,13 +2684,10 @@ function openBetterInvPerformanceWindow() {
     </footer>`;
 
   const settingsWindow = document.getElementById("betterinv-settings-window");
-  const anchorRect = settingsWindow?.getBoundingClientRect?.() ?? document.getElementById("betterinv-window")?.getBoundingClientRect?.();
-  const width = 440;
-  let left = anchorRect ? anchorRect.right + 12 : Math.max(10, window.innerWidth - width - 24);
-  if (left + width > window.innerWidth - 10 && anchorRect) left = Math.max(10, anchorRect.left - width - 12);
-  windowEl.style.left = `${Math.max(10, left)}px`;
-  windowEl.style.top = `${Math.max(10, anchorRect?.top ?? 80)}px`;
+  const inventoryWindow = document.getElementById("betterinv-window");
   document.body.appendChild(windowEl);
+  positionBetterInvAuxiliaryWindow(windowEl, [settingsWindow, inventoryWindow]);
+  bringBetterInvFloatingWindowToFront(windowEl);
 
   windowEl.querySelector(".betterinv-performance-close")?.addEventListener("click", closeBetterInvPerformanceWindow);
   windowEl.querySelector(".betterinv-performance-reset")?.addEventListener("click", event => {
@@ -2598,7 +2703,8 @@ function openBetterInvPerformanceWindow() {
 function openBetterInvSettingsWindow() {
   const existing = document.getElementById("betterinv-settings-window");
   if (existing) {
-    existing.style.zIndex = "20020";
+    bringBetterInvFloatingWindowToFront(existing);
+    clampBetterInvWindowToViewport(existing);
     updateBetterInvSettingsButtonState();
     return existing;
   }
@@ -2650,14 +2756,9 @@ function openBetterInvSettingsWindow() {
     </footer>`;
 
   const inventoryWindow = document.getElementById("betterinv-window");
-  const inventoryRect = inventoryWindow?.getBoundingClientRect?.();
-  const width = 370;
-  const gap = 12;
-  let left = inventoryRect ? inventoryRect.right + gap : Math.max(20, window.innerWidth - width - 30);
-  if (left + width > window.innerWidth - 10 && inventoryRect) left = Math.max(10, inventoryRect.left - width - gap);
-  settingsWindow.style.left = `${Math.max(10, left)}px`;
-  settingsWindow.style.top = `${Math.max(10, inventoryRect?.top ?? 90)}px`;
   document.body.appendChild(settingsWindow);
+  positionBetterInvAuxiliaryWindow(settingsWindow, [inventoryWindow]);
+  bringBetterInvFloatingWindowToFront(settingsWindow);
 
   settingsWindow.querySelector(".betterinv-settings-close")?.addEventListener("click", closeBetterInvSettingsWindow);
 
@@ -2800,7 +2901,8 @@ function betterInvSupportCardHtml({ key, icon, title, description, tone = "neutr
 function openBetterInvSupportWindow() {
   const existing = document.getElementById("betterinv-support-window");
   if (existing) {
-    existing.style.zIndex = "20030";
+    bringBetterInvFloatingWindowToFront(existing);
+    clampBetterInvWindowToViewport(existing);
     updateBetterInvSupportButtonState();
     return existing;
   }
@@ -2868,16 +2970,10 @@ function openBetterInvSupportWindow() {
     </footer>`;
 
   const inventoryWindow = document.getElementById("betterinv-window");
-  const inventoryRect = inventoryWindow?.getBoundingClientRect?.();
-  const settingsRect = document.getElementById("betterinv-settings-window")?.getBoundingClientRect?.();
-  const width = 390;
-  const gap = 12;
-  const anchorRect = settingsRect ?? inventoryRect;
-  let left = anchorRect ? anchorRect.right + gap : Math.max(20, window.innerWidth - width - 30);
-  if (left + width > window.innerWidth - 10 && inventoryRect) left = Math.max(10, inventoryRect.left - width - gap);
-  supportWindow.style.left = `${Math.max(10, left)}px`;
-  supportWindow.style.top = `${Math.max(10, anchorRect?.top ?? 90)}px`;
+  const settingsWindow = document.getElementById("betterinv-settings-window");
   document.body.appendChild(supportWindow);
+  positionBetterInvAuxiliaryWindow(supportWindow, [settingsWindow, inventoryWindow]);
+  bringBetterInvFloatingWindowToFront(supportWindow);
 
   supportWindow.querySelector(".betterinv-support-close")?.addEventListener("click", closeBetterInvSupportWindow);
   makeBetterInvSettingsDraggable(supportWindow);
@@ -8166,6 +8262,7 @@ function makeBetterInvSettingsDraggable(windowEl) {
   const header = windowEl.querySelector(".betterinv-settings-window-header");
   if (!header || header.dataset.dragReady === "1") return;
   header.dataset.dragReady = "1";
+  windowEl.addEventListener("pointerdown", () => bringBetterInvFloatingWindowToFront(windowEl), { passive: true });
   header.addEventListener("mousedown", event => {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a, label")) return;
@@ -8176,16 +8273,17 @@ function makeBetterInvSettingsDraggable(windowEl) {
     const rect = windowEl.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
-    windowEl.style.zIndex = "20020";
+    bringBetterInvFloatingWindowToFront(windowEl);
     const onMove = moveEvent => {
-      const maxLeft = Math.max(0, window.innerWidth - 80);
-      const maxTop = Math.max(0, window.innerHeight - 50);
-      windowEl.style.left = `${Math.max(0, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
-      windowEl.style.top = `${Math.max(0, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
+      const maxLeft = Math.max(10, window.innerWidth - rect.width - 10);
+      const maxTop = Math.max(10, window.innerHeight - rect.height - 10);
+      windowEl.style.left = `${Math.max(10, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
+      windowEl.style.top = `${Math.max(10, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
       windowEl.style.right = "auto";
       windowEl.style.bottom = "auto";
     };
     const finish = () => {
+      clampBetterInvWindowToViewport(windowEl);
       dragController.abort();
       if (windowEl._betterInvDragController === dragController) windowEl._betterInvDragController = null;
     };
@@ -8199,6 +8297,7 @@ function makeBetterInvDraggable(windowEl) {
   const header = windowEl.querySelector(".betterinv-header");
   if (!header || header.dataset.dragReady === "1") return;
   header.dataset.dragReady = "1";
+  windowEl.addEventListener("pointerdown", () => bringBetterInvFloatingWindowToFront(windowEl), { passive: true });
   header.addEventListener("mousedown", event => {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
@@ -8209,15 +8308,17 @@ function makeBetterInvDraggable(windowEl) {
     const rect = windowEl.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
+    bringBetterInvFloatingWindowToFront(windowEl);
     const onMove = moveEvent => {
-      const maxLeft = window.innerWidth - 80;
-      const maxTop = window.innerHeight - 50;
-      windowEl.style.left = `${Math.max(0, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
-      windowEl.style.top = `${Math.max(0, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
+      const maxLeft = Math.max(10, window.innerWidth - rect.width - 10);
+      const maxTop = Math.max(10, window.innerHeight - rect.height - 10);
+      windowEl.style.left = `${Math.max(10, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
+      windowEl.style.top = `${Math.max(10, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
       windowEl.style.right = "auto";
       windowEl.style.bottom = "auto";
     };
     const finish = () => {
+      clampBetterInvWindowToViewport(windowEl);
       dragController.abort();
       if (windowEl._betterInvDragController === dragController) windowEl._betterInvDragController = null;
     };
