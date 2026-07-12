@@ -1336,6 +1336,39 @@ function formatBetterInvCopperTotal(totalCopper) {
   return parts.join(" · ");
 }
 
+function notifyBetterInvCurrencyError(message) {
+  const cleanMessage = String(message ?? "Die Geldaktion ist nicht möglich.").trim();
+  const suffix = /keine münzen (?:wurden|werden) verändert/i.test(cleanMessage)
+    ? ""
+    : " Keine Münzen wurden verändert.";
+  ui.notifications.error(`${cleanMessage}${suffix}`);
+}
+
+function notifyBetterInvCurrencyValueShortage(action, requiredCopper, availableCopper, detail = "") {
+  const required = Math.max(0, Math.trunc(Number(requiredCopper) || 0));
+  const available = Math.max(0, Math.trunc(Number(availableCopper) || 0));
+  const missing = Math.max(0, required - available);
+  const prefix = detail ? `${detail} ` : "";
+  notifyBetterInvCurrencyError(
+    `${action} nicht möglich: ${prefix}` +
+    `Benötigt: ${formatBetterInvCopperTotal(required)} · ` +
+    `vorhanden: ${formatBetterInvCopperTotal(available)} · ` +
+    `es fehlen: ${formatBetterInvCopperTotal(missing)}.`
+  );
+}
+
+function notifyBetterInvCurrencyAmountShortage(action, currency, requiredAmount, availableAmount) {
+  const required = Math.max(0, Math.trunc(Number(requiredAmount) || 0));
+  const available = Math.max(0, Math.trunc(Number(availableAmount) || 0));
+  const missing = Math.max(0, required - available);
+  notifyBetterInvCurrencyError(
+    `${action} nicht möglich: ` +
+    `${formatBetterInvNumber(required)} ${currency.abbreviation} benötigt · ` +
+    `${formatBetterInvNumber(available)} ${currency.abbreviation} vorhanden · ` +
+    `${formatBetterInvNumber(missing)} ${currency.abbreviation} fehlen.`
+  );
+}
+
 async function addBetterInvCurrency(actor) {
   if (!actor || actor.isOwner === false) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
@@ -1579,9 +1612,11 @@ async function exchangeBetterInvCurrencyDown(actor) {
   for (const exchange of exchanges) {
     const current = wallet.find(currency => currency.key === exchange.key)?.value ?? 0;
     if (!Number.isSafeInteger(current) || current < exchange.amount) {
-      ui.notifications.warn(
-        `Nicht genug ${exchange.name}. Benötigt: ${formatBetterInvNumber(exchange.amount)} ${exchange.abbreviation} · ` +
-        `Vorhanden: ${formatBetterInvNumber(Math.max(0, Number(current) || 0))} ${exchange.abbreviation}`
+      notifyBetterInvCurrencyAmountShortage(
+        "Abrunden",
+        exchange,
+        exchange.amount,
+        Math.max(0, Number(current) || 0)
       );
       return false;
     }
@@ -1829,13 +1864,14 @@ function calculateBetterInvCurrencyUpExchange(wallet, requests) {
     }, 0);
 
     if (availableLowerCopper < requiredCopper) {
-      const missingCopper = requiredCopper - availableLowerCopper;
-      throw new Error(
-        `Nicht genug niedrigere Münzen für ${formatBetterInvNumber(request.amount)} ${target.abbreviation}. ` +
-        `Benötigt: ${formatBetterInvCopperTotal(requiredCopper)} · ` +
-        `verfügbar: ${formatBetterInvCopperTotal(availableLowerCopper)} · ` +
-        `fehlt: ${formatBetterInvCopperTotal(missingCopper)}`
-      );
+      const error = new Error("INSUFFICIENT_LOWER_CURRENCY");
+      error.betterInvCurrencyShortage = {
+        action: "Aufrunden",
+        requiredCopper,
+        availableCopper: availableLowerCopper,
+        detail: `Für ${formatBetterInvNumber(request.amount)} ${target.abbreviation} reicht der Gegenwert der niedrigeren Münzen nicht.`
+      };
+      throw error;
     }
 
     let remainingCopper = requiredCopper;
@@ -1916,7 +1952,17 @@ async function exchangeBetterInvCurrencyUp(actor) {
   try {
     result = calculateBetterInvCurrencyUpExchange(wallet, requests);
   } catch (error) {
-    ui.notifications.warn(error?.message || "Die gewünschte Aufrundung ist nicht möglich.");
+    const shortage = error?.betterInvCurrencyShortage;
+    if (shortage) {
+      notifyBetterInvCurrencyValueShortage(
+        shortage.action,
+        shortage.requiredCopper,
+        shortage.availableCopper,
+        shortage.detail
+      );
+    } else {
+      notifyBetterInvCurrencyError(error?.message || "Die gewünschte Aufrundung ist nicht möglich.");
+    }
     return false;
   }
 
@@ -1972,17 +2018,20 @@ async function removeBetterInvCurrency(actor) {
   const availableCopper = getBetterInvCurrencyTotalInCopper(wallet, "value");
   const requestedCopper = getBetterInvCurrencyTotalInCopper(removals, "amount");
   if (availableCopper < requestedCopper) {
-    ui.notifications.warn(
-      `Nicht genug Gesamtvermögen. Benötigt: ${formatBetterInvCopperTotal(requestedCopper)} · ` +
-      `Vorhanden: ${formatBetterInvCopperTotal(availableCopper)}`
-    );
+    notifyBetterInvCurrencyValueShortage("Bezahlen / Entfernen", requestedCopper, availableCopper);
     return false;
   }
 
   // The entered price is settled by total value. Existing lower coins can pay a
   // higher denomination, while larger coins are broken and their change is
   // returned in the highest possible denominations.
-  const payment = calculateBetterInvCurrencyPayment(wallet, requestedCopper);
+  let payment;
+  try {
+    payment = calculateBetterInvCurrencyPayment(wallet, requestedCopper);
+  } catch (error) {
+    notifyBetterInvCurrencyError(error?.message || "Die Zahlung konnte nicht sicher verrechnet werden.");
+    return false;
+  }
   const updateData = {};
   for (const currency of wallet) {
     const next = payment.balances.get(currency.key)?.value;
