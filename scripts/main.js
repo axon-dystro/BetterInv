@@ -1133,6 +1133,7 @@ function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
   if (existing) {
     closeBetterInvItemActionMenu();
+    disposeBetterInvWindowEventCycle(existing);
     existing.remove();
     return;
   }
@@ -1167,8 +1168,12 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     closeBetterInvSettingsWindow();
     windowEl.classList.add("betterinv-disabled-mode");
     windowEl.innerHTML = betterInvDisabledShellHtml();
-    windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => windowEl.remove());
-    windowEl.querySelector(".betterinv-reactivate")?.addEventListener("click", async event => {
+    const eventController = beginBetterInvWindowEventCycle(windowEl);
+    addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
+      disposeBetterInvWindowEventCycle(windowEl);
+      windowEl.remove();
+    }, eventController);
+    addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
       const button = event.currentTarget;
       if (button instanceof HTMLButtonElement) button.disabled = true;
       try {
@@ -1179,7 +1184,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
         if (button instanceof HTMLButtonElement) button.disabled = false;
       }
-    });
+    }, eventController);
     makeBetterInvDraggable(windowEl);
     return;
   }
@@ -1191,14 +1196,6 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     const actors = getSelectablePlayerActors();
     windowEl.innerHTML = baseShellHtml(actorChooserHtml(actors));
     activateWindowListeners(windowEl, null, null);
-    windowEl.querySelectorAll(".betterinv-gm-actor").forEach(btn => {
-      btn.addEventListener("click", () => {
-        betterInvState.actorId = btn.dataset.actorId;
-        betterInvState.containerId = null;
-        betterInvState.search = "";
-        renderBetterInvWindow({ preserveScroll: false });
-      });
-    });
     return;
   }
 
@@ -1516,7 +1513,9 @@ function updateBetterInvSettingsButtonState() {
 }
 
 function closeBetterInvSettingsWindow() {
-  document.getElementById("betterinv-settings-window")?.remove();
+  const settingsWindow = document.getElementById("betterinv-settings-window");
+  settingsWindow?._betterInvDragController?.abort?.();
+  settingsWindow?.remove();
   updateBetterInvSettingsButtonState();
 }
 
@@ -5733,13 +5732,12 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.style.top = `${Math.round(top)}px`;
 
   let closed = false;
+  const menuController = new AbortController();
   const close = () => {
     if (closed) return;
     closed = true;
+    menuController.abort();
     menu.remove();
-    document.removeEventListener("pointerdown", onOutsidePointerDown, true);
-    window.removeEventListener("resize", close);
-    window.removeEventListener("scroll", close, true);
     if (betterInvActionMenuCleanup === close) betterInvActionMenuCleanup = null;
     if (betterInvActionMenuButton === button) betterInvActionMenuButton = null;
   };
@@ -5749,69 +5747,48 @@ function openBetterInvItemActionMenu(button, actor, item) {
   };
   betterInvActionMenuCleanup = close;
 
-  menu.querySelector(".betterinv-item-action-equipped")?.addEventListener("click", async event => {
+  menu.addEventListener("click", event => {
+    const actionButton = event.target instanceof Element ? event.target.closest("button[role='menuitem']") : null;
+    if (!actionButton || !menu.contains(actionButton)) return;
     event.preventDefault();
     event.stopPropagation();
+    const action = actionButton.classList.contains("betterinv-item-action-equipped") ? "equipped"
+      : actionButton.classList.contains("betterinv-item-action-favorite") ? "favorite"
+        : actionButton.classList.contains("betterinv-item-action-transfer") ? "transfer"
+          : actionButton.classList.contains("betterinv-item-action-duplicate") ? "duplicate"
+            : actionButton.classList.contains("betterinv-item-action-delete") ? "delete"
+              : null;
+    if (!action) return;
     close();
-    try {
-      await toggleBetterInvItemEquipped(item);
-    } catch (error) {
-      console.error("Better Inventory | Ausrüstungsstatus konnte nicht geändert werden", error);
-      ui.notifications.error("Der Ausrüstungsstatus konnte nicht geändert werden.");
-    }
-  });
 
-  menu.querySelector(".betterinv-item-action-favorite")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    try {
-      await toggleBetterInvFavorite(item);
-    } catch (error) {
-      console.error("Better Inventory | Favoritenstatus konnte nicht geändert werden", error);
-      ui.notifications.error("Der Favoritenstatus konnte nicht geändert werden.");
-    }
-  });
+    void (async () => {
+      try {
+        if (action === "equipped") await toggleBetterInvItemEquipped(item);
+        else if (action === "favorite") await toggleBetterInvFavorite(item);
+        else if (action === "transfer") await transferBetterInvItem(actor, item);
+        else if (action === "duplicate") await duplicateBetterInvItem(actor, item);
+        else if (action === "delete") await deleteBetterInvItem(item);
+      } catch (error) {
+        const labels = {
+          equipped: ["Ausrüstungsstatus konnte nicht geändert werden", "Der Ausrüstungsstatus konnte nicht geändert werden."],
+          favorite: ["Favoritenstatus konnte nicht geändert werden", "Der Favoritenstatus konnte nicht geändert werden."],
+          transfer: ["Item konnte nicht übertragen werden", error?.message || "Das Item konnte nicht übertragen werden."],
+          duplicate: ["Item konnte nicht dupliziert werden", "Das Item konnte nicht dupliziert werden."],
+          delete: ["Item konnte nicht gelöscht werden", "Das Item konnte nicht gelöscht werden."]
+        };
+        const [logLabel, userMessage] = labels[action] ?? ["Itemaktion fehlgeschlagen", "Die Itemaktion konnte nicht ausgeführt werden."];
+        console.error(`Better Inventory | ${logLabel}`, error);
+        ui.notifications.error(userMessage);
+      }
+    })();
+  }, { signal: menuController.signal });
 
-  menu.querySelector(".betterinv-item-action-transfer")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    try {
-      await transferBetterInvItem(actor, item);
-    } catch (error) {
-      console.error("Better Inventory | Item konnte nicht übertragen werden", error);
-      ui.notifications.error(error?.message || "Das Item konnte nicht übertragen werden.");
-    }
-  });
+  setTimeout(() => {
+    if (!closed) document.addEventListener("pointerdown", onOutsidePointerDown, { capture: true, signal: menuController.signal });
+  }, 0);
+  window.addEventListener("resize", close, { once: true, signal: menuController.signal });
+  window.addEventListener("scroll", close, { once: true, capture: true, signal: menuController.signal });
 
-  menu.querySelector(".betterinv-item-action-duplicate")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    try {
-      await duplicateBetterInvItem(actor, item);
-    } catch (error) {
-      console.error("Better Inventory | Item konnte nicht dupliziert werden", error);
-      ui.notifications.error("Das Item konnte nicht dupliziert werden.");
-    }
-  });
-
-  menu.querySelector(".betterinv-item-action-delete")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    close();
-    try {
-      await deleteBetterInvItem(item);
-    } catch (error) {
-      console.error("Better Inventory | Item konnte nicht gelöscht werden", error);
-      ui.notifications.error("Das Item konnte nicht gelöscht werden.");
-    }
-  });
-
-  setTimeout(() => document.addEventListener("pointerdown", onOutsidePointerDown, true), 0);
-  window.addEventListener("resize", close, { once: true });
-  window.addEventListener("scroll", close, { once: true, capture: true });
 }
 
 function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null } = {}) {
@@ -5864,25 +5841,327 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
     </article>`;
 }
 
+
+function disposeBetterInvWindowEventCycle(windowEl) {
+  if (!windowEl) return;
+  windowEl._betterInvEventController?.abort?.();
+  windowEl._betterInvEventController = null;
+  windowEl._betterInvDragController?.abort?.();
+  windowEl._betterInvDragController = null;
+  if (windowEl._betterInvSearchTimer) clearTimeout(windowEl._betterInvSearchTimer);
+  windowEl._betterInvSearchTimer = null;
+}
+
+function beginBetterInvWindowEventCycle(windowEl) {
+  disposeBetterInvWindowEventCycle(windowEl);
+  const controller = new AbortController();
+  windowEl._betterInvEventController = controller;
+  return controller;
+}
+
+function addBetterInvEventListener(target, type, listener, controller, options = {}) {
+  if (!target?.addEventListener || !controller || controller.signal.aborted) return;
+  target.addEventListener(type, listener, { ...options, signal: controller.signal });
+}
+
+
+async function runBetterInvCurrencyAction(windowEl, actor, button, action, { logMessage, errorMessage } = {}) {
+  if (!button || button.disabled || typeof action !== "function") return;
+  const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
+  const currencyInputs = Array.from(windowEl.querySelectorAll(".betterinv-currency-input"));
+  actionButtons.forEach(actionButton => { actionButton.disabled = true; });
+  currencyInputs.forEach(input => { input.disabled = true; });
+  button.classList.add("betterinv-currency-action-busy");
+  try {
+    const changed = await action(actor);
+    if (changed) renderBetterInvWindow();
+  } catch (error) {
+    console.error(logMessage, error);
+    if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
+    else notifyBetterInvCurrencyError(errorMessage);
+  } finally {
+    const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
+    actionButtons.forEach(actionButton => { if (actionButton.isConnected) actionButton.disabled = disabled; });
+    currencyInputs.forEach(input => { if (input.isConnected) input.disabled = disabled; });
+    if (button.isConnected) button.classList.remove("betterinv-currency-action-busy");
+  }
+}
+
+function installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, controller) {
+  const containerId = activeContainer?.id ?? null;
+  const findTarget = (event, selector) => {
+    const element = event.target instanceof Element ? event.target.closest(selector) : null;
+    return element && windowEl.contains(element) ? element : null;
+  };
+
+  addBetterInvEventListener(windowEl, "change", async event => {
+    const select = findTarget(event, ".betterinv-category-select");
+    if (!select || !featurePlan.categoryDropdown) return;
+    event.stopPropagation();
+    const row = select.closest(".betterinv-item");
+    const item = actor?.items?.get(row?.dataset?.itemId);
+    if (!item) return;
+    select.disabled = true;
+    try {
+      await setItemCategory(item, select.value, containerId);
+      renderBetterInvWindow();
+    } catch (error) {
+      console.error("Better Inventory | Kategorie konnte nicht geändert werden", error);
+      ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
+      select.disabled = false;
+    }
+  }, controller);
+
+  addBetterInvEventListener(windowEl, "click", event => {
+    const gmActorButton = findTarget(event, ".betterinv-gm-actor");
+    if (gmActorButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      betterInvState.actorId = gmActorButton.dataset.actorId;
+      betterInvState.containerId = null;
+      betterInvState.search = "";
+      renderBetterInvWindow({ preserveScroll: false });
+      return;
+    }
+
+    const renameButton = findTarget(event, ".betterinv-active-container-rename, .betterinv-container-rename");
+    if (renameButton && featurePlan.containers) {
+      event.preventDefault();
+      event.stopPropagation();
+      const container = actor?.items?.get(renameButton.dataset.containerId);
+      if (!container) return;
+      void (async () => {
+        try {
+          const alias = await promptContainerAlias(actor, container);
+          if (alias === null) return;
+          await setContainerAlias(actor, container, alias);
+          renderBetterInvWindow();
+        } catch (error) {
+          console.error("Better Inventory | Rucksackname konnte nicht geändert werden", error);
+          ui.notifications.error("Der Rucksackname konnte nicht geändert werden.");
+        }
+      })();
+      return;
+    }
+
+    const containerCard = findTarget(event, ".betterinv-container-card");
+    if (containerCard && featurePlan.containers) {
+      event.preventDefault();
+      event.stopPropagation();
+      betterInvState.containerId = containerCard.dataset.containerId;
+      renderBetterInvWindow();
+      return;
+    }
+
+    const passiveField = findTarget(event, ".betterinv-quantity-value, .betterinv-currency-input");
+    if (passiveField) {
+      event.stopPropagation();
+      return;
+    }
+
+    const currencyButton = findTarget(event, ".betterinv-currency-action");
+    if (currencyButton && featurePlan.currencyCalculator) {
+      event.preventDefault();
+      event.stopPropagation();
+      const config = currencyButton.matches(".betterinv-currency-add")
+        ? [addBetterInvCurrency, "Better Inventory | Währung konnte nicht hinzugefügt werden", "Die Münzen konnten nicht hinzugefügt werden."]
+        : currencyButton.matches(".betterinv-currency-remove")
+          ? [removeBetterInvCurrency, "Better Inventory | Währung konnte nicht entfernt werden", "Die Münzen konnten nicht bezahlt oder entfernt werden."]
+          : currencyButton.matches(".betterinv-currency-exchange-down")
+            ? [exchangeBetterInvCurrencyDown, "Better Inventory | Münzen konnten nicht abgerundet werden", "Die Münzen konnten nicht abgerundet werden."]
+            : currencyButton.matches(".betterinv-currency-exchange-up")
+              ? [exchangeBetterInvCurrencyUp, "Better Inventory | Münzen konnten nicht aufgerundet werden", "Die Münzen konnten nicht aufgerundet werden."]
+              : currencyButton.matches(".betterinv-currency-transfer") && featurePlan.currencyTransfer
+                ? [transferBetterInvCurrency, "Better Inventory | Münzen konnten nicht übertragen werden", "Die Münzen konnten nicht übertragen werden."]
+                : null;
+      if (config) {
+        const [action, logMessage, errorMessage] = config;
+        void runBetterInvCurrencyAction(windowEl, actor, currencyButton, action, { logMessage, errorMessage });
+      }
+      return;
+    }
+
+    const button = findTarget(event, [
+      ".betterinv-quantity-minus",
+      ".betterinv-quantity-plus",
+      ".betterinv-edit-item",
+      ".betterinv-item-actions-button",
+      ".betterinv-open-item"
+    ].join(","));
+    if (!button) return;
+
+    const row = button.closest(".betterinv-item");
+    const item = actor?.items?.get(row?.dataset?.itemId);
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (button.matches(".betterinv-edit-item")) {
+      openItemSheet(item);
+      return;
+    }
+
+    if (button.matches(".betterinv-item-actions-button")) {
+      openBetterInvItemActionMenu(button, actor, item);
+      return;
+    }
+
+    if (button.matches(".betterinv-open-item")) {
+      void useOrOpenItem(item, event).catch(error => {
+        console.error("Better Inventory | Item konnte nicht geöffnet oder benutzt werden", error);
+        ui.notifications.error("Das Item konnte nicht geöffnet oder benutzt werden.");
+      });
+      return;
+    }
+
+    if (!featurePlan.quantityControls || button.disabled) return;
+    button.disabled = true;
+    void (async () => {
+      try {
+        const delta = button.classList.contains("betterinv-quantity-plus") ? 1 : -1;
+        await changeItemQuantity(item, delta);
+      } catch (error) {
+        console.error("Better Inventory | Menge konnte nicht geändert werden", error);
+        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+      } finally {
+        if (button.isConnected) button.disabled = false;
+      }
+    })();
+  }, controller);
+
+  addBetterInvEventListener(windowEl, "focusin", event => {
+    const currencyField = findTarget(event, ".betterinv-currency-input");
+    if (currencyField && featurePlan.currencyCalculator) {
+      event.stopPropagation();
+      currencyField.select?.();
+      return;
+    }
+    const field = findTarget(event, ".betterinv-quantity-value");
+    if (!field || !featurePlan.quantityControls) return;
+    event.stopPropagation();
+    field.dataset.originalValue = field.value;
+    field.select?.();
+  }, controller);
+
+  addBetterInvEventListener(windowEl, "keydown", event => {
+    const containerCard = findTarget(event, ".betterinv-container-card");
+    if (containerCard && featurePlan.containers && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      event.stopPropagation();
+      betterInvState.containerId = containerCard.dataset.containerId;
+      renderBetterInvWindow();
+      return;
+    }
+
+    const currencyField = findTarget(event, ".betterinv-currency-input");
+    if (currencyField && featurePlan.currencyCalculator) {
+      event.stopPropagation();
+      if (event.key === "Enter") {
+        event.preventDefault();
+        currencyField.blur();
+      }
+      return;
+    }
+    const field = findTarget(event, ".betterinv-quantity-value");
+    if (!field || !featurePlan.quantityControls) return;
+    event.stopPropagation();
+    if (event.key === "Enter") {
+      event.preventDefault();
+      field.blur();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      field.value = field.dataset.originalValue ?? "0";
+      field.dataset.cancelled = "true";
+      field.blur();
+    }
+  }, controller);
+
+  addBetterInvEventListener(windowEl, "input", event => {
+    const searchField = findTarget(event, ".betterinv-search");
+    if (searchField && featurePlan.search) {
+      event.stopPropagation();
+      betterInvState.search = searchField.value ?? "";
+      if (windowEl._betterInvSearchTimer) clearTimeout(windowEl._betterInvSearchTimer);
+      windowEl._betterInvSearchTimer = setTimeout(() => {
+        windowEl._betterInvSearchTimer = null;
+        if (windowEl.isConnected) renderBetterInvWindow();
+      }, 120);
+      return;
+    }
+
+    const field = findTarget(event, ".betterinv-currency-input");
+    if (!field || !featurePlan.currencyCalculator) return;
+    event.stopPropagation();
+    const key = String(field.dataset.currencyKey ?? "");
+    if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
+    const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
+    if (field.value !== next) field.value = next;
+    betterInvState.currencyDraft[key] = next;
+  }, controller);
+
+  addBetterInvEventListener(windowEl, "focusout", event => {
+    const field = findTarget(event, ".betterinv-quantity-value");
+    if (!field || !featurePlan.quantityControls) return;
+    event.stopPropagation();
+    if (field.dataset.cancelled === "true") {
+      delete field.dataset.cancelled;
+      return;
+    }
+
+    const row = field.closest(".betterinv-item");
+    const item = actor?.items?.get(row?.dataset?.itemId);
+    if (!item || field.dataset.saving === "true") return;
+    const oldValue = getItemQuantityData(item).value;
+    const parsed = Number(field.value);
+    const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
+    field.value = String(next);
+    if (next === oldValue) {
+      field.dataset.originalValue = String(oldValue);
+      return;
+    }
+
+    field.dataset.saving = "true";
+    field.disabled = true;
+    void (async () => {
+      try {
+        await setItemQuantity(item, next);
+        field.dataset.originalValue = String(next);
+      } catch (error) {
+        if (field.isConnected) field.value = String(oldValue);
+        console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
+        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+      } finally {
+        delete field.dataset.saving;
+        if (field.isConnected) field.disabled = false;
+      }
+    })();
+  }, controller);
+}
+
 function activateWindowListeners(windowEl, actor, activeContainer, { settings = null, features = null, inventoryItems = null } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
   const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
-  windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => {
+  const eventController = beginBetterInvWindowEventCycle(windowEl);
+  const listen = (target, type, listener, options = {}) => addBetterInvEventListener(target, type, listener, eventController, options);
+
+  listen(windowEl.querySelector(".betterinv-close"), "click", () => {
     closeBetterInvItemActionMenu();
+    disposeBetterInvWindowEventCycle(windowEl);
     windowEl.remove();
   });
-  windowEl.querySelector(".betterinv-popout")?.addEventListener("pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
-  windowEl.querySelector(".betterinv-scale-down")?.addEventListener("click", () => { betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10); renderBetterInvWindow(); });
-  windowEl.querySelector(".betterinv-scale-up")?.addEventListener("click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
+  listen(windowEl.querySelector(".betterinv-popout"), "pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
+  listen(windowEl.querySelector(".betterinv-scale-down"), "click", () => { betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10); renderBetterInvWindow(); });
+  listen(windowEl.querySelector(".betterinv-scale-up"), "click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
 
   const settingsButton = windowEl.querySelector(".betterinv-settings");
-  settingsButton?.addEventListener("click", event => {
+  listen(settingsButton, "click", event => {
     event.preventDefault();
     event.stopPropagation();
     toggleBetterInvSettingsWindow();
   });
   updateBetterInvSettingsButtonState();
   makeBetterInvDraggable(windowEl);
+  installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, eventController);
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
@@ -5914,40 +6193,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     renderBetterInvWindow({ preserveScroll: false });
   });
 
-  windowEl.querySelector(".betterinv-active-container-rename")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    const container = actor?.items?.get(event.currentTarget.dataset.containerId);
-    if (!container) return;
-    const alias = await promptContainerAlias(actor, container);
-    if (alias === null) return;
-    await setContainerAlias(actor, container, alias);
-    renderBetterInvWindow();
-  });
 
-  windowEl.querySelectorAll(".betterinv-container-rename").forEach(btn => {
-    btn.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      const container = actor?.items?.get(btn.dataset.containerId);
-      if (!container) return;
-      const alias = await promptContainerAlias(actor, container);
-      if (alias === null) return;
-      await setContainerAlias(actor, container, alias);
-      renderBetterInvWindow();
-    });
-  });
-  windowEl.querySelectorAll(".betterinv-container-card").forEach(btn => {
-    const open = event => {
-      if (event.target.closest(".betterinv-container-rename")) return;
-      betterInvState.containerId = btn.dataset.containerId;
-      renderBetterInvWindow();
-    };
-    btn.addEventListener("click", open);
-    btn.addEventListener("keydown", event => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(event); }
-    });
-  });
 
   windowEl.querySelector(".betterinv-back")?.addEventListener("click", () => {
     betterInvState.containerId = null;
@@ -5957,24 +6203,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
   if (featurePlan.containers) enableContainerDragSorting(windowEl, actor, activeContainer);
   if (featurePlan.items && featurePlan.containers) enableItemToContainerDrop(windowEl, actor, activeContainer);
 
-  const searchInput = windowEl.querySelector(".betterinv-search");
-  if (searchInput) {
-    // Foundry uses many single-key hotkeys. While typing in our search field,
-    // those hotkeys must not fire, but the actual input event must still update
-    // the search filter.
-    ["keydown", "keyup", "keypress"].forEach(type => {
-      searchInput.addEventListener(type, event => event.stopImmediatePropagation(), { capture: true });
-    });
-    ["beforeinput", "paste"].forEach(type => {
-      searchInput.addEventListener(type, event => event.stopImmediatePropagation(), { capture: true });
-    });
-    searchInput.addEventListener("input", event => {
-      event.stopPropagation();
-      betterInvState.search = event.currentTarget.value ?? "";
-      clearTimeout(windowEl._betterInvSearchTimer);
-      windowEl._betterInvSearchTimer = setTimeout(() => renderBetterInvWindow(), 120);
-    });
-  }
+
 
   windowEl.querySelector(".betterinv-add-item")?.addEventListener("click", async event => {
     event.preventDefault();
@@ -6123,207 +6352,8 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
   if (featurePlan.items) enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
   if (featurePlan.items || featurePlan.containers) enableBetterInvExternalItemDrops(windowEl, actor, activeContainer);
 
-  windowEl.querySelectorAll(".betterinv-category-select").forEach(select => {
-    select.addEventListener("change", async event => {
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      await setItemCategory(item, event.currentTarget.value, activeContainer?.id ?? null);
-      renderBetterInvWindow();
-    });
-  });
 
-  windowEl.querySelectorAll(".betterinv-open-item").forEach(button => {
-    button.addEventListener("click", async event => {
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      await useOrOpenItem(item, event);
-    });
-  });
 
-  windowEl.querySelectorAll(".betterinv-edit-item").forEach(button => {
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      openItemSheet(item);
-    });
-  });
-
-  windowEl.querySelectorAll(".betterinv-item-actions-button").forEach(button => {
-    button.addEventListener("click", event => {
-      event.preventDefault();
-      event.stopPropagation();
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      openBetterInvItemActionMenu(event.currentTarget, actor, item);
-    });
-  });
-
-  if (featurePlan.quantityControls) {
-    windowEl.querySelectorAll(".betterinv-quantity-minus, .betterinv-quantity-plus").forEach(button => {
-      button.addEventListener("click", async event => {
-        event.preventDefault();
-        event.stopPropagation();
-        if (button.disabled) return;
-        const row = event.currentTarget.closest(".betterinv-item");
-        const item = actor?.items?.get(row?.dataset?.itemId);
-        if (!item) return;
-        button.disabled = true;
-        try {
-          const delta = event.currentTarget.classList.contains("betterinv-quantity-plus") ? 1 : -1;
-          await changeItemQuantity(item, delta);
-        } catch (error) {
-          console.error("Better Inventory | Menge konnte nicht geändert werden", error);
-          ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
-        } finally {
-          button.disabled = false;
-        }
-      });
-    });
-  }
-
-  if (featurePlan.currencyCalculator) {
-    const runCurrencyAction = async (button, action, { logMessage, errorMessage } = {}) => {
-      if (!button || button.disabled) return;
-      const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
-      const currencyInputs = Array.from(windowEl.querySelectorAll(".betterinv-currency-input"));
-      actionButtons.forEach(actionButton => { actionButton.disabled = true; });
-      currencyInputs.forEach(input => { input.disabled = true; });
-      button.classList.add("betterinv-currency-action-busy");
-      try {
-        const changed = await action(actor);
-        if (changed) renderBetterInvWindow();
-      } catch (error) {
-        console.error(logMessage, error);
-        if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
-        else notifyBetterInvCurrencyError(errorMessage);
-      } finally {
-        const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
-        actionButtons.forEach(actionButton => { actionButton.disabled = disabled; });
-        currencyInputs.forEach(input => { input.disabled = disabled; });
-        button.classList.remove("betterinv-currency-action-busy");
-      }
-    };
-
-    windowEl.querySelector(".betterinv-currency-add")?.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      await runCurrencyAction(event.currentTarget, addBetterInvCurrency, {
-        logMessage: "Better Inventory | Währung konnte nicht hinzugefügt werden",
-        errorMessage: "Die Münzen konnten nicht hinzugefügt werden."
-      });
-    });
-
-    windowEl.querySelector(".betterinv-currency-remove")?.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      await runCurrencyAction(event.currentTarget, removeBetterInvCurrency, {
-        logMessage: "Better Inventory | Währung konnte nicht entfernt werden",
-        errorMessage: "Die Münzen konnten nicht bezahlt oder entfernt werden."
-      });
-    });
-
-    windowEl.querySelector(".betterinv-currency-exchange-down")?.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyDown, {
-        logMessage: "Better Inventory | Münzen konnten nicht abgerundet werden",
-        errorMessage: "Die Münzen konnten nicht abgerundet werden."
-      });
-    });
-
-    windowEl.querySelector(".betterinv-currency-exchange-up")?.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyUp, {
-        logMessage: "Better Inventory | Münzen konnten nicht aufgerundet werden",
-        errorMessage: "Die Münzen konnten nicht aufgerundet werden."
-      });
-    });
-
-    windowEl.querySelector(".betterinv-currency-transfer")?.addEventListener("click", async event => {
-      event.preventDefault();
-      event.stopPropagation();
-      await runCurrencyAction(event.currentTarget, transferBetterInvCurrency, {
-        logMessage: "Better Inventory | Münzen konnten nicht übertragen werden",
-        errorMessage: "Die Münzen konnten nicht übertragen werden."
-      });
-    });
-
-    windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
-      input.addEventListener("click", event => event.stopPropagation());
-      input.addEventListener("focus", event => {
-        event.stopPropagation();
-        event.currentTarget.select();
-      });
-      input.addEventListener("keydown", event => {
-        event.stopPropagation();
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        }
-      });
-      input.addEventListener("input", event => {
-        event.stopPropagation();
-        const field = event.currentTarget;
-        const key = String(field.dataset.currencyKey ?? "");
-        if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
-        const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
-        if (field.value !== next) field.value = next;
-        betterInvState.currencyDraft[key] = next;
-      });
-    });
-  }
-
-  if (featurePlan.quantityControls) {
-    windowEl.querySelectorAll(".betterinv-quantity-value").forEach(input => {
-      input.addEventListener("click", event => event.stopPropagation());
-      input.addEventListener("focus", event => {
-        event.stopPropagation();
-        event.currentTarget.dataset.originalValue = event.currentTarget.value;
-        event.currentTarget.select();
-      });
-      input.addEventListener("keydown", event => {
-        event.stopPropagation();
-        if (event.key === "Enter") {
-          event.preventDefault();
-          event.currentTarget.blur();
-        } else if (event.key === "Escape") {
-          event.preventDefault();
-          event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
-          event.currentTarget.dataset.cancelled = "true";
-          event.currentTarget.blur();
-        }
-      });
-      input.addEventListener("blur", async event => {
-        event.stopPropagation();
-        const field = event.currentTarget;
-        if (field.dataset.cancelled === "true") {
-          delete field.dataset.cancelled;
-          return;
-        }
-        const row = field.closest(".betterinv-item");
-        const item = actor?.items?.get(row?.dataset?.itemId);
-        if (!item) return;
-        const oldValue = getItemQuantityData(item).value;
-        const parsed = Number(field.value);
-        const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
-        field.value = String(next);
-        field.disabled = true;
-        try {
-          await setItemQuantity(item, next);
-          field.dataset.originalValue = String(next);
-        } catch (error) {
-          field.value = String(oldValue);
-          console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
-          ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
-        } finally {
-          field.disabled = false;
-        }
-      });
-    });
-  }
 
 
 }
@@ -6776,24 +6806,28 @@ function makeBetterInvSettingsDraggable(windowEl) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a, label")) return;
     event.preventDefault();
+    windowEl._betterInvDragController?.abort?.();
+    const dragController = new AbortController();
+    windowEl._betterInvDragController = dragController;
     const rect = windowEl.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
     windowEl.style.zIndex = "20020";
-    function onMove(moveEvent) {
+    const onMove = moveEvent => {
       const maxLeft = Math.max(0, window.innerWidth - 80);
       const maxTop = Math.max(0, window.innerHeight - 50);
       windowEl.style.left = `${Math.max(0, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
       windowEl.style.top = `${Math.max(0, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
       windowEl.style.right = "auto";
       windowEl.style.bottom = "auto";
-    }
-    function onUp() {
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    };
+    const finish = () => {
+      dragController.abort();
+      if (windowEl._betterInvDragController === dragController) windowEl._betterInvDragController = null;
+    };
+    document.addEventListener("mousemove", onMove, { signal: dragController.signal });
+    document.addEventListener("mouseup", finish, { once: true, signal: dragController.signal });
+    window.addEventListener("blur", finish, { once: true, signal: dragController.signal });
   });
 }
 
@@ -6805,20 +6839,27 @@ function makeBetterInvDraggable(windowEl) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
     event.preventDefault();
+    windowEl._betterInvDragController?.abort?.();
+    const dragController = new AbortController();
+    windowEl._betterInvDragController = dragController;
     const rect = windowEl.getBoundingClientRect();
     const offsetX = event.clientX - rect.left;
     const offsetY = event.clientY - rect.top;
-    function onMove(moveEvent) {
+    const onMove = moveEvent => {
       const maxLeft = window.innerWidth - 80;
       const maxTop = window.innerHeight - 50;
       windowEl.style.left = `${Math.max(0, Math.min(maxLeft, moveEvent.clientX - offsetX))}px`;
       windowEl.style.top = `${Math.max(0, Math.min(maxTop, moveEvent.clientY - offsetY))}px`;
       windowEl.style.right = "auto";
       windowEl.style.bottom = "auto";
-    }
-    function onUp() { document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); }
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
+    };
+    const finish = () => {
+      dragController.abort();
+      if (windowEl._betterInvDragController === dragController) windowEl._betterInvDragController = null;
+    };
+    document.addEventListener("mousemove", onMove, { signal: dragController.signal });
+    document.addEventListener("mouseup", finish, { once: true, signal: dragController.signal });
+    window.addEventListener("blur", finish, { once: true, signal: dragController.signal });
   });
 }
 
