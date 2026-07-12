@@ -3069,6 +3069,58 @@ function getBetterInvItemTypeLabel(type) {
 }
 
 
+function getBetterInvCompendiumLabel(pack) {
+  return String(pack?.metadata?.label ?? pack?.title ?? pack?.collection ?? "Unbenanntes Kompendium");
+}
+
+function getBetterInvCompendiumId(pack) {
+  return String(pack?.collection ?? pack?.metadata?.id ?? pack?.metadata?.name ?? "");
+}
+
+function getBetterInvCompendiumDocumentName(pack) {
+  return String(
+    pack?.documentName
+    ?? pack?.documentClass?.documentName
+    ?? pack?.metadata?.type
+    ?? pack?.metadata?.documentName
+    ?? ""
+  ).toLowerCase();
+}
+
+function getBetterInvCompendiumSourceInfo(pack) {
+  const metadata = pack?.metadata ?? {};
+  const packId = getBetterInvCompendiumId(pack);
+  const rawPackage = metadata.package;
+  const packageName = String([
+    metadata.packageName,
+    rawPackage && typeof rawPackage === "object" ? rawPackage.name : null,
+    metadata.module
+  ].find(value => typeof value === "string" && value.trim()) ?? "");
+
+  let type = String([
+    metadata.packageType,
+    rawPackage && typeof rawPackage === "object" ? rawPackage.type : null
+  ].find(value => typeof value === "string" && value.trim()) ?? "").toLowerCase();
+
+  if (!type) {
+    if (packId.startsWith("world.")) type = "world";
+    else if (game.system?.id && packId.startsWith(`${game.system.id}.`)) type = "system";
+    else if (packageName) type = packageName === game.system?.id ? "system" : "module";
+  }
+
+  const definitions = {
+    system: { key: "system", label: "System", rank: 1 },
+    world: { key: "world", label: "Welt", rank: 2 },
+    module: { key: "module", label: "Modul", rank: 3 }
+  };
+  const base = definitions[type] ?? { key: "unknown", label: "Kompendium", rank: 4 };
+  return {
+    ...base,
+    packageName,
+    title: packageName ? `${base.label}: ${packageName}` : base.label
+  };
+}
+
 function getBetterInvAccessibleItemCompendiums() {
   const packsCollection = game.packs;
   if (!packsCollection) return [];
@@ -3085,29 +3137,20 @@ function getBetterInvAccessibleItemCompendiums() {
   return packs
     .filter(pack => {
       if (!pack) return false;
-      const documentName = String(pack.documentName ?? pack.metadata?.type ?? "").toLowerCase();
-      if (documentName !== "item") return false;
+      if (getBetterInvCompendiumDocumentName(pack) !== "item") return false;
       if (pack.visible === false) return false;
+      if (typeof pack.getIndex !== "function") return false;
 
-      const id = String(pack.collection ?? pack.metadata?.id ?? pack.metadata?.name ?? "");
-      if (id && seen.has(id)) return false;
-      if (id) seen.add(id);
+      const id = getBetterInvCompendiumId(pack);
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
       return true;
     })
     .sort((left, right) => {
-      const leftLabel = String(left.metadata?.label ?? left.title ?? left.collection ?? "");
-      const rightLabel = String(right.metadata?.label ?? right.title ?? right.collection ?? "");
+      const leftLabel = getBetterInvCompendiumLabel(left);
+      const rightLabel = getBetterInvCompendiumLabel(right);
       return leftLabel.localeCompare(rightLabel, game.i18n?.lang ?? undefined, { sensitivity: "base" });
     });
-}
-
-function getBetterInvCompendiumLabel(pack) {
-  return String(pack?.metadata?.label ?? pack?.title ?? pack?.collection ?? "Unbenanntes Kompendium");
-}
-
-
-function getBetterInvCompendiumId(pack) {
-  return String(pack?.collection ?? pack?.metadata?.id ?? pack?.metadata?.name ?? "");
 }
 
 function getBetterInvCompendiumById(packId) {
@@ -3121,7 +3164,19 @@ function getBetterInvCompendiumById(packId) {
     .find(pack => getBetterInvCompendiumId(pack) === cleanId) ?? null;
 }
 
-function prepareBetterInvCompendiumItemData(sourceItem) {
+function deleteBetterInvNestedProperty(object, path) {
+  if (!object || typeof object !== "object") return;
+  const parts = String(path ?? "").split(".").filter(Boolean);
+  if (!parts.length) return;
+  let current = object;
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    current = current?.[parts[index]];
+    if (!current || typeof current !== "object") return;
+  }
+  delete current[parts.at(-1)];
+}
+
+function prepareBetterInvCompendiumItemData(sourceItem, selected = null) {
   if (!sourceItem || typeof sourceItem.toObject !== "function") {
     throw new Error("Das ausgewählte Kompendium-Item konnte nicht gelesen werden.");
   }
@@ -3130,6 +3185,16 @@ function prepareBetterInvCompendiumItemData(sourceItem) {
   if (!data || typeof data !== "object") {
     throw new Error("Das Kompendium-Item enthält keine gültigen Itemdaten.");
   }
+
+  const itemType = String(data.type ?? sourceItem.type ?? selected?.type ?? "").toLowerCase();
+  const creatableTypes = new Set(getBetterInvCreatableItemTypes().map(type => String(type).toLowerCase()));
+  if (!isBetterInvInventoryItemType(itemType) || !creatableTypes.has(itemType)) {
+    throw new Error(`Der Gegenstandstyp „${getBetterInvItemTypeLabel(itemType || "unbekannt")}“ wird vom aktuellen Spielsystem nicht als Inventargegenstand unterstützt.`);
+  }
+
+  data.name = String(data.name ?? sourceItem.name ?? selected?.name ?? "Unbenannter Gegenstand");
+  data.type = itemType;
+  if (!data.img && (sourceItem.img || selected?.img)) data.img = sourceItem.img || selected.img;
 
   // Embedded actor items receive a fresh id and do not use world-folder or
   // ownership metadata from the compendium document.
@@ -3140,13 +3205,15 @@ function prepareBetterInvCompendiumItemData(sourceItem) {
   delete data.permission;
   delete data._stats;
 
-  // Preserve where the imported item came from. Foundry and other modules can
-  // use this source id later without keeping a live link to the compendium.
+  // Preserve the source UUID while removing Better Inventory's actor-specific
+  // organization flags which would be stale on the receiving actor.
   data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+  delete data.flags[MODULE_ID];
   data.flags.core = data.flags.core && typeof data.flags.core === "object" ? data.flags.core : {};
-  if (!data.flags.core.sourceId && sourceItem.uuid) data.flags.core.sourceId = sourceItem.uuid;
+  const sourceUuid = String(sourceItem.uuid ?? selected?.uuid ?? "");
+  if (!data.flags.core.sourceId && sourceUuid) data.flags.core.sourceId = sourceUuid;
 
-  // A compendium entry can contain a stale container reference. It must never
+  // A compendium entry can contain stale container references. They must never
   // point at an unrelated actor item after import. The selected active container
   // is assigned explicitly after creation through moveItemToContainer().
   const sourceContainer = foundry.utils.getProperty(data, "system.container");
@@ -3160,25 +3227,61 @@ function prepareBetterInvCompendiumItemData(sourceItem) {
   } else if (sourceContainer !== undefined && sourceContainer !== null) {
     foundry.utils.setProperty(data, "system.container", "");
   }
+  [
+    "system.containerId",
+    "system.containerUuid",
+    "flags.dnd5e.containerId",
+    "flags.dnd5e.containerUuid"
+  ].forEach(path => deleteBetterInvNestedProperty(data, path));
 
   return data;
+}
+
+async function getBetterInvCompendiumDocument(pack, selected) {
+  let primaryError = null;
+  if (typeof pack?.getDocument === "function") {
+    try {
+      const document = await pack.getDocument(selected.id);
+      if (document) return document;
+    } catch (error) {
+      primaryError = error;
+      console.warn("Better Inventory | Kompendium getDocument fehlgeschlagen, UUID-Fallback wird versucht", error);
+    }
+  }
+
+  if (selected?.uuid && typeof globalThis.fromUuid === "function") {
+    try {
+      const document = await globalThis.fromUuid(selected.uuid);
+      if (document) return document;
+    } catch (error) {
+      if (!primaryError) primaryError = error;
+      console.warn("Better Inventory | Kompendium UUID-Fallback fehlgeschlagen", error);
+    }
+  }
+
+  const detail = primaryError?.message ? ` (${primaryError.message})` : "";
+  throw new Error(`Das ausgewählte Item wurde im Kompendium nicht gefunden${detail}.`);
 }
 
 async function importBetterInvCompendiumItem(actor, selected, activeContainer = null) {
   if (!actor) throw new Error("Kein Actor für den Import ausgewählt.");
   if (!selected?.packId || !selected?.id) throw new Error("Das ausgewählte Kompendium-Item ist unvollständig.");
+  if (typeof actor.canUserModify === "function" && !actor.canUserModify(game.user, "update")) {
+    throw new Error(`Du hast keine Berechtigung, Items auf ${actor.name} zu erstellen.`);
+  }
 
   const pack = getBetterInvCompendiumById(selected.packId);
   if (!pack || pack.visible === false) {
     throw new Error("Das ausgewählte Kompendium ist nicht mehr zugänglich.");
   }
 
-  const sourceItem = await pack.getDocument(selected.id);
-  if (!sourceItem) {
-    throw new Error("Das ausgewählte Item wurde im Kompendium nicht gefunden.");
+  const sourceItem = await getBetterInvCompendiumDocument(pack, selected);
+  const documentName = String(sourceItem.documentName ?? sourceItem.constructor?.documentName ?? "Item").toLowerCase();
+  if (documentName !== "item") {
+    throw new Error("Der ausgewählte Kompendiumseintrag ist kein Item.");
   }
 
-  const itemData = prepareBetterInvCompendiumItemData(sourceItem);
+  const itemData = prepareBetterInvCompendiumItemData(sourceItem, selected);
   const created = await actor.createEmbeddedDocuments("Item", [itemData]);
   const item = created?.[0] ?? null;
   if (!item) throw new Error("Foundry hat nach dem Import kein Item zurückgegeben.");
@@ -3192,7 +3295,8 @@ async function importBetterInvCompendiumItem(actor, selected, activeContainer = 
   }
 
   const packLabel = getBetterInvCompendiumLabel(pack);
-  ui.notifications.info(`${item.name} wurde aus ${packLabel} auf ${actor.name} kopiert.`);
+  const sourceInfo = getBetterInvCompendiumSourceInfo(pack);
+  ui.notifications.info(`${item.name} wurde aus ${packLabel} (${sourceInfo.label}) auf ${actor.name} kopiert.`);
   openItemSheet(item);
   return item;
 }
@@ -3217,46 +3321,166 @@ function normalizeBetterInvSearchText(value) {
   }
 }
 
+function getBetterInvCompendiumEntryId(entry) {
+  const direct = entry?._id ?? entry?.id ?? entry?.documentId ?? entry?._source?._id;
+  if (direct) return String(direct);
+  const uuid = String(entry?.uuid ?? entry?._source?.uuid ?? "");
+  return uuid ? uuid.split(".").at(-1) : "";
+}
+
+function getBetterInvCompendiumEntryType(entry) {
+  const candidates = [
+    entry?.type,
+    entry?.itemType,
+    entry?._source?.type,
+    entry?.document?.type
+  ];
+  return String(candidates.find(value => typeof value === "string" && value.trim()) ?? "").toLowerCase();
+}
+
+function getBetterInvCompendiumEntryName(entry) {
+  return String(entry?.name ?? entry?.label ?? entry?._source?.name ?? "Unbenannter Gegenstand");
+}
+
+function getBetterInvCompendiumEntryImage(entry) {
+  return String(
+    entry?.img
+    ?? entry?.image
+    ?? entry?.texture?.src
+    ?? entry?._source?.img
+    ?? "icons/svg/item-bag.svg"
+  );
+}
+
+async function getBetterInvCompendiumIndexEntries(pack) {
+  const requestedFields = ["name", "type", "img"];
+  const attempts = [
+    async () => await pack.getIndex({ fields: requestedFields }),
+    async () => await pack.getIndex()
+  ];
+  let lastError = null;
+
+  for (let index = 0; index < attempts.length; index += 1) {
+    try {
+      const collection = await attempts[index]();
+      const entries = getBetterInvCollectionValues(collection);
+      if (!entries.length) continue;
+
+      const hasTypeData = entries.some(entry => getBetterInvCompendiumEntryType(entry));
+      const hasMissingTypeData = entries.some(entry => !getBetterInvCompendiumEntryType(entry));
+      if (index === 0 && (!hasTypeData || hasMissingTypeData)) continue;
+      return { entries, usedFallback: index > 0 };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  const cachedEntries = getBetterInvCollectionValues(pack?.index);
+  if (cachedEntries.length) return { entries: cachedEntries, usedFallback: true };
+  if (lastError) throw lastError;
+  return { entries: [], usedFallback: false };
+}
+
 async function loadBetterInvCompendiumIndexItems(packs) {
+  const creatableTypes = new Set(getBetterInvCreatableItemTypes().map(type => String(type).toLowerCase()));
   const settled = await Promise.allSettled(Array.from(packs ?? []).map(async pack => {
     const packId = getBetterInvCompendiumId(pack);
     if (!packId) throw new Error("Kompendium ohne Kennung gefunden.");
 
-    const index = await pack.getIndex({ fields: ["name", "type", "img"] });
-    const entries = getBetterInvCollectionValues(index);
+    const { entries, usedFallback } = await getBetterInvCompendiumIndexEntries(pack);
     const packLabel = getBetterInvCompendiumLabel(pack);
+    const sourceInfo = getBetterInvCompendiumSourceInfo(pack);
+    const seen = new Set();
+    const stats = {
+      totalEntries: entries.length,
+      invalidEntries: 0,
+      filteredEntries: 0,
+      unsupportedEntries: 0,
+      duplicateEntries: 0,
+      usedFallback
+    };
 
-    return entries
-      .filter(entry => isBetterInvInventoryItemType(entry?.type))
-      .map(entry => {
-        const id = String(entry?._id ?? entry?.id ?? "");
-        const name = String(entry?.name ?? "Unbenannter Gegenstand");
-        const type = String(entry?.type ?? "").toLowerCase();
-        const img = String(entry?.img ?? "icons/svg/item-bag.svg");
-        return {
-          key: `${packId}:${id}`,
-          id,
-          name,
-          type,
-          typeLabel: getBetterInvInventoryItemTypeLabel(type),
-          img,
-          packId,
-          packLabel,
-          uuid: id ? `Compendium.${packId}.${id}` : "",
-          searchText: normalizeBetterInvSearchText(`${name} ${type} ${getBetterInvInventoryItemTypeLabel(type)} ${packLabel}`)
-        };
-      })
-      .filter(item => item.id);
+    const items = [];
+    for (const entry of entries) {
+      const id = getBetterInvCompendiumEntryId(entry);
+      const type = getBetterInvCompendiumEntryType(entry);
+      if (!id) {
+        stats.invalidEntries += 1;
+        continue;
+      }
+      if (!isBetterInvInventoryItemType(type)) {
+        stats.filteredEntries += 1;
+        continue;
+      }
+      if (!creatableTypes.has(type)) {
+        stats.unsupportedEntries += 1;
+        continue;
+      }
+
+      const key = `${packId}:${id}`;
+      if (seen.has(key)) {
+        stats.duplicateEntries += 1;
+        continue;
+      }
+      seen.add(key);
+
+      const name = getBetterInvCompendiumEntryName(entry);
+      const img = getBetterInvCompendiumEntryImage(entry);
+      const typeLabel = getBetterInvInventoryItemTypeLabel(type);
+      const uuid = String(entry?.uuid ?? `Compendium.${packId}.${id}`);
+      items.push({
+        key,
+        id,
+        name,
+        type,
+        typeLabel,
+        img,
+        packId,
+        packLabel,
+        packSourceKey: sourceInfo.key,
+        packSourceLabel: sourceInfo.label,
+        packSourceTitle: sourceInfo.title,
+        uuid,
+        searchText: normalizeBetterInvSearchText(`${name} ${type} ${typeLabel} ${packLabel} ${sourceInfo.label} ${sourceInfo.packageName}`)
+      });
+    }
+
+    return { items, stats, pack };
   }));
 
   const items = [];
   const failedPacks = [];
+  const stats = {
+    fallbackPacks: 0,
+    emptyPacks: 0,
+    invalidEntries: 0,
+    filteredEntries: 0,
+    unsupportedEntries: 0,
+    duplicateEntries: 0,
+    sourceCounts: { system: 0, world: 0, module: 0, unknown: 0 }
+  };
+
   settled.forEach((result, index) => {
-    if (result.status === "fulfilled") items.push(...result.value);
-    else failedPacks.push({
-      pack: packs[index],
-      error: result.reason
-    });
+    if (result.status === "fulfilled") {
+      items.push(...result.value.items);
+      const packStats = result.value.stats;
+      const sourceInfo = getBetterInvCompendiumSourceInfo(result.value.pack);
+      if (result.value.items.length) {
+        stats.sourceCounts[sourceInfo.key] = (stats.sourceCounts[sourceInfo.key] ?? 0) + 1;
+      } else {
+        stats.emptyPacks += 1;
+      }
+      if (packStats.usedFallback) stats.fallbackPacks += 1;
+      stats.invalidEntries += packStats.invalidEntries;
+      stats.filteredEntries += packStats.filteredEntries;
+      stats.unsupportedEntries += packStats.unsupportedEntries;
+      stats.duplicateEntries += packStats.duplicateEntries;
+    } else {
+      failedPacks.push({
+        pack: packs[index],
+        error: result.reason
+      });
+    }
   });
 
   items.sort((left, right) => {
@@ -3265,14 +3489,14 @@ async function loadBetterInvCompendiumIndexItems(packs) {
     return left.packLabel.localeCompare(right.packLabel, game.i18n?.lang ?? undefined, { sensitivity: "base" });
   });
 
-  return { items, failedPacks };
+  return { items, failedPacks, stats };
 }
 
 async function promptBetterInvCompendiumItem(packs) {
   const availablePacks = Array.from(packs ?? []);
   if (!availablePacks.length) return null;
 
-  const { items, failedPacks } = await loadBetterInvCompendiumIndexItems(availablePacks);
+  const { items, failedPacks, stats } = await loadBetterInvCompendiumIndexItems(availablePacks);
   if (!items.length) {
     const failedSuffix = failedPacks.length ? ` ${failedPacks.length} Kompendium/Kompendien konnten nicht gelesen werden.` : "";
     ui.notifications.warn(`In den zugänglichen Item-Kompendien wurden keine Inventargegenstände gefunden.${failedSuffix}`);
@@ -3281,12 +3505,30 @@ async function promptBetterInvCompendiumItem(packs) {
 
   const indexedPacks = Array.from(new Map(items.map(item => [item.packId, {
     id: item.packId,
-    label: item.packLabel
+    label: item.packLabel,
+    sourceKey: item.packSourceKey,
+    sourceLabel: item.packSourceLabel,
+    sourceTitle: item.packSourceTitle
   }])).values()).sort((left, right) => left.label.localeCompare(right.label, game.i18n?.lang ?? undefined, { sensitivity: "base" }));
   const packOptions = indexedPacks.map(pack => `
-    <button type="button" class="betterinv-compendium-dropdown-option" data-compendium-dropdown-option data-value="${escapeAttr(pack.id)}" role="option" aria-selected="false">
+    <button type="button" class="betterinv-compendium-dropdown-option" data-compendium-dropdown-option data-value="${escapeAttr(pack.id)}" role="option" aria-selected="false" title="${escapeAttr(pack.sourceTitle)}">
       <span>${escapeHtml(pack.label)}</span>
+      <small class="betterinv-compendium-source betterinv-compendium-source-${escapeAttr(pack.sourceKey)}">${escapeHtml(pack.sourceLabel)}</small>
     </button>`).join("");
+
+  const sourceSummary = [
+    stats.sourceCounts.system ? `${stats.sourceCounts.system} System` : "",
+    stats.sourceCounts.world ? `${stats.sourceCounts.world} Welt` : "",
+    stats.sourceCounts.module ? `${stats.sourceCounts.module} Modul` : "",
+    stats.sourceCounts.unknown ? `${stats.sourceCounts.unknown} sonstige` : ""
+  ].filter(Boolean).join(" · ");
+  const skippedEntries = stats.invalidEntries + stats.unsupportedEntries + stats.duplicateEntries;
+  const diagnosticsTitle = [
+    sourceSummary,
+    stats.fallbackPacks ? `${stats.fallbackPacks} Kompendien über Kompatibilitäts-Fallback gelesen` : "",
+    skippedEntries ? `${skippedEntries} ungültige, doppelte oder nicht unterstützte Einträge übersprungen` : "",
+    failedPacks.length ? `${failedPacks.length} Kompendien konnten nicht gelesen werden` : ""
+  ].filter(Boolean).join(" · ");
 
   const availableTypes = new Set(items.map(item => item.type).filter(Boolean));
   const typeValues = BETTER_INV_INVENTORY_ITEM_TYPES.filter(type => availableTypes.has(type));
@@ -3321,7 +3563,10 @@ async function promptBetterInvCompendiumItem(packs) {
               <h3>Gegenstand auswählen</h3>
               <p>Es werden nur Inventargegenstände wie Waffen, Ausrüstung, Verbrauchsgegenstände, Werkzeuge, Beute und Behälter angezeigt.</p>
             </div>
-            <span class="betterinv-compendium-browser-total">${escapeHtml(formatBetterInvNumber(items.length))} Gegenstände · ${escapeHtml(formatBetterInvNumber(indexedPacks.length))} Kompendien</span>
+            <span class="betterinv-compendium-browser-total" title="${escapeAttr(diagnosticsTitle)}">
+              ${escapeHtml(formatBetterInvNumber(items.length))} Gegenstände · ${escapeHtml(formatBetterInvNumber(indexedPacks.length))} Kompendien
+              ${sourceSummary ? `<small>${escapeHtml(sourceSummary)}</small>` : ""}
+            </span>
           </header>
 
           <div class="betterinv-compendium-browser-filters">
@@ -3366,7 +3611,11 @@ async function promptBetterInvCompendiumItem(packs) {
 
           <div class="betterinv-compendium-browser-summary">
             <span data-compendium-result-count></span>
-            ${failedPacks.length ? `<span class="betterinv-compendium-browser-warning" title="Einige Kompendien konnten nicht gelesen werden."><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>${failedPacks.length} nicht gelesen</span>` : ""}
+            <span class="betterinv-compendium-browser-diagnostics">
+              ${stats.fallbackPacks ? `<span class="betterinv-compendium-browser-compat" title="Diese Kompendien haben den reduzierten Foundry-Index nicht akzeptiert und wurden über den vollständigen Index geladen."><i class="fas fa-shield-halved" aria-hidden="true"></i>${stats.fallbackPacks} kompatibel geladen</span>` : ""}
+              ${skippedEntries ? `<span class="betterinv-compendium-browser-warning" title="Ungültige, doppelte oder vom aktuellen Spielsystem nicht unterstützte Einträge wurden sicher übersprungen."><i class="fas fa-filter-circle-xmark" aria-hidden="true"></i>${skippedEntries} übersprungen</span>` : ""}
+              ${failedPacks.length ? `<span class="betterinv-compendium-browser-warning" title="Einige Kompendien konnten nicht gelesen werden."><i class="fas fa-triangle-exclamation" aria-hidden="true"></i>${failedPacks.length} nicht gelesen</span>` : ""}
+            </span>
           </div>
 
           <div class="betterinv-compendium-browser-results" data-compendium-results role="listbox" aria-label="Gefundene Inventargegenstände"></div>
@@ -3418,7 +3667,7 @@ async function promptBetterInvCompendiumItem(packs) {
         const selected = getSelectedItem();
         if (selectionElement) {
           selectionElement.textContent = selected
-            ? `${selected.name} · ${selected.packLabel}`
+            ? `${selected.name} · ${selected.packLabel} · ${selected.packSourceLabel}`
             : "Kein Gegenstand ausgewählt";
         }
         if (confirmButton) confirmButton.disabled = !selected;
@@ -3459,14 +3708,25 @@ async function promptBetterInvCompendiumItem(packs) {
             data-compendium-item="${escapeAttr(item.key)}"
             role="option"
             aria-selected="${item.key === selectedKey ? "true" : "false"}"
-            title="${escapeAttr(`${item.name} · ${item.typeLabel} · ${item.packLabel}`)}">
+            title="${escapeAttr(`${item.name} · ${item.typeLabel} · ${item.packLabel} · ${item.packSourceLabel}`)}">
             <img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt="">
             <span class="betterinv-compendium-result-copy">
               <strong>${escapeHtml(item.name)}</strong>
               <span>${escapeHtml(item.typeLabel)}</span>
             </span>
-            <span class="betterinv-compendium-result-pack">${escapeHtml(item.packLabel)}</span>
+            <span class="betterinv-compendium-result-pack">
+              <span>${escapeHtml(item.packLabel)}</span>
+              <small class="betterinv-compendium-source betterinv-compendium-source-${escapeAttr(item.packSourceKey)}">${escapeHtml(item.packSourceLabel)}</small>
+            </span>
           </button>`).join("");
+
+        resultsElement.querySelectorAll(".betterinv-compendium-result img").forEach(image => {
+          image.addEventListener("error", () => {
+            if (image.dataset.fallbackApplied === "true") return;
+            image.dataset.fallbackApplied = "true";
+            image.src = "icons/svg/item-bag.svg";
+          }, { once: true });
+        });
 
         resultsElement.querySelectorAll("[data-compendium-item]").forEach(button => {
           button.addEventListener("click", () => {

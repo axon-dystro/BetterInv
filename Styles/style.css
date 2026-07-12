@@ -3984,3 +3984,96 @@
   position: relative;
   z-index: 1;
 }
+
+/* Phase 6.5: compendium source and compatibility indicators. */
+.betterinv-compendium-browser-total {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.betterinv-compendium-browser-total > small {
+  color: #8f856f;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: .025em;
+  text-transform: none;
+}
+
+.betterinv-compendium-browser-diagnostics {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.betterinv-compendium-browser-compat {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #8fb79c;
+}
+
+.betterinv-compendium-dropdown-option {
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.betterinv-compendium-source {
+  flex: 0 0 auto;
+  padding: 2px 5px;
+  border: 1px solid rgba(158,139,83,.25);
+  border-radius: 999px;
+  color: #9d927c;
+  font-size: 7px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.betterinv-compendium-source-system {
+  border-color: rgba(112,153,190,.30);
+  color: #a9c8df;
+}
+
+.betterinv-compendium-source-world {
+  border-color: rgba(200,168,90,.32);
+  color: #d7bf7c;
+}
+
+.betterinv-compendium-source-module {
+  border-color: rgba(132,112,176,.34);
+  color: #c0afe2;
+}
+
+.betterinv-compendium-result-pack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.betterinv-compendium-result-pack > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-compendium-result-pack .betterinv-compendium-source {
+  font-size: 6px;
+}
+
+@media (max-width: 430px) {
+  .betterinv-compendium-browser-total {
+    text-align: left;
+  }
+
+  .betterinv-compendium-browser-diagnostics {
+    justify-content: flex-start;
+  }
+}
