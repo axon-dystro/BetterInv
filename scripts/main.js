@@ -3480,7 +3480,7 @@ async function promptCategoryName() {
       content: `<form><div class="form-group"><label>Name</label><input name="name" type="text" placeholder="z.B. Schriftrollen" autofocus></div></form>`,
       buttons: {
         create: { label: "Erstellen", callback: html => done(sanitizePlainText(html.find('[name="name"]').val(), { max: 48 })) },
-        cancel: { label: "Abbrechen", callback: () => done(null) }
+        cancel: { icon: '<i class="fas fa-xmark"></i>', label: "Abbrechen", callback: () => done(null) }
       },
       default: "create",
       close: () => done(null)
@@ -6292,27 +6292,32 @@ function uninstallBetterInvTokenDropFeedback() {
 async function confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity) {
   const amount = Math.max(1, Math.trunc(Number(quantity) || 1));
   const amountText = amount > 1 ? `${formatBetterInvNumber(amount)}× ` : "";
+  const itemName = sourceItem?.name || "Unbekannter Gegenstand";
+  const targetName = targetActor?.name || "Unbekannter Charakter";
   return await openBetterInvConfirmDialog({
     title: "Gegenstand übergeben",
-    kicker: "Übergabe bestätigen",
+    kicker: "Sichere Übergabe",
     icon: "fa-right-left",
     variant: "transfer",
-    confirmLabel: "Übergeben",
-    width: 500,
+    confirmLabel: "Jetzt übergeben",
+    width: 520,
     contentHtml: `
       <div class="betterinv-confirm-transfer-route">
-        <span class="betterinv-confirm-transfer-entity">
+        <span class="betterinv-confirm-transfer-entity is-source">
           <img src="${escapeAttr(sourceItem?.img || "icons/svg/item-bag.svg")}" alt="">
-          <span><small>Gegenstand</small><strong>${escapeHtml(amountText)}${escapeHtml(sourceItem?.name || "Unbekannter Gegenstand")}</strong></span>
+          <span><small>Gegenstand</small><strong>${escapeHtml(amountText)}${escapeHtml(itemName)}</strong></span>
         </span>
-        <i class="fas fa-arrow-right" aria-hidden="true"></i>
-        <span class="betterinv-confirm-transfer-entity">
+        <span class="betterinv-confirm-transfer-arrow" aria-hidden="true"><i class="fas fa-arrow-right"></i></span>
+        <span class="betterinv-confirm-transfer-entity is-target">
           <img src="${escapeAttr(targetActor?.img || "icons/svg/mystery-man.svg")}" alt="">
-          <span><small>Empfänger</small><strong>${escapeHtml(targetActor?.name || "Unbekannter Charakter")}</strong></span>
+          <span><small>Empfänger</small><strong>${escapeHtml(targetName)}</strong></span>
         </span>
       </div>
-      <p>Möchtest du diese Übergabe wirklich durchführen?</p>`,
-    note: "Der Gegenstand wird aus deinem Inventar entfernt und beim Zielcharakter angelegt."
+      <div class="betterinv-confirm-transfer-question">
+        <strong>Übergabe wirklich durchführen?</strong>
+        <span>${escapeHtml(amountText)}${escapeHtml(itemName)} wird an ${escapeHtml(targetName)} übertragen.</span>
+      </div>`,
+    note: "Nach der Bestätigung wird die gewählte Menge aus deinem Inventar entfernt. Abbrechen verändert nichts."
   });
 }
 
@@ -7309,18 +7314,26 @@ async function promptNewBetterInvItem() {
       title: "Neuen Gegenstand erstellen",
       content: `
         <form class="betterinv-new-item-form">
-          <div class="form-group">
-            <label>Name</label>
-            <input name="name" type="text" value="Neuer Gegenstand" maxlength="120" autofocus>
+          <div class="betterinv-form-intro">
+            <span class="betterinv-form-intro-icon" aria-hidden="true"><i class="fas fa-cube"></i></span>
+            <span>
+              <strong>Neuen Gegenstand anlegen</strong>
+              <small>Lege zuerst Name und Art fest. Details bearbeitest du danach im normalen Foundry-Fenster.</small>
+            </span>
           </div>
           <div class="form-group">
-            <label>Gegenstandsart</label>
-            <select name="type">${options}</select>
+            <label for="betterinv-new-item-name"><i class="fas fa-signature" aria-hidden="true"></i>Name</label>
+            <input id="betterinv-new-item-name" name="name" type="text" value="Neuer Gegenstand" maxlength="120" autofocus>
           </div>
-          <p class="notes">Das normale Foundry-Fenster des Gegenstands öffnet sich direkt nach dem Erstellen.</p>
+          <div class="form-group">
+            <label for="betterinv-new-item-type"><i class="fas fa-shapes" aria-hidden="true"></i>Gegenstandsart</label>
+            <select id="betterinv-new-item-type" name="type">${options}</select>
+          </div>
+          <p class="notes"><i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i><span>Nach dem Erstellen öffnet sich automatisch das normale Foundry-Fenster des Gegenstands.</span></p>
         </form>`,
       buttons: {
         create: {
+          icon: '<i class="fas fa-plus"></i>',
           label: "Erstellen",
           callback: html => {
             const name = sanitizePlainText(html.find('[name="name"]').val(), { max: 120 }) || "Neuer Gegenstand";
