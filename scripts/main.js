@@ -2,6 +2,12 @@
 
 const MODULE_ID = "betterinv";
 const DEFAULT_CATEGORIES = [];
+const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
+const BETTER_INV_USER_SETTINGS_VERSION = 1;
+const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
+  version: BETTER_INV_USER_SETTINGS_VERSION,
+  showItemValues: true
+});
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
 let betterInvActionMenuButton = null;
@@ -26,6 +32,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", async () => {
   console.log("Better Inventory loaded!");
+  await initializeBetterInvUserSettings();
   ensureBetterInvButton();
   installBetterInvInputGuard();
   installBetterInvDialogZGuard();
@@ -37,6 +44,12 @@ Hooks.on("updateActor", actor => refreshIfCurrentActor(actor));
 Hooks.on("createItem", item => refreshIfItemActor(item));
 Hooks.on("updateItem", item => refreshIfItemActor(item));
 Hooks.on("deleteItem", item => refreshIfItemActor(item));
+Hooks.on("updateUser", (user, changes) => {
+  if (user?.id !== game.user?.id) return;
+  const settingsChange = foundry.utils.getProperty(changes, `flags.${MODULE_ID}.${BETTER_INV_USER_SETTINGS_FLAG}`);
+  if (settingsChange === undefined) return;
+  if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+});
 
 function registerBetterInvHotkey() {
   if (!game?.keybindings) return;
@@ -52,25 +65,66 @@ function registerBetterInvHotkey() {
 
 function registerBetterInvSettings() {
   if (!game?.settings) return;
+  // Legacy client setting from Phase 3.2. It stays registered so existing
+  // choices can be migrated once into the per-user Foundry flag below.
   game.settings.register(MODULE_ID, "showItemValues", {
-    name: "Itemwerte anzeigen",
-    hint: "Zeigt den vom Spielsystem gespeicherten Preis direkt am Item an.",
+    name: "Itemwerte anzeigen (veraltet)",
+    hint: "Diese ältere Einstellung wird automatisch in die persönlichen Inventareinstellungen übernommen.",
     scope: "client",
-    config: true,
+    config: false,
     type: Boolean,
-    default: true,
-    onChange: () => {
-      if (document.getElementById("betterinv-window")) renderBetterInvWindow();
-    }
+    default: true
+  });
+}
+
+function normalizeBetterInvUserSettings(raw = {}) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return {
+    version: BETTER_INV_USER_SETTINGS_VERSION,
+    showItemValues: source.showItemValues !== false
+  };
+}
+
+function getBetterInvUserSettings() {
+  try {
+    return normalizeBetterInvUserSettings(game.user?.getFlag?.(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG));
+  } catch (error) {
+    console.warn("Better Inventory | Persönliche Einstellungen konnten nicht gelesen werden", error);
+    return { ...DEFAULT_BETTER_INV_USER_SETTINGS };
+  }
+}
+
+async function saveBetterInvUserSettings(patch = {}) {
+  if (!game.user?.setFlag) throw new Error("Kein angemeldeter Foundry-Nutzer verfügbar.");
+  const current = getBetterInvUserSettings();
+  const next = normalizeBetterInvUserSettings({ ...current, ...patch });
+  await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, next);
+  return next;
+}
+
+async function initializeBetterInvUserSettings() {
+  if (!game.user?.getFlag || !game.user?.setFlag) return;
+  const existing = game.user.getFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG);
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    const normalized = normalizeBetterInvUserSettings(existing);
+    const needsUpdate = existing.version !== normalized.version
+      || existing.showItemValues !== normalized.showItemValues;
+    if (needsUpdate) await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, normalized);
+    return;
+  }
+
+  let legacyShowItemValues = true;
+  try {
+    legacyShowItemValues = game.settings?.get?.(MODULE_ID, "showItemValues") !== false;
+  } catch (_) {}
+  await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, {
+    ...DEFAULT_BETTER_INV_USER_SETTINGS,
+    showItemValues: legacyShowItemValues
   });
 }
 
 function betterInvShowsItemValues() {
-  try {
-    return game.settings?.get?.(MODULE_ID, "showItemValues") !== false;
-  } catch (_) {
-    return true;
-  }
+  return getBetterInvUserSettings().showItemValues;
 }
 
 
@@ -863,8 +917,8 @@ function baseShellHtml(bodyHtml) {
         <input type="checkbox" class="betterinv-setting-show-item-values" ${showItemValues ? "checked" : ""}>
       </label>
       <div class="betterinv-settings-coming-soon">
-        <i class="fas fa-sliders-h" aria-hidden="true"></i>
-        <span>Weitere Anzeigeoptionen folgen in Phase 5.</span>
+        <i class="fas fa-user-check" aria-hidden="true"></i>
+        <span>Persönlich für deinen Foundry-Nutzer in dieser Welt gespeichert.</span>
       </div>
     </aside>
     <div class="betterinv-body">${bodyHtml}</div>
@@ -2888,13 +2942,16 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
   windowEl.querySelector(".betterinv-setting-show-item-values")?.addEventListener("change", async event => {
     const input = event.currentTarget;
     if (!(input instanceof HTMLInputElement)) return;
+    const previous = betterInvShowsItemValues();
     input.disabled = true;
     betterInvState.settingsOpen = true;
     try {
-      await game.settings.set(MODULE_ID, "showItemValues", input.checked);
+      await saveBetterInvUserSettings({ showItemValues: input.checked });
+      if (document.getElementById("betterinv-window")) renderBetterInvWindow();
     } catch (error) {
-      console.error("Better Inventory | Einstellung konnte nicht gespeichert werden", error);
-      ui.notifications.error("Die Einstellung konnte nicht gespeichert werden.");
+      console.error("Better Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+      ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
+      input.checked = previous;
       input.disabled = false;
     }
   });
