@@ -1422,7 +1422,9 @@ function getBetterInvCachedSubcategories(actor, containerId, categories, actorCa
 }
 
 function getInventoryItems(actor) {
-  return Array.from(actor?.items ?? []).filter(item => BETTER_INV_INVENTORY_TYPES.has(item.type));
+  return Array.from(actor?.items ?? []).filter(item =>
+    BETTER_INV_INVENTORY_TYPES.has(String(item?.type ?? "").toLowerCase()) || isContainerLike(item)
+  );
 }
 
 function isContainerLike(item, renderCache = null) {
@@ -2153,6 +2155,21 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     return;
   }
 
+  if (!canBetterInvUserModifyActor(actor)) {
+    betterInvState.actorId = null;
+    betterInvState.containerId = null;
+    windowEl.innerHTML = baseShellHtml(`
+      <p>Du besitzt keine ausreichenden Rechte für diesen Charakter.</p>
+      <p class="betterinv-hint">Axon’s Inventory erlaubt Änderungen nur für den GM oder Nutzer mit Besitzerrechten.</p>
+    `);
+    markBetterInvPerformancePhase(performanceSample, "domCommitted");
+    activateWindowListeners(windowEl, null, null);
+    markBetterInvPerformancePhase(performanceSample, "listenersReady");
+    performanceSample.mode = "no-permission";
+    performanceSample.committed = true;
+    return;
+  }
+
   if (!features.containers) betterInvState.containerId = null;
   const currentContainer = features.containers && betterInvState.containerId
     ? actor.items.get(betterInvState.containerId)
@@ -2241,7 +2258,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     getBetterInvActorCurrency(actor),
     features.currencyCalculator ? getBetterInvCurrencyDraft(actor) : {},
     {
-      editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor),
+      editable: canBetterInvUserModifyActor(actor) && !isBetterInvCurrencyTransactionPending(actor),
       showCalculator: features.currencyCalculator,
       showTransfer: features.currencyTransfer
     }
@@ -3937,7 +3954,7 @@ async function commitBetterInvCurrencyBalances(
   balances,
   { actionName = "Geldänderung", expectedTotalCopper = null } = {}
 ) {
-  if (!actor || actor.isOwner === false) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -4251,7 +4268,7 @@ function notifyBetterInvCurrencyAmountShortage(action, currency, requiredAmount,
 }
 
 async function addBetterInvCurrency(actor) {
-  if (!actor || actor.isOwner === false) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -4462,7 +4479,7 @@ function calculateBetterInvCurrencyDownExchange(wallet, exchanges) {
 }
 
 async function exchangeBetterInvCurrencyDown(actor) {
-  if (!actor || actor.isOwner === false) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -4527,7 +4544,7 @@ async function exchangeBetterInvCurrencyDown(actor) {
  * The implementation remains here, commented out, so it can later be exposed
  * as an alternative without rebuilding the original behaviour from scratch.
  *
-function calculateBetterInvCurrencyUpExchange(wallet, exchanges) {
+function calculateBetterInvCurrencyUpExchangeLegacySourceMode(wallet, exchanges) {
   const balances = new Map();
   for (const currency of Array.from(wallet ?? [])) {
     const value = Math.max(0, Math.trunc(Number(currency?.value) || 0));
@@ -4604,8 +4621,9 @@ function calculateBetterInvCurrencyUpExchange(wallet, exchanges) {
   return { balances, conversions };
 }
 
-async function exchangeBetterInvCurrencyUp(actor) {
-  if (!actor || actor.isOwner === false) {
+// Legacy source-based mode retained for a future user setting. It is intentionally not wired to the UI.
+async function exchangeBetterInvCurrencyUpLegacySourceMode(actor) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -4652,7 +4670,7 @@ async function exchangeBetterInvCurrencyUp(actor) {
     }
   }
 
-  const result = calculateBetterInvCurrencyUpExchange(wallet, exchanges);
+  const result = calculateBetterInvCurrencyUpExchangeLegacySourceMode(wallet, exchanges);
   const updateData = {};
   for (const currency of wallet) {
     const next = result.balances.get(currency.key)?.value;
@@ -4788,7 +4806,7 @@ function calculateBetterInvCurrencyUpExchange(wallet, requests) {
 }
 
 async function exchangeBetterInvCurrencyUp(actor) {
-  if (!actor || actor.isOwner === false) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -4847,7 +4865,7 @@ async function exchangeBetterInvCurrencyUp(actor) {
 }
 
 async function removeBetterInvCurrency(actor) {
-  if (!actor || actor.isOwner === false) {
+  if (!canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst die Währungen dieses Charakters nicht ändern.");
     return false;
   }
@@ -7728,7 +7746,7 @@ async function runBetterInvCurrencyAction(windowEl, actor, button, action, { log
     if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
     else notifyBetterInvCurrencyError(errorMessage);
   } finally {
-    const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
+    const disabled = !canBetterInvUserModifyActor(actor) || isBetterInvCurrencyTransactionPending(actor);
     actionButtons.forEach(actionButton => { if (actionButton.isConnected) actionButton.disabled = disabled; });
     currencyInputs.forEach(input => { if (input.isConnected) input.disabled = disabled; });
     if (button.isConnected) button.classList.remove("betterinv-currency-action-busy");
