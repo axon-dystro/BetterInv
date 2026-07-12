@@ -3198,3 +3198,40 @@
 .betterinv-toolbar.betterinv-toolbar-no-search > button:only-child {
   min-width: 110px;
 }
+
+/* Phase 5.4: disabled attunement preview. */
+.betterinv-settings-row-disabled {
+  cursor: not-allowed;
+  opacity: .62;
+  background: rgba(16,16,20,.58);
+  border-style: dashed;
+}
+
+.betterinv-settings-row-disabled:hover {
+  border-color: rgba(158,139,83,.28);
+  background: rgba(16,16,20,.58);
+}
+
+.betterinv-settings-row-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+  filter: grayscale(1);
+  opacity: .55;
+}
+
+.betterinv-settings-badge {
+  margin-left: 5px;
+  padding: 1px 5px;
+  display: inline-block;
+  vertical-align: 1px;
+  border: 1px solid rgba(200,168,90,.32);
+  border-radius: 999px;
+  color: #b7a476;
+  background: rgba(200,168,90,.07);
+  font-size: 7px;
+  font-style: normal;
+  font-weight: 900;
+  line-height: 1.45;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}

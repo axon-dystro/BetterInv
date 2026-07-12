@@ -54,6 +54,7 @@ const BETTER_INV_SETTINGS_GROUPS = [
       ["showAddItemButton", "Item hinzufügen", "Zeigt den Button zum Erstellen eines neuen Items."],
       ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Itemaktionen wie Duplizieren und Löschen."],
       ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
+      [null, "Einstimmung", "Unterstützung für eingestimmte Gegenstände folgt in einer späteren Version.", { disabled: true, badge: "Coming soon" }],
       ["showCategoryDropdown", "Kategorie-Dropdown", "Zeigt die kleine Kategorienauswahl direkt am Item."]
     ]
   },
@@ -1070,14 +1071,26 @@ function betterInvSettingsGroupsHtml(userSettings) {
   return BETTER_INV_SETTINGS_GROUPS.map(group => `
     <section class="betterinv-settings-group">
       <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
-      ${group.settings.map(([key, label, description]) => `
-        <label class="betterinv-settings-row">
-          <span>
-            <strong>${escapeHtml(label)}</strong>
-            <small>${escapeHtml(description)}</small>
-          </span>
-          <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
-        </label>`).join("")}
+      ${group.settings.map(([key, label, description, options = {}]) => {
+        if (options.disabled) {
+          return `
+            <label class="betterinv-settings-row betterinv-settings-row-disabled" aria-disabled="true">
+              <span>
+                <strong>${escapeHtml(label)}${options.badge ? ` <em class="betterinv-settings-badge">${escapeHtml(options.badge)}</em>` : ""}</strong>
+                <small>${escapeHtml(description)}</small>
+              </span>
+              <input type="checkbox" disabled aria-label="${escapeAttr(`${label} – ${options.badge ?? "deaktiviert"}`)}">
+            </label>`;
+        }
+        return `
+          <label class="betterinv-settings-row">
+            <span>
+              <strong>${escapeHtml(label)}</strong>
+              <small>${escapeHtml(description)}</small>
+            </span>
+            <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
+          </label>`;
+      }).join("")}
     </section>`).join("");
 }
 
