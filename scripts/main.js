@@ -92,7 +92,12 @@ let betterInvTokenDropFeedbackInstalled = false;
 let betterInvButtonRetryTimer = null;
 let betterInvRefreshFrame = null;
 let betterInvRefreshPreserveScroll = true;
+let betterInvRefreshBatchDepth = 0;
+let betterInvRefreshBatchRequested = false;
+let betterInvRefreshBatchPreserveScroll = true;
 let betterInvRenderSequence = 0;
+let betterInvRenderPromise = null;
+let betterInvQueuedRenderOptions = null;
 let betterInvDialogMutationFrame = null;
 const betterInvPendingDialogElements = new Set();
 let betterInvState = {
@@ -658,6 +663,11 @@ function betterInvItemChangesAffectFeatures(item, changes, features, { lifecycle
 
 function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
   if (!document.getElementById("betterinv-window")) return;
+  if (betterInvRefreshBatchDepth > 0) {
+    betterInvRefreshBatchRequested = true;
+    betterInvRefreshBatchPreserveScroll = betterInvRefreshBatchPreserveScroll && preserveScroll !== false;
+    return;
+  }
   betterInvRefreshPreserveScroll = betterInvRefreshPreserveScroll && preserveScroll !== false;
   if (betterInvRefreshFrame !== null) return;
   betterInvRefreshFrame = requestAnimationFrame(() => {
@@ -667,6 +677,32 @@ function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
     if (!document.getElementById("betterinv-window")) return;
     renderBetterInvWindow({ preserveScroll: keepScroll });
   });
+}
+
+async function withBetterInvRefreshBatch(action, {
+  forceRefresh = false,
+  refreshResult = false,
+  preserveScroll = true
+} = {}) {
+  if (typeof action !== "function") return undefined;
+  betterInvRefreshBatchDepth += 1;
+  let result;
+  try {
+    result = await action();
+    return result;
+  } finally {
+    if (forceRefresh || (refreshResult && Boolean(result))) {
+      betterInvRefreshBatchRequested = true;
+      betterInvRefreshBatchPreserveScroll = betterInvRefreshBatchPreserveScroll && preserveScroll !== false;
+    }
+    betterInvRefreshBatchDepth = Math.max(0, betterInvRefreshBatchDepth - 1);
+    if (betterInvRefreshBatchDepth === 0 && betterInvRefreshBatchRequested) {
+      const keepScroll = betterInvRefreshBatchPreserveScroll;
+      betterInvRefreshBatchRequested = false;
+      betterInvRefreshBatchPreserveScroll = true;
+      scheduleBetterInvRefresh({ preserveScroll: keepScroll });
+    }
+  }
 }
 
 function cancelScheduledBetterInvRefresh() {
@@ -772,6 +808,24 @@ function getContextKey(containerId) {
   return containerId ? `container:${containerId}` : "actor";
 }
 
+function betterInvPlainValuesEqual(left, right) {
+  if (left === right) return true;
+  try { return JSON.stringify(left) === JSON.stringify(right); }
+  catch (_error) { return false; }
+}
+
+async function setBetterInvDocumentFlag(document, key, value, { skipRefresh = false } = {}) {
+  if (!document || !key) return false;
+  const current = document.getFlag?.(MODULE_ID, key);
+  if (betterInvPlainValuesEqual(current, value)) return false;
+  if (!skipRefresh) {
+    await document.setFlag(MODULE_ID, key, value);
+    return true;
+  }
+  await document.update({ [`flags.${MODULE_ID}.${key}`]: value }, { betterInvSkipRefresh: true });
+  return true;
+}
+
 async function getCategories(actor, containerId = null) {
   const all = actor?.getFlag(MODULE_ID, "categoriesByContext") ?? {};
   const ctx = getContextKey(containerId);
@@ -799,13 +853,13 @@ async function getSubcategories(actor, parentCategory, containerId = null) {
   return Array.isArray(list) ? list.map(c => sanitizePlainText(c, { max: 48 })).filter(Boolean) : [];
 }
 
-async function setSubcategories(actor, parentCategory, subcategories, containerId = null) {
+async function setSubcategories(actor, parentCategory, subcategories, containerId = null, { skipRefresh = false } = {}) {
   if (!actor || !parentCategory || parentCategory === "__unsorted") return;
   const all = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {});
   const ctx = getContextKey(containerId);
   all[ctx] ??= {};
   all[ctx][parentCategory] = [...new Set(subcategories.map(c => sanitizePlainText(c, { max: 48 })).filter(Boolean))];
-  await actor.setFlag(MODULE_ID, "subcategoriesByContext", all);
+  await setBetterInvDocumentFlag(actor, "subcategoriesByContext", all, { skipRefresh });
 }
 
 function makeSubcategoryId(parent, sub) { return `${parent}::${sub}`; }
@@ -841,27 +895,29 @@ function categoryOptionLabel(id) {
 
 async function addSubcategory(actor, parentCategory, subName, containerId = null) {
   subName = sanitizePlainText(subName, { max: 48 });
-  if (!subName || !actor || parentCategory === "__unsorted") return;
+  if (!subName || !actor || parentCategory === "__unsorted") return false;
   const subs = await getSubcategories(actor, parentCategory, containerId);
-  if (subs.includes(subName)) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return; }
+  if (subs.includes(subName)) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return false; }
   await setSubcategories(actor, parentCategory, [...subs, subName], containerId);
+  return true;
 }
 
 async function renameSubcategory(actor, parentCategory, oldSub, newSub, containerId = null) {
   newSub = sanitizePlainText(newSub, { max: 48 });
-  if (!newSub || !actor || parentCategory === "__unsorted") return;
+  if (!newSub || !actor || parentCategory === "__unsorted") return false;
   const subs = await getSubcategories(actor, parentCategory, containerId);
-  if (subs.includes(newSub) && newSub !== oldSub) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return; }
+  if (subs.includes(newSub) && newSub !== oldSub) { ui.notifications.warn("Diese Unterkategorie gibt es schon."); return false; }
   await setSubcategories(actor, parentCategory, subs.map(s => s === oldSub ? newSub : s), containerId);
   const oldId = makeSubcategoryId(parentCategory, oldSub);
   const newId = makeSubcategoryId(parentCategory, newSub);
   for (const item of getInventoryItems(actor)) {
     if (itemCategory(item, containerId) === oldId) await setItemCategory(item, newId, containerId);
   }
+  return true;
 }
 
 async function deleteSubcategory(actor, parentCategory, subName, containerId = null) {
-  if (!actor || parentCategory === "__unsorted") return;
+  if (!actor || parentCategory === "__unsorted") return false;
   const confirmed = await openBetterInvConfirmDialog({
     title: "Unterkategorie löschen",
     kicker: "Unterkategorie entfernen",
@@ -871,13 +927,14 @@ async function deleteSubcategory(actor, parentCategory, subName, containerId = n
     contentHtml: `<p><strong>${escapeHtml(subName)}</strong> wirklich löschen?</p>`,
     note: `Enthaltene Items werden nach ${parentCategory} verschoben.`
   });
-  if (!confirmed) return;
+  if (!confirmed) return false;
   const subs = (await getSubcategories(actor, parentCategory, containerId)).filter(s => s !== subName);
   await setSubcategories(actor, parentCategory, subs, containerId);
   const oldId = makeSubcategoryId(parentCategory, subName);
   for (const item of getInventoryItems(actor)) {
     if (itemCategory(item, containerId) === oldId) await setItemCategory(item, parentCategory, containerId);
   }
+  return true;
 }
 
 async function getCategoryOrder(actor, containerId = null, categories = null) {
@@ -888,7 +945,7 @@ async function getCategoryOrder(actor, containerId = null, categories = null) {
   return [...existing.filter(id => known.includes(id)), ...known.filter(id => !existing.includes(id))];
 }
 
-async function setCategoryOrder(actor, order, containerId = null) {
+async function setCategoryOrder(actor, order, containerId = null, { skipRefresh = false } = {}) {
   if (!actor) return;
   const categories = await getCategories(actor, containerId);
   const valid = ["__unsorted", ...categories];
@@ -896,15 +953,15 @@ async function setCategoryOrder(actor, order, containerId = null) {
   const finalOrder = [...clean, ...valid.filter(id => !clean.includes(id))];
   const all = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "categoryOrderByContext") ?? {});
   all[getContextKey(containerId)] = finalOrder;
-  await actor.setFlag(MODULE_ID, "categoryOrderByContext", all);
+  await setBetterInvDocumentFlag(actor, "categoryOrderByContext", all, { skipRefresh });
 }
 
 async function renameCategory(actor, oldName, newName, containerId = null) {
-  if (!actor || oldName === "__unsorted") return;
+  if (!actor || oldName === "__unsorted") return false;
   newName = sanitizePlainText(newName, { max: 48 });
-  if (!newName) return;
+  if (!newName) return false;
   const categories = await getCategories(actor, containerId);
-  if (categories.includes(newName) && newName !== oldName) { ui.notifications.warn("Diese Kategorie gibt es schon."); return; }
+  if (categories.includes(newName) && newName !== oldName) { ui.notifications.warn("Diese Kategorie gibt es schon."); return false; }
   const renamed = categories.map(c => c === oldName ? newName : c);
   await setCategories(actor, renamed, containerId);
   const order = await getCategoryOrder(actor, containerId, renamed);
@@ -924,10 +981,11 @@ async function renameCategory(actor, oldName, newName, containerId = null) {
     if (cat === oldName) await setItemCategory(item, newName, containerId);
     else if (cat.startsWith(`${oldName}::`)) await setItemCategory(item, `${newName}::${cat.slice(oldName.length + 2)}`, containerId);
   }
+  return true;
 }
 
 async function deleteCategory(actor, categoryName, containerId = null) {
-  if (!actor || categoryName === "__unsorted") return;
+  if (!actor || categoryName === "__unsorted") return false;
   const confirmed = await openBetterInvConfirmDialog({
     title: "Kategorie löschen",
     kicker: "Kategorie entfernen",
@@ -937,7 +995,7 @@ async function deleteCategory(actor, categoryName, containerId = null) {
     contentHtml: `<p><strong>${escapeHtml(categoryName)}</strong> wirklich löschen?</p>`,
     note: "Enthaltene Items werden nach Unsortiert verschoben."
   });
-  if (!confirmed) return;
+  if (!confirmed) return false;
   const categories = (await getCategories(actor, containerId)).filter(c => c !== categoryName);
   await setCategories(actor, categories, containerId);
   await setCategoryOrder(actor, (await getCategoryOrder(actor, containerId, categories)).filter(id => id !== categoryName), containerId);
@@ -953,6 +1011,7 @@ async function deleteCategory(actor, categoryName, containerId = null) {
     const cat = itemCategory(item, containerId);
     if (cat === categoryName || cat.startsWith(`${categoryName}::`)) await setItemCategory(item, "__unsorted", containerId);
   }
+  return true;
 }
 
 function getItemIdentificationData(item) {
@@ -1010,11 +1069,11 @@ async function getItemOrder(actor, containerId = null) {
   return Array.isArray(all[ctx]) ? all[ctx] : [];
 }
 
-async function setItemOrder(actor, itemIds, containerId = null) {
+async function setItemOrder(actor, itemIds, containerId = null, { skipRefresh = false } = {}) {
   if (!actor) return;
   const all = foundry.utils.deepClone(actor.getFlag(MODULE_ID, "itemOrderByContext") ?? {});
   all[getContextKey(containerId)] = [...new Set(itemIds.filter(Boolean))];
-  await actor.setFlag(MODULE_ID, "itemOrderByContext", all);
+  await setBetterInvDocumentFlag(actor, "itemOrderByContext", all, { skipRefresh });
 }
 
 async function getContainerOrder(actor) {
@@ -1022,9 +1081,9 @@ async function getContainerOrder(actor) {
   return Array.isArray(order) ? order : [];
 }
 
-async function setContainerOrder(actor, containerIds) {
+async function setContainerOrder(actor, containerIds, { skipRefresh = false } = {}) {
   if (!actor) return;
-  await actor.setFlag(MODULE_ID, "containerOrder", [...new Set(containerIds.filter(Boolean))]);
+  await setBetterInvDocumentFlag(actor, "containerOrder", [...new Set(containerIds.filter(Boolean))], { skipRefresh });
 }
 
 async function getContainerLayerCount(actor) {
@@ -1032,10 +1091,10 @@ async function getContainerLayerCount(actor) {
   return Number.isFinite(n) && n > 0 ? Math.min(12, Math.max(1, Math.round(n))) : null;
 }
 
-async function setContainerLayerCount(actor, count) {
+async function setContainerLayerCount(actor, count, { skipRefresh = false } = {}) {
   if (!actor) return;
   const clean = Math.min(12, Math.max(1, Math.round(Number(count) || 1)));
-  await actor.setFlag(MODULE_ID, "containerLayerCount", clean);
+  await setBetterInvDocumentFlag(actor, "containerLayerCount", clean, { skipRefresh });
 }
 
 async function getContainerLayerMap(actor) {
@@ -1043,14 +1102,14 @@ async function getContainerLayerMap(actor) {
   return map && typeof map === "object" && !Array.isArray(map) ? map : {};
 }
 
-async function setContainerLayerMap(actor, map) {
+async function setContainerLayerMap(actor, map, { skipRefresh = false } = {}) {
   if (!actor) return;
   const clean = {};
   for (const [id, row] of Object.entries(map ?? {})) {
     const n = Math.round(Number(row));
     if (id && Number.isFinite(n) && n >= 0) clean[id] = n;
   }
-  await actor.setFlag(MODULE_ID, "containerLayerMap", clean);
+  await setBetterInvDocumentFlag(actor, "containerLayerMap", clean, { skipRefresh });
 }
 
 function getRawContainerAlias(actor, container) {
@@ -1141,7 +1200,46 @@ function toggleBetterInvWindow() {
   renderBetterInvWindow();
 }
 
-async function renderBetterInvWindow({ preserveScroll = true } = {}) {
+function mergeBetterInvRenderOptions(current = null, incoming = {}) {
+  if (!current) return { preserveScroll: incoming?.preserveScroll !== false };
+  return {
+    preserveScroll: current.preserveScroll !== false && incoming?.preserveScroll !== false
+  };
+}
+
+function renderBetterInvWindow(options = {}) {
+  const normalized = mergeBetterInvRenderOptions(null, options);
+  if (betterInvRenderPromise) {
+    betterInvQueuedRenderOptions = mergeBetterInvRenderOptions(betterInvQueuedRenderOptions, normalized);
+    return betterInvRenderPromise;
+  }
+
+  // Start in a microtask so the promise guard is assigned before rendering
+  // begins. Otherwise a synchronous nested render request could start a second
+  // render worker before betterInvRenderPromise receives its value.
+  betterInvRenderPromise = Promise.resolve().then(async () => {
+    let nextOptions = normalized;
+    while (nextOptions) {
+      betterInvQueuedRenderOptions = null;
+      await performBetterInvWindowRender(nextOptions);
+      nextOptions = betterInvQueuedRenderOptions;
+    }
+  }).finally(() => {
+    betterInvRenderPromise = null;
+    betterInvQueuedRenderOptions = null;
+  });
+  return betterInvRenderPromise;
+}
+
+function applyBetterInvScale(windowEl) {
+  if (!windowEl) return;
+  const scale = Math.min(1.35, Math.max(0.65, Number(betterInvState.scale) || 1));
+  windowEl.style.setProperty("--bi-content-scale", String(scale));
+  const content = windowEl.querySelector?.(".betterinv-content");
+  if (content) content.style.zoom = String(scale);
+}
+
+async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   cancelScheduledBetterInvRefresh();
   const renderSequence = ++betterInvRenderSequence;
   closeBetterInvItemActionMenu();
@@ -1160,7 +1258,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     windowEl.style.top = "110px";
     document.body.appendChild(windowEl);
   }
-  windowEl.style.setProperty("--bi-content-scale", String(betterInvState.scale || 1));
+  applyBetterInvScale(windowEl);
 
   const userSettings = getBetterInvUserSettings();
   const features = getBetterInvFeaturePlan(userSettings);
@@ -1488,6 +1586,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   `);
 
   activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems });
+  windowEl.dataset.betterInvRenderedSearch = String(betterInvState.search ?? "");
+  applyBetterInvScale(windowEl);
   const newBody = windowEl.querySelector(".betterinv-body");
   if (newBody) newBody.scrollTop = previousScrollTop;
   if (restoreSearchFocus) {
@@ -4425,8 +4525,10 @@ function enableBetterInvExternalItemDrops(windowEl, actor, activeContainer = nul
     try {
       const sourceItem = await resolveBetterInvDroppedItemDocument(data);
       if (!sourceItem) throw new Error("Der gezogene Gegenstand konnte von Foundry nicht aufgelöst werden.");
-      await importBetterInvDroppedItem(actor, sourceItem, destination);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(
+        () => importBetterInvDroppedItem(actor, sourceItem, destination),
+        { forceRefresh: true }
+      );
     } catch (error) {
       console.error("Better Inventory | Externes Item konnte nicht importiert werden", error);
       ui.notifications.error(error?.message || "Der Gegenstand konnte nicht in das Inventar gezogen werden.");
@@ -4695,8 +4797,10 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
   const confirmed = await confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity);
   if (!confirmed) return;
 
-  await transferBetterInvItemToActor(sourceActor, sourceItem, targetActor, quantity);
-  if (document.getElementById("betterinv-window")) renderBetterInvWindow();
+  await withBetterInvRefreshBatch(
+    () => transferBetterInvItemToActor(sourceActor, sourceItem, targetActor, quantity),
+    { forceRefresh: true }
+  );
 }
 
 
@@ -5873,8 +5977,10 @@ async function runBetterInvCurrencyAction(windowEl, actor, button, action, { log
   currencyInputs.forEach(input => { input.disabled = true; });
   button.classList.add("betterinv-currency-action-busy");
   try {
-    const changed = await action(actor);
-    if (changed) renderBetterInvWindow();
+    await withBetterInvRefreshBatch(
+      () => action(actor),
+      { refreshResult: true }
+    );
   } catch (error) {
     console.error(logMessage, error);
     if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
@@ -5903,8 +6009,10 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     if (!item) return;
     select.disabled = true;
     try {
-      await setItemCategory(item, select.value, containerId);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(
+        () => setItemCategory(item, select.value, containerId),
+        { forceRefresh: true }
+      );
     } catch (error) {
       console.error("Better Inventory | Kategorie konnte nicht geändert werden", error);
       ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
@@ -5934,8 +6042,10 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         try {
           const alias = await promptContainerAlias(actor, container);
           if (alias === null) return;
-          await setContainerAlias(actor, container, alias);
-          renderBetterInvWindow();
+          await withBetterInvRefreshBatch(
+            () => setContainerAlias(actor, container, alias),
+            { forceRefresh: true }
+          );
         } catch (error) {
           console.error("Better Inventory | Rucksackname konnte nicht geändert werden", error);
           ui.notifications.error("Der Rucksackname konnte nicht geändert werden.");
@@ -6084,7 +6194,10 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
       if (windowEl._betterInvSearchTimer) clearTimeout(windowEl._betterInvSearchTimer);
       windowEl._betterInvSearchTimer = setTimeout(() => {
         windowEl._betterInvSearchTimer = null;
-        if (windowEl.isConnected) renderBetterInvWindow();
+        if (!windowEl.isConnected) return;
+        const renderedSearch = String(windowEl.dataset.betterInvRenderedSearch ?? "");
+        if (renderedSearch === String(betterInvState.search ?? "")) return;
+        scheduleBetterInvRefresh();
       }, 120);
       return;
     }
@@ -6150,8 +6263,14 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     windowEl.remove();
   });
   listen(windowEl.querySelector(".betterinv-popout"), "pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
-  listen(windowEl.querySelector(".betterinv-scale-down"), "click", () => { betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10); renderBetterInvWindow(); });
-  listen(windowEl.querySelector(".betterinv-scale-up"), "click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
+  listen(windowEl.querySelector(".betterinv-scale-down"), "click", () => {
+    betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10);
+    applyBetterInvScale(windowEl);
+  });
+  listen(windowEl.querySelector(".betterinv-scale-up"), "click", () => {
+    betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10);
+    applyBetterInvScale(windowEl);
+  });
 
   const settingsButton = windowEl.querySelector(".betterinv-settings");
   listen(settingsButton, "click", event => {
@@ -6165,9 +6284,9 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
-    await setContainerLayerCount(actor, current + 1);
+    await setContainerLayerCount(actor, current + 1, { skipRefresh: true });
     // Keep all existing backpack layer assignments exactly where they are.
-    renderBetterInvWindow();
+    scheduleBetterInvRefresh();
   });
   windowEl.querySelector(".betterinv-layer-minus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
@@ -6180,9 +6299,9 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       const row = Math.round(Number(map?.[container.id] ?? fallback));
       nextMap[container.id] = Math.min(next - 1, Math.max(0, Number.isFinite(row) ? row : 0));
     });
-    await setContainerLayerMap(actor, nextMap);
-    await setContainerLayerCount(actor, next);
-    renderBetterInvWindow();
+    await setContainerLayerMap(actor, nextMap, { skipRefresh: true });
+    await setContainerLayerCount(actor, next, { skipRefresh: true });
+    scheduleBetterInvRefresh();
   });
   windowEl.querySelector(".betterinv-change-actor")?.addEventListener("click", event => {
     event.preventDefault();
@@ -6230,10 +6349,11 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     const categories = await getCategories(actor, activeContainer?.id ?? null);
     if (categories.includes(name)) { ui.notifications.warn("Diese Kategorie gibt es schon."); return; }
     const containerId = activeContainer?.id ?? null;
-    await setCategories(actor, [...categories, name], containerId);
-    const order = await getCategoryOrder(actor, containerId, [...categories, name]);
-    await setCategoryOrder(actor, [...order, name], containerId);
-    renderBetterInvWindow();
+    await withBetterInvRefreshBatch(async () => {
+      await setCategories(actor, [...categories, name], containerId);
+      const order = await getCategoryOrder(actor, containerId, [...categories, name]);
+      await setCategoryOrder(actor, [...order, name], containerId);
+    }, { forceRefresh: true });
   });
 
 
@@ -6265,8 +6385,10 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
         }), 40);
       });
       if (!name) return;
-      await addSubcategory(actor, parentCategory, name, activeContainer?.id ?? null);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(
+        () => addSubcategory(actor, parentCategory, name, activeContainer?.id ?? null),
+        { refreshResult: true }
+      );
     });
   });
 
@@ -6302,9 +6424,11 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       });
       if (!choice) return;
       const containerId = activeContainer?.id ?? null;
-      if (choice.action === "rename") await renameSubcategory(actor, parentCategory, currentName, choice.name, containerId);
-      if (choice.action === "delete") await deleteSubcategory(actor, parentCategory, currentName, containerId);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(async () => {
+        if (choice.action === "rename") return renameSubcategory(actor, parentCategory, currentName, choice.name, containerId);
+        if (choice.action === "delete") return deleteSubcategory(actor, parentCategory, currentName, containerId);
+        return false;
+      }, { refreshResult: true });
     });
   });
 
@@ -6341,9 +6465,11 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
       });
       if (!choice) return;
       const containerId = activeContainer?.id ?? null;
-      if (choice.action === "rename") await renameCategory(actor, currentName, choice.name, containerId);
-      if (choice.action === "delete") await deleteCategory(actor, currentName, containerId);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(async () => {
+        if (choice.action === "rename") return renameCategory(actor, currentName, choice.name, containerId);
+        if (choice.action === "delete") return deleteCategory(actor, currentName, containerId);
+        return false;
+      }, { refreshResult: true });
     });
   });
 
@@ -6402,9 +6528,8 @@ function enableContainerDragSorting(windowEl, actor, activeContainer = null) {
           layerMap[id] = rowIndex;
         });
       });
-      await setContainerOrder(actor, order);
-      await setContainerLayerMap(actor, layerMap);
-      renderBetterInvWindow();
+      await setContainerOrder(actor, order, { skipRefresh: true });
+      await setContainerLayerMap(actor, layerMap, { skipRefresh: true });
     });
   });
   strip.querySelectorAll(".betterinv-container-row").forEach(row => {
@@ -6464,10 +6589,11 @@ function enableItemToContainerDrop(windowEl, actor, activeContainer = null) {
       const item = actor?.items?.get(dragging.dataset.itemId);
       const targetContainer = actor?.items?.get(card.dataset.containerId);
       if (!item || !targetContainer || item.id === targetContainer.id) return;
-      await moveItemToContainer(item, targetContainer);
-      await setItemCategory(item, "__unsorted", targetContainer.id);
-      await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(async () => {
+        await moveItemToContainer(item, targetContainer);
+        await setItemCategory(item, "__unsorted", targetContainer.id);
+        await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
+      }, { forceRefresh: true });
     });
   });
 
@@ -6489,10 +6615,11 @@ function enableItemToContainerDrop(windowEl, actor, activeContainer = null) {
       removeZone.classList.remove("betterinv-remove-target");
       const item = actor?.items?.get(dragging.dataset.itemId);
       if (!item) return;
-      await moveItemToContainer(item, null);
-      await setItemCategory(item, "__unsorted", null);
-      await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
-      renderBetterInvWindow();
+      await withBetterInvRefreshBatch(async () => {
+        await moveItemToContainer(item, null);
+        await setItemCategory(item, "__unsorted", null);
+        await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
+      }, { forceRefresh: true });
     });
   }
 }
@@ -6554,9 +6681,8 @@ function enableSubcategoryDragSorting(windowEl, actor, containerId = null) {
         const order = Array.from(parentEl.querySelectorAll(":scope > .betterinv-subcategory"))
           .map(el => el.dataset.subcategory)
           .filter(Boolean);
-        await setSubcategories(actor, oldParentName, order, containerId);
+        await setSubcategories(actor, oldParentName, order, containerId, { skipRefresh: true });
       }
-      renderBetterInvWindow();
     });
   });
 
@@ -6612,8 +6738,7 @@ function enableCategoryDragSorting(windowEl, actor, containerId = null) {
       clearDropIndicator(windowEl);
       categoryEl.classList.remove("betterinv-dragging");
       const order = Array.from(windowEl.querySelectorAll(".betterinv-category")).map(el => el.dataset.category).filter(Boolean);
-      await setCategoryOrder(actor, order, containerId);
-      renderBetterInvWindow();
+      await setCategoryOrder(actor, order, containerId, { skipRefresh: true });
     });
   });
   body?.addEventListener("dragover", event => {
@@ -6695,16 +6820,20 @@ function enableItemDragSorting(windowEl, actor, containerId = null) {
       betterInvActiveItemDrag = null;
 
       const item = actor?.items?.get(row.dataset.itemId);
-      if (item && targetCategory && row.dataset.category !== targetCategory) {
-        await setItemCategory(item, targetCategory, containerId);
-        row.dataset.category = targetCategory;
-      }
+      const categoryChanged = Boolean(item && targetCategory && row.dataset.category !== targetCategory);
+      await withBetterInvRefreshBatch(async () => {
+        if (categoryChanged) {
+          await setItemCategory(item, targetCategory, containerId);
+          row.dataset.category = targetCategory;
+        }
 
-      // Save one global visual order for the current actor/container context.
-      // Filtering by category later keeps each category's local order stable.
-      const order = Array.from(windowEl.querySelectorAll(".betterinv-item:not(.betterinv-favorite-view)")).map(el => el.dataset.itemId).filter(Boolean);
-      await setItemOrder(actor, order, containerId);
-      renderBetterInvWindow();
+        // Save one global visual order for the current actor/container context.
+        // Filtering by category later keeps each category's local order stable.
+        const order = Array.from(windowEl.querySelectorAll(".betterinv-item:not(.betterinv-favorite-view)")).map(el => el.dataset.itemId).filter(Boolean);
+        await setItemOrder(actor, order, containerId, { skipRefresh: true });
+      }, { forceRefresh: categoryChanged });
+      // A pure reorder already has the correct DOM order. Only a cross-category
+      // move needs a rebuild for counts, weights, favorites and empty states.
     });
   });
 
