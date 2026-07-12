@@ -3236,66 +3236,210 @@
   white-space: nowrap;
 }
 
-/* Phase 6.1: choose whether a new item is empty or comes from a compendium. */
+/* Phase 6.1–6.2: polished item-source dialog with accessible compendium detection. */
+.betterinv-item-source-dialog {
+  width: min(520px, calc(100vw - 24px)) !important;
+  min-width: 0 !important;
+}
+
+.betterinv-item-source-dialog .window-content,
+.betterinv-item-source-dialog .dialog-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.025), transparent 36%),
+    linear-gradient(135deg, #17171c, #0e0e12 72%);
+  color: var(--bi-text);
+}
+
+.betterinv-item-source-dialog .dialog-buttons {
+  display: none !important;
+}
+
 .betterinv-item-source-choice {
-  min-width: 360px;
-  padding: 4px 2px 2px;
+  min-width: 0;
+  padding: 18px;
 }
 
-.betterinv-item-source-intro {
-  margin: 0 0 10px;
-  color: #3f3a31;
-  font-weight: 700;
+.betterinv-item-source-heading {
+  margin-bottom: 13px;
 }
 
-.betterinv-item-source-preview {
+.betterinv-item-source-kicker {
+  display: block;
+  margin-bottom: 4px;
+  color: #b7a476;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.betterinv-item-source-heading p {
+  margin: 0;
+  color: #f0e6d0;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.betterinv-item-source-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
 }
 
-.betterinv-item-source-preview-card {
+.betterinv-item-source-option {
   min-width: 0;
-  min-height: 72px;
-  padding: 10px;
+  min-height: 132px;
+  margin: 0 !important;
+  padding: 13px !important;
+  display: grid !important;
+  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-areas:
+    "icon copy"
+    "status status";
+  align-items: start;
+  gap: 10px;
+  border: 1px solid rgba(200,168,90,.26) !important;
+  border-radius: 6px !important;
+  background: linear-gradient(180deg, rgba(34,34,40,.98), rgba(18,18,22,.98)) !important;
+  color: var(--bi-text) !important;
+  text-align: left !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,.035) inset, 0 6px 18px rgba(0,0,0,.22);
+  cursor: pointer;
+  transition: border-color .13s ease, background .13s ease, transform .13s ease, box-shadow .13s ease;
+}
+
+.betterinv-item-source-option:hover:not(:disabled),
+.betterinv-item-source-option:focus-visible:not(:disabled) {
+  border-color: rgba(200,168,90,.72) !important;
+  background: linear-gradient(180deg, rgba(47,45,39,.98), rgba(23,22,20,.98)) !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,.055) inset, 0 9px 24px rgba(0,0,0,.34), 0 0 0 1px rgba(200,168,90,.08);
+  transform: translateY(-1px);
+  outline: none;
+}
+
+.betterinv-item-source-option:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.betterinv-item-source-option:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+  filter: grayscale(.45);
+}
+
+.betterinv-item-source-icon {
+  grid-area: icon;
+  width: 38px;
+  height: 38px;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  border: 1px solid rgba(95, 78, 45, .38);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, .22);
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.30);
+  border-radius: 5px;
+  background: rgba(200,168,90,.08);
+  color: #d8c795;
+  font-size: 17px;
 }
 
-.betterinv-item-source-preview-card > i {
-  font-size: 20px;
-  text-align: center;
-  color: #705d35;
+.betterinv-item-source-option-compendium .betterinv-item-source-icon {
+  border-color: rgba(116,135,176,.34);
+  background: rgba(78,98,145,.11);
+  color: #b9c8ea;
 }
 
-.betterinv-item-source-preview-card strong,
-.betterinv-item-source-preview-card span {
+.betterinv-item-source-copy {
+  grid-area: copy;
+  min-width: 0;
+}
+
+.betterinv-item-source-copy strong,
+.betterinv-item-source-copy span {
   display: block;
 }
 
-.betterinv-item-source-preview-card strong {
-  margin-bottom: 3px;
-  color: #29251f;
-  font-size: 13px;
+.betterinv-item-source-copy strong {
+  margin: 1px 0 5px;
+  color: #f3ead6;
+  font-size: 14px;
+  font-weight: 900;
 }
 
-.betterinv-item-source-preview-card span {
-  color: #5f584c;
+.betterinv-item-source-copy span {
+  overflow: hidden;
+  color: #aaa18f;
   font-size: 11px;
-  line-height: 1.25;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
-@media (max-width: 500px) {
+.betterinv-item-source-status {
+  grid-area: status;
+  justify-self: start;
+  max-width: 100%;
+  padding: 3px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(200,168,90,.25);
+  border-radius: 999px;
+  background: rgba(200,168,90,.06);
+  color: #c9b77e;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .045em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.betterinv-item-source-status.is-available {
+  border-color: rgba(104,154,115,.34);
+  background: rgba(62,111,72,.10);
+  color: #b8d5b8;
+}
+
+.betterinv-item-source-status.is-unavailable {
+  border-color: rgba(151,103,95,.28);
+  background: rgba(116,65,58,.09);
+  color: #c8a7a1;
+}
+
+.betterinv-item-source-cancel {
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 28px;
+  margin: 12px 0 0 auto !important;
+  padding: 0 10px !important;
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(158,139,83,.25) !important;
+  border-radius: 4px !important;
+  background: rgba(18,18,22,.82) !important;
+  color: #aaa18f !important;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.betterinv-item-source-cancel:hover,
+.betterinv-item-source-cancel:focus-visible {
+  border-color: rgba(200,168,90,.52) !important;
+  color: #efe6cf !important;
+  outline: none;
+}
+
+@media (max-width: 540px) {
   .betterinv-item-source-choice {
-    min-width: 0;
+    padding: 14px;
   }
 
-  .betterinv-item-source-preview {
+  .betterinv-item-source-options {
     grid-template-columns: 1fr;
+  }
+
+  .betterinv-item-source-option {
+    min-height: 108px;
   }
 }

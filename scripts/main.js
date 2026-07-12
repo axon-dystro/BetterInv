@@ -3040,7 +3040,51 @@ function getBetterInvItemTypeLabel(type) {
   return String(type ?? "Item").replace(/(^|[-_\s])([a-z])/g, (_match, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
 }
 
+
+function getBetterInvAccessibleItemCompendiums() {
+  const packsCollection = game.packs;
+  if (!packsCollection) return [];
+
+  let packs = [];
+  if (Array.isArray(packsCollection.contents)) packs = packsCollection.contents;
+  else if (typeof packsCollection.values === "function") packs = Array.from(packsCollection.values());
+  else {
+    try { packs = Array.from(packsCollection); }
+    catch (_error) { packs = []; }
+  }
+
+  const seen = new Set();
+  return packs
+    .filter(pack => {
+      if (!pack) return false;
+      const documentName = String(pack.documentName ?? pack.metadata?.type ?? "").toLowerCase();
+      if (documentName !== "item") return false;
+      if (pack.visible === false) return false;
+
+      const id = String(pack.collection ?? pack.metadata?.id ?? pack.metadata?.name ?? "");
+      if (id && seen.has(id)) return false;
+      if (id) seen.add(id);
+      return true;
+    })
+    .sort((left, right) => {
+      const leftLabel = String(left.metadata?.label ?? left.title ?? left.collection ?? "");
+      const rightLabel = String(right.metadata?.label ?? right.title ?? right.collection ?? "");
+      return leftLabel.localeCompare(rightLabel, game.i18n?.lang ?? undefined, { sensitivity: "base" });
+    });
+}
+
+function getBetterInvCompendiumLabel(pack) {
+  return String(pack?.metadata?.label ?? pack?.title ?? pack?.collection ?? "Unbenanntes Kompendium");
+}
+
 async function promptBetterInvItemSource() {
+  const itemPacks = getBetterInvAccessibleItemCompendiums();
+  const packCount = itemPacks.length;
+  const packLabels = itemPacks.slice(0, 3).map(getBetterInvCompendiumLabel);
+  const packPreview = packLabels.length
+    ? `${packLabels.join(" · ")}${packCount > packLabels.length ? ` · +${packCount - packLabels.length} weitere` : ""}`
+    : "Keine für dich sichtbaren Item-Kompendien gefunden.";
+
   return await new Promise(resolve => {
     let settled = false;
     const done = value => {
@@ -3049,51 +3093,68 @@ async function promptBetterInvItemSource() {
       resolve(value);
     };
 
-    const dialog = new Dialog({
+    let dialog;
+    const choose = value => {
+      done(value);
+      dialog?.close?.();
+    };
+
+    dialog = new Dialog({
       title: "Item hinzufügen",
       content: `
-        <div class="betterinv-item-source-choice">
-          <p class="betterinv-item-source-intro">Wie möchtest du das Item hinzufügen?</p>
-          <div class="betterinv-item-source-preview">
-            <div class="betterinv-item-source-preview-card">
-              <i class="fas fa-file" aria-hidden="true"></i>
-              <div>
-                <strong>Leeres Item</strong>
-                <span>Name und Itemtyp selbst festlegen.</span>
-              </div>
-            </div>
-            <div class="betterinv-item-source-preview-card">
-              <i class="fas fa-book-open" aria-hidden="true"></i>
-              <div>
-                <strong>Aus Kompendium</strong>
-                <span>Ein vorhandenes Item aus einem zugänglichen Kompendium übernehmen.</span>
-              </div>
-            </div>
+        <div class="betterinv-item-source-choice" data-betterinv-item-source>
+          <div class="betterinv-item-source-heading">
+            <span class="betterinv-item-source-kicker">Neue Quelle auswählen</span>
+            <p>Wie möchtest du das Item hinzufügen?</p>
           </div>
+
+          <div class="betterinv-item-source-options">
+            <button type="button" class="betterinv-item-source-option" data-source="empty">
+              <span class="betterinv-item-source-icon"><i class="fas fa-file" aria-hidden="true"></i></span>
+              <span class="betterinv-item-source-copy">
+                <strong>Leeres Item</strong>
+                <span>Name und Itemtyp selbst festlegen. Danach öffnet sich das normale Foundry-Itemfenster.</span>
+              </span>
+              <span class="betterinv-item-source-status">Sofort erstellen</span>
+            </button>
+
+            <button type="button" class="betterinv-item-source-option betterinv-item-source-option-compendium" data-source="compendium" ${packCount ? "" : "disabled"}>
+              <span class="betterinv-item-source-icon"><i class="fas fa-book-open" aria-hidden="true"></i></span>
+              <span class="betterinv-item-source-copy">
+                <strong>Aus Kompendium</strong>
+                <span>${escapeHtml(packPreview)}</span>
+              </span>
+              <span class="betterinv-item-source-status ${packCount ? "is-available" : "is-unavailable"}">${packCount ? `${packCount} verfügbar` : "Keine gefunden"}</span>
+            </button>
+          </div>
+
+          <button type="button" class="betterinv-item-source-cancel" data-source="cancel">
+            <i class="fas fa-xmark" aria-hidden="true"></i>
+            <span>Abbrechen</span>
+          </button>
         </div>`,
-      buttons: {
-        empty: {
-          icon: '<i class="fas fa-file"></i>',
-          label: "Leeres Item",
-          callback: () => done("empty")
-        },
-        compendium: {
-          icon: '<i class="fas fa-book-open"></i>',
-          label: "Aus Kompendium",
-          callback: () => done("compendium")
-        },
-        cancel: {
-          icon: '<i class="fas fa-xmark"></i>',
-          label: "Abbrechen",
-          callback: () => done(null)
-        }
-      },
-      default: "empty",
+      buttons: {},
       close: () => done(null)
+    }, {
+      width: 520,
+      classes: ["betterinv-item-source-dialog"]
     });
 
     dialog.render(true);
-    setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+    setTimeout(() => {
+      bringFoundryDialogsToFront({ avoidOverlap: false });
+      const dialogElement = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
+      dialogElement?.classList?.add("betterinv-item-source-dialog");
+      const root = dialogElement?.querySelector?.("[data-betterinv-item-source]");
+      if (!root) return;
+
+      root.querySelector('[data-source="empty"]')?.addEventListener("click", () => choose("empty"));
+      root.querySelector('[data-source="compendium"]')?.addEventListener("click", () => choose("compendium"));
+      root.querySelector('[data-source="cancel"]')?.addEventListener("click", () => choose(null));
+
+      const firstOption = root.querySelector('[data-source="empty"]');
+      firstOption?.focus?.();
+    }, 50);
   });
 }
 
@@ -3159,7 +3220,15 @@ async function createBetterInvItem(actor, activeContainer = null) {
   const source = await promptBetterInvItemSource();
   if (!source) return null;
   if (source === "compendium") {
-    ui.notifications.info("Die Kompendiumauswahl ist vorbereitet. Zugängliche Kompendien werden im nächsten Schritt eingebunden.");
+    const itemPacks = getBetterInvAccessibleItemCompendiums();
+    if (!itemPacks.length) {
+      ui.notifications.warn("Es wurden keine zugänglichen Item-Kompendien gefunden.");
+      return null;
+    }
+
+    const labels = itemPacks.slice(0, 4).map(getBetterInvCompendiumLabel);
+    const suffix = itemPacks.length > labels.length ? ` und ${itemPacks.length - labels.length} weitere` : "";
+    ui.notifications.info(`${itemPacks.length} zugängliche Item-Kompendien erkannt: ${labels.join(", ")}${suffix}. Die Itemsuche folgt in Phase 6.3.`);
     return null;
   }
 
