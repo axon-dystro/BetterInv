@@ -125,14 +125,27 @@ Hooks.once("ready", async () => {
 
 Hooks.on("renderHotbar", () => ensureBetterInvButton());
 Hooks.on("controlToken", () => {
+  if (!isBetterInvWindowOpen()) return;
   if (getBetterInvUserSettings().moduleEnabled === false) return;
-  scheduleBetterInvRefresh();
+  scheduleBetterInvRefresh({ preserveScroll: false });
 });
-Hooks.on("updateActor", actor => refreshIfCurrentActor(actor));
-Hooks.on("createItem", item => refreshIfItemActor(item));
-Hooks.on("updateItem", item => refreshIfItemActor(item));
-Hooks.on("deleteItem", item => refreshIfItemActor(item));
+Hooks.on("updateActor", (actor, changes, options) => {
+  refreshIfCurrentActor(actor, changes, options);
+});
+Hooks.on("createItem", (item, options) => {
+  refreshIfItemActor(item, null, options, { lifecycle: "create" });
+});
+Hooks.on("updateItem", (item, changes, options) => {
+  refreshIfItemActor(item, changes, options, { lifecycle: "update" });
+});
+Hooks.on("deleteItem", (item, options) => {
+  refreshIfItemActor(item, null, options, { lifecycle: "delete" });
+});
 Hooks.on("dropCanvasData", async (canvasInstance, data, event) => {
+  // Canvas drops happen frequently for many document types. Ignore everything
+  // except Axon's own token-transfer payload before creating an async workflow.
+  if (String(data?.type ?? "") !== "BetterInventoryItemTransfer") return;
+  if (!getBetterInvFeaturePlan().itemTransfer) return;
   try {
     await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
   } catch (error) {
@@ -140,11 +153,15 @@ Hooks.on("dropCanvasData", async (canvasInstance, data, event) => {
     ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Item konnte nicht auf den Token übertragen werden.");
   }
 });
-Hooks.on("updateUser", (user, changes) => {
-  if (user?.id !== game.user?.id) return;
-  const settingsChange = foundry.utils.getProperty(changes, `flags.${MODULE_ID}.${BETTER_INV_USER_SETTINGS_FLAG}`);
-  if (settingsChange === undefined) return;
-  scheduleBetterInvRefresh();
+Hooks.on("updateUser", (user, changes, options) => {
+  if (user?.id !== game.user?.id || !isBetterInvWindowOpen()) return;
+  if (shouldBetterInvSkipHookRefresh(options)) return;
+  const changedPaths = getBetterInvChangedPaths(changes);
+  const settingsPath = `flags.${MODULE_ID}.${BETTER_INV_USER_SETTINGS_FLAG}`;
+  const settingsChanged = betterInvPathsTouch(changedPaths, [settingsPath]);
+  const assignedCharacterChanged = betterInvPathsTouch(changedPaths, ["character", "characterId"]);
+  if (!settingsChanged && !assignedCharacterChanged) return;
+  scheduleBetterInvRefresh({ preserveScroll: !assignedCharacterChanged });
 });
 
 function registerBetterInvHotkey() {
@@ -521,6 +538,124 @@ function actorChooserHtml(actors) {
     </div>`;
 }
 
+function isBetterInvWindowOpen() {
+  return Boolean(document.getElementById("betterinv-window"));
+}
+
+function shouldBetterInvSkipHookRefresh(options) {
+  return options?.betterInvSkipRefresh === true || options?.betterInv?.skipRefresh === true;
+}
+
+function normalizeBetterInvChangedPath(path) {
+  return String(path ?? "")
+    .split(".")
+    .filter(Boolean)
+    .map(part => part.startsWith("-=") ? part.slice(2) : part)
+    .filter(Boolean)
+    .join(".");
+}
+
+function getBetterInvChangedPaths(changes) {
+  if (!changes || typeof changes !== "object" || Array.isArray(changes)) return [];
+  try {
+    const flattened = foundry.utils.flattenObject(changes);
+    return Object.keys(flattened ?? {}).map(normalizeBetterInvChangedPath).filter(Boolean);
+  } catch (_error) {
+    return Object.keys(changes).map(normalizeBetterInvChangedPath).filter(Boolean);
+  }
+}
+
+function betterInvPathsTouch(changedPaths, watchedPrefixes) {
+  const paths = Array.from(changedPaths ?? []).map(normalizeBetterInvChangedPath).filter(Boolean);
+  const prefixes = Array.from(watchedPrefixes ?? []).map(normalizeBetterInvChangedPath).filter(Boolean);
+  if (!paths.length || !prefixes.length) return false;
+  return paths.some(path => prefixes.some(prefix => (
+    path === prefix
+    || path.startsWith(`${prefix}.`)
+    || prefix.startsWith(`${path}.`)
+  )));
+}
+
+function betterInvActorChangesAffectFeatures(changes, features) {
+  const changedPaths = getBetterInvChangedPaths(changes);
+  // Foundry normally supplies a changed-object. Stay conservative for unusual
+  // systems or compatibility shims which call the hook without one.
+  if (!changedPaths.length) return true;
+
+  const watched = [];
+  if (features.currency) {
+    watched.push(
+      "system.currency",
+      "system.currencies",
+      "system.attributes.currency",
+      "system.details.currency"
+    );
+  }
+  if (features.encumbrance) {
+    watched.push(
+      "system.attributes.encumbrance",
+      "system.attributes.carrying",
+      "system.abilities.str"
+    );
+  }
+  if (features.items || features.containers) {
+    watched.push("flags.betterinv", "items");
+  }
+  return betterInvPathsTouch(changedPaths, watched);
+}
+
+function isBetterInvInventoryRelevantItem(item) {
+  if (!item) return false;
+  if (["weapon", "equipment", "consumable", "tool", "loot", "container", "backpack"].includes(item.type)) return true;
+  return isContainerLike(item);
+}
+
+function betterInvItemChangesAffectFeatures(item, changes, features, { lifecycle = "update" } = {}) {
+  if (lifecycle !== "update") return isBetterInvInventoryRelevantItem(item);
+
+  const changedPaths = getBetterInvChangedPaths(changes);
+  if (!changedPaths.length) return isBetterInvInventoryRelevantItem(item);
+  // A type change can remove an item from the inventory even when its new type
+  // is no longer one of our inventory types.
+  if (betterInvPathsTouch(changedPaths, ["type"])) return true;
+  if (!isBetterInvInventoryRelevantItem(item)) return false;
+
+  const watched = [];
+  if (features.items) {
+    watched.push(
+      "name",
+      "img",
+      "sort",
+      "flags.betterinv",
+      "system.quantity",
+      "system.container",
+      "system.identified",
+      "system.equipped",
+      "system.attuned",
+      "system.type"
+    );
+    if (features.itemValues) watched.push("system.price", "system.value", "system.cost");
+    if (features.categoryWeights) watched.push("system.weight");
+  }
+  if (features.containers) {
+    watched.push(
+      "name",
+      "img",
+      "sort",
+      "flags.betterinv",
+      "system.container",
+      "system.quantity",
+      "system.capacity",
+      "system.contents",
+      "system.type"
+    );
+  }
+  if (features.encumbrance) {
+    watched.push("system.weight", "system.quantity", "system.container", "system.equipped", "system.capacity", "system.contents");
+  }
+  return betterInvPathsTouch(changedPaths, watched);
+}
+
 function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
   if (!document.getElementById("betterinv-window")) return;
   betterInvRefreshPreserveScroll = betterInvRefreshPreserveScroll && preserveScroll !== false;
@@ -540,18 +675,24 @@ function cancelScheduledBetterInvRefresh() {
   betterInvRefreshPreserveScroll = true;
 }
 
-function refreshIfCurrentActor(actor) {
+function refreshIfCurrentActor(actor, changes = null, options = null) {
+  if (!isBetterInvWindowOpen() || shouldBetterInvSkipHookRefresh(options)) return;
+  const current = getCurrentActor();
+  if (current?.id !== actor?.id) return;
   const features = getBetterInvFeaturePlan();
   if (!features.needsActorRefresh) return;
-  const current = getCurrentActor();
-  if (current?.id === actor?.id) scheduleBetterInvRefresh();
+  if (!betterInvActorChangesAffectFeatures(changes, features)) return;
+  scheduleBetterInvRefresh();
 }
 
-function refreshIfItemActor(item) {
+function refreshIfItemActor(item, changes = null, options = null, { lifecycle = "update" } = {}) {
+  if (!isBetterInvWindowOpen() || shouldBetterInvSkipHookRefresh(options)) return;
+  const current = getCurrentActor();
+  if (current?.id !== item?.parent?.id) return;
   const features = getBetterInvFeaturePlan();
   if (!features.needsItemDocumentRefresh) return;
-  const current = getCurrentActor();
-  if (current?.id === item?.parent?.id) scheduleBetterInvRefresh();
+  if (!betterInvItemChangesAffectFeatures(item, changes, features, { lifecycle })) return;
+  scheduleBetterInvRefresh();
 }
 
 function getInventoryItems(actor) {
