@@ -90,7 +90,11 @@ let betterInvCategoryMenuButton = null;
 let betterInvActiveItemDrag = null;
 let betterInvTokenDropOverlay = null;
 let betterInvTokenDropTargetId = null;
-let betterInvTokenDropFeedbackInstalled = false;
+let betterInvTokenDropFeedbackController = null;
+let betterInvInputGuardController = null;
+let betterInvDialogZObserver = null;
+let betterInvRuntimeOperational = false;
+const betterInvOperationalHooks = new Map();
 let betterInvButtonRetryTimer = null;
 let betterInvRefreshFrame = null;
 let betterInvRefreshPreserveScroll = true;
@@ -141,6 +145,7 @@ let betterInvState = {
 // Prevent overlapping money transactions for the same actor, including during
 // updateActor-triggered re-renders which can temporarily create fresh buttons.
 const betterInvCurrencyTransactions = new Set();
+let betterInvSettingsWriteDepth = 0;
 
 Hooks.once("init", () => {
   registerBetterInvHotkey();
@@ -151,54 +156,119 @@ Hooks.once("ready", async () => {
   console.log("Better Inventory loaded!");
   await initializeBetterInvUserSettings();
   ensureBetterInvButton();
-  installBetterInvInputGuard();
-  installBetterInvDialogZGuard();
-  installBetterInvTokenDropFeedback();
+  syncBetterInvRuntimeState(getBetterInvUserSettings());
 });
 
 Hooks.on("renderHotbar", () => ensureBetterInvButton());
-Hooks.on("controlToken", () => {
-  if (!isBetterInvWindowOpen()) return;
-  if (getBetterInvUserSettings().moduleEnabled === false) return;
-  scheduleBetterInvRefresh({ preserveScroll: false });
-});
-Hooks.on("updateActor", (actor, changes, options) => {
-  refreshIfCurrentActor(actor, changes, options);
-});
-Hooks.on("createItem", (item, options) => {
-  refreshIfItemActor(item, null, options, { lifecycle: "create" });
-});
-Hooks.on("updateItem", (item, changes, options) => {
-  refreshIfItemActor(item, changes, options, { lifecycle: "update" });
-});
-Hooks.on("deleteItem", (item, options) => {
-  refreshIfItemActor(item, null, options, { lifecycle: "delete" });
-});
-Hooks.on("deleteActor", actor => {
-  invalidateBetterInvActorDataCache(actor, { all: true });
-});
-Hooks.on("dropCanvasData", async (canvasInstance, data, event) => {
-  // Canvas drops happen frequently for many document types. Ignore everything
-  // except Axon's own token-transfer payload before creating an async workflow.
-  if (String(data?.type ?? "") !== "BetterInventoryItemTransfer") return;
-  if (!getBetterInvFeaturePlan().itemTransfer) return;
-  try {
-    await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
-  } catch (error) {
-    console.error("Better Inventory | Item konnte nicht auf den Token übertragen werden", error);
-    ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Item konnte nicht auf den Token übertragen werden.");
-  }
-});
 Hooks.on("updateUser", (user, changes, options) => {
-  if (user?.id !== game.user?.id || !isBetterInvWindowOpen()) return;
-  if (shouldBetterInvSkipHookRefresh(options)) return;
+  if (user?.id !== game.user?.id || shouldBetterInvSkipHookRefresh(options)) return;
   const changedPaths = getBetterInvChangedPaths(changes);
   const settingsPath = `flags.${MODULE_ID}.${BETTER_INV_USER_SETTINGS_FLAG}`;
   const settingsChanged = betterInvPathsTouch(changedPaths, [settingsPath]);
   const assignedCharacterChanged = betterInvPathsTouch(changedPaths, ["character", "characterId"]);
   if (!settingsChanged && !assignedCharacterChanged) return;
-  scheduleBetterInvRefresh({ preserveScroll: !assignedCharacterChanged });
+  if (settingsChanged && betterInvSettingsWriteDepth > 0) return;
+
+  if (settingsChanged) syncBetterInvRuntimeState(getBetterInvUserSettings());
+  if (!isBetterInvWindowOpen()) return;
+
+  // A settings change must still redraw the tiny disabled shell even though all
+  // operational hooks and listeners have already been suspended.
+  if (settingsChanged) {
+    renderBetterInvWindow({ preserveScroll: true });
+    return;
+  }
+  if (betterInvRuntimeOperational && assignedCharacterChanged) {
+    scheduleBetterInvRefresh({ preserveScroll: false });
+  }
 });
+
+function registerBetterInvOperationalHook(name, callback) {
+  if (betterInvOperationalHooks.has(name)) return;
+  Hooks.on(name, callback);
+  betterInvOperationalHooks.set(name, callback);
+}
+
+function installBetterInvOperationalHooks() {
+  if (betterInvOperationalHooks.size) return;
+
+  registerBetterInvOperationalHook("controlToken", () => {
+    if (!isBetterInvWindowOpen()) return;
+    scheduleBetterInvRefresh({ preserveScroll: false });
+  });
+  registerBetterInvOperationalHook("updateActor", (actor, changes, options) => {
+    refreshIfCurrentActor(actor, changes, options);
+  });
+  registerBetterInvOperationalHook("createItem", (item, options) => {
+    refreshIfItemActor(item, null, options, { lifecycle: "create" });
+  });
+  registerBetterInvOperationalHook("updateItem", (item, changes, options) => {
+    refreshIfItemActor(item, changes, options, { lifecycle: "update" });
+  });
+  registerBetterInvOperationalHook("deleteItem", (item, options) => {
+    refreshIfItemActor(item, null, options, { lifecycle: "delete" });
+  });
+  registerBetterInvOperationalHook("deleteActor", actor => {
+    invalidateBetterInvActorDataCache(actor, { all: true });
+  });
+  registerBetterInvOperationalHook("dropCanvasData", async (canvasInstance, data, event) => {
+    // Canvas drops happen frequently for many document types. Ignore everything
+    // except Axon's own token-transfer payload before creating an async workflow.
+    if (String(data?.type ?? "") !== "BetterInventoryItemTransfer") return;
+    if (!getBetterInvFeaturePlan().itemTransfer) return;
+    try {
+      await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
+    } catch (error) {
+      console.error("Better Inventory | Item konnte nicht auf den Token übertragen werden", error);
+      ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Item konnte nicht auf den Token übertragen werden.");
+    }
+  });
+}
+
+function uninstallBetterInvOperationalHooks() {
+  for (const [name, callback] of betterInvOperationalHooks) {
+    try { Hooks.off(name, callback); } catch (_error) {}
+  }
+  betterInvOperationalHooks.clear();
+}
+
+function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
+  const shouldRun = settings?.moduleEnabled !== false;
+  if (shouldRun === betterInvRuntimeOperational) return;
+  betterInvRuntimeOperational = shouldRun;
+
+  if (shouldRun) {
+    installBetterInvOperationalHooks();
+    installBetterInvInputGuard();
+    installBetterInvDialogZGuard();
+    installBetterInvTokenDropFeedback();
+    return;
+  }
+
+  uninstallBetterInvOperationalHooks();
+  uninstallBetterInvInputGuard();
+  uninstallBetterInvDialogZGuard();
+  uninstallBetterInvTokenDropFeedback();
+  cancelScheduledBetterInvRefresh();
+  betterInvRenderSequence += 1;
+  betterInvQueuedRenderOptions = null;
+  betterInvRefreshBatchDepth = 0;
+  betterInvRefreshBatchRequested = false;
+  betterInvRefreshBatchPreserveScroll = true;
+  betterInvActorDataCaches.clear();
+  betterInvCurrencyTransactions.clear();
+  closeBetterInvItemActionMenu();
+  closeBetterInvCategoryMenu();
+  clearBetterInvTokenDropFeedback();
+  removeBetterInvItemDragPreview();
+  betterInvActiveItemDrag = null;
+  closeBetterInvPerformanceWindow();
+  closeBetterInvSettingsWindow();
+  betterInvState.containerId = null;
+  betterInvState.search = "";
+  betterInvState.currencyDraftActorId = null;
+  betterInvState.currencyDraft = {};
+}
 
 function registerBetterInvHotkey() {
   if (!game?.keybindings) return;
@@ -287,7 +357,18 @@ async function saveBetterInvUserSettings(patch = {}) {
   if (!game.user?.setFlag) throw new Error("Kein angemeldeter Foundry-Nutzer verfügbar.");
   const current = getBetterInvUserSettings();
   const next = normalizeBetterInvUserSettings({ ...current, ...patch });
-  await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, next);
+  if (JSON.stringify(current) === JSON.stringify(next)) {
+    syncBetterInvRuntimeState(next);
+    return next;
+  }
+
+  betterInvSettingsWriteDepth += 1;
+  try {
+    await game.user.setFlag(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG, next);
+  } finally {
+    betterInvSettingsWriteDepth = Math.max(0, betterInvSettingsWriteDepth - 1);
+  }
+  syncBetterInvRuntimeState(next);
   return next;
 }
 
@@ -317,7 +398,8 @@ function betterInvShowsItemValues() {
 
 
 function installBetterInvInputGuard() {
-  if (document.body?.dataset?.betterInvInputGuard === "1") return;
+  if (betterInvInputGuardController) return;
+  betterInvInputGuardController = new AbortController();
   if (document.body?.dataset) document.body.dataset.betterInvInputGuard = "1";
   const guard = event => {
     const target = event.target;
@@ -326,10 +408,17 @@ function installBetterInvInputGuard() {
     // keep the keystroke inside the input without cancelling normal typing.
     event.stopImmediatePropagation();
   };
+  const options = { capture: true, signal: betterInvInputGuardController.signal };
   ["keydown", "keyup", "keypress"].forEach(type => {
-    document.addEventListener(type, guard, true);
-    window.addEventListener(type, guard, true);
+    document.addEventListener(type, guard, options);
+    window.addEventListener(type, guard, options);
   });
+}
+
+function uninstallBetterInvInputGuard() {
+  betterInvInputGuardController?.abort?.();
+  betterInvInputGuardController = null;
+  if (document.body?.dataset) delete document.body.dataset.betterInvInputGuard;
 }
 
 const BETTER_INV_FOUNDRY_APP_SELECTOR = [
@@ -492,21 +581,30 @@ function elevateRecentFoundryApps() {
 }
 
 function installBetterInvDialogZGuard() {
-  if (document.body?.dataset?.betterInvDialogZGuard === "1") return;
+  if (betterInvDialogZObserver) return;
   if (document.body?.dataset) document.body.dataset.betterInvDialogZGuard = "1";
   bringFoundryDialogsToFront();
-  const observer = new MutationObserver(mutations => {
+  betterInvDialogZObserver = new MutationObserver(mutations => {
     for (const mutation of mutations) {
       if (mutation.type === "attributes") queueBetterInvDialogElement(mutation.target);
       for (const node of mutation.addedNodes ?? []) queueBetterInvDialogElement(node);
     }
   });
-  observer.observe(document.body, {
+  betterInvDialogZObserver.observe(document.body, {
     childList: true,
     subtree: true,
     attributes: true,
     attributeFilter: ["class", "role"]
   });
+}
+
+function uninstallBetterInvDialogZGuard() {
+  betterInvDialogZObserver?.disconnect?.();
+  betterInvDialogZObserver = null;
+  if (betterInvDialogMutationFrame !== null) cancelAnimationFrame(betterInvDialogMutationFrame);
+  betterInvDialogMutationFrame = null;
+  betterInvPendingDialogElements.clear();
+  if (document.body?.dataset) delete document.body.dataset.betterInvDialogZGuard;
 }
 
 function ensureBetterInvButton() {
@@ -796,7 +894,7 @@ function resetBetterInvPerformanceMeasurements() {
 }
 
 function scheduleBetterInvRefresh({ preserveScroll = true } = {}) {
-  if (!document.getElementById("betterinv-window")) return;
+  if (!betterInvRuntimeOperational || !document.getElementById("betterinv-window")) return;
   betterInvPerformanceState.refreshRequests += 1;
   if (betterInvRefreshBatchDepth > 0) {
     betterInvPerformanceState.coalescedRefreshRequests += 1;
@@ -852,6 +950,7 @@ function cancelScheduledBetterInvRefresh() {
 }
 
 function refreshIfCurrentActor(actor, changes = null, options = null) {
+  if (!betterInvRuntimeOperational) return;
   // Cache invalidation must also happen while the inventory window is closed or
   // when an internal update deliberately suppresses a refresh.
   invalidateBetterInvActorCacheFromChanges(actor, changes);
@@ -865,6 +964,7 @@ function refreshIfCurrentActor(actor, changes = null, options = null) {
 }
 
 function refreshIfItemActor(item, changes = null, options = null, { lifecycle = "update" } = {}) {
+  if (!betterInvRuntimeOperational) return;
   const changedPaths = getBetterInvChangedPaths(changes);
   const cacheRelevant = lifecycle !== "update"
     ? isBetterInvInventoryRelevantItem(item)
@@ -1681,7 +1781,56 @@ function applyBetterInvScale(windowEl) {
   if (content) content.style.zoom = String(scale);
 }
 
+async function renderBetterInvDisabledWindow() {
+  cancelScheduledBetterInvRefresh();
+  betterInvRenderSequence += 1;
+  closeBetterInvItemActionMenu();
+  closeBetterInvCategoryMenu();
+  closeBetterInvSettingsWindow();
+  closeBetterInvPerformanceWindow();
+
+  let windowEl = document.getElementById("betterinv-window");
+  if (!windowEl) {
+    windowEl = document.createElement("section");
+    windowEl.id = "betterinv-window";
+    windowEl.className = "betterinv-window";
+    windowEl.style.left = "120px";
+    windowEl.style.top = "110px";
+    document.body.appendChild(windowEl);
+  }
+
+  applyBetterInvScale(windowEl);
+  disposeBetterInvWindowEventCycle(windowEl);
+  windowEl.classList.add("betterinv-disabled-mode");
+  windowEl.innerHTML = betterInvDisabledShellHtml();
+  const eventController = beginBetterInvWindowEventCycle(windowEl);
+
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
+    disposeBetterInvWindowEventCycle(windowEl);
+    windowEl.remove();
+  }, eventController);
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
+    const button = event.currentTarget;
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+    try {
+      await saveBetterInvUserSettings({ moduleEnabled: true });
+      await renderBetterInvWindow({ preserveScroll: false });
+    } catch (error) {
+      console.error("Better Inventory | Reaktivierung fehlgeschlagen", error);
+      ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
+      if (button instanceof HTMLButtonElement) button.disabled = false;
+    }
+  }, eventController);
+  makeBetterInvDraggable(windowEl);
+}
+
 async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
+  const initialUserSettings = getBetterInvUserSettings();
+  if (initialUserSettings.moduleEnabled === false) {
+    await renderBetterInvDisabledWindow();
+    return;
+  }
+
   const performanceSample = beginBetterInvPerformanceSample();
   let performanceWindowEl = document.getElementById("betterinv-window");
   try {
@@ -1707,7 +1856,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   performanceWindowEl = windowEl;
   applyBetterInvScale(windowEl);
 
-  const userSettings = getBetterInvUserSettings();
+  const userSettings = initialUserSettings;
   const features = getBetterInvFeaturePlan(userSettings);
   if (!features.enabled) {
     closeBetterInvSettingsWindow();
@@ -5446,8 +5595,9 @@ function showBetterInvTokenDropFeedback(token) {
 }
 
 function installBetterInvTokenDropFeedback() {
-  if (betterInvTokenDropFeedbackInstalled) return;
-  betterInvTokenDropFeedbackInstalled = true;
+  if (betterInvTokenDropFeedbackController) return;
+  betterInvTokenDropFeedbackController = new AbortController();
+  const options = { capture: true, signal: betterInvTokenDropFeedbackController.signal };
 
   document.addEventListener("dragover", event => {
     if (!betterInvActiveItemDrag?.allowTransfer) return;
@@ -5466,19 +5616,29 @@ function installBetterInvTokenDropFeedback() {
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
     showBetterInvTokenDropFeedback(token);
-  }, true);
+  }, options);
 
   document.addEventListener("drop", () => {
     window.setTimeout(clearBetterInvTokenDropFeedback, 0);
-  }, true);
+  }, options);
 
   document.addEventListener("dragend", () => {
     clearBetterInvTokenDropFeedback();
     removeBetterInvItemDragPreview();
     betterInvActiveItemDrag = null;
-  }, true);
+  }, options);
 
-  window.addEventListener("blur", clearBetterInvTokenDropFeedback);
+  window.addEventListener("blur", clearBetterInvTokenDropFeedback, {
+    signal: betterInvTokenDropFeedbackController.signal
+  });
+}
+
+function uninstallBetterInvTokenDropFeedback() {
+  betterInvTokenDropFeedbackController?.abort?.();
+  betterInvTokenDropFeedbackController = null;
+  clearBetterInvTokenDropFeedback();
+  removeBetterInvItemDragPreview();
+  betterInvActiveItemDrag = null;
 }
 
 async function confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity) {
