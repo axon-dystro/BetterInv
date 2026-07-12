@@ -5200,3 +5200,164 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Phase 7.5: reduce persistent DOM size without removing functionality. */
+
+/* Empty category lists keep their drop target but no longer need a dedicated
+   <p> node just to display "Leer". */
+.betterinv-items:empty::after {
+  content: "Leer";
+  display: block;
+  margin: 10px 0;
+  color: var(--bi-muted);
+  font-size: 14px;
+  font-style: italic;
+  text-align: center;
+}
+
+/* Favorites are a lightweight quick-access mirror. The full item row remains
+   in its real category, so duplicate edit, quantity and category controls are
+   intentionally omitted here. */
+.betterinv-item.betterinv-favorite-compact {
+  min-height: 38px;
+  padding: 4px 8px;
+  grid-template-columns: 18px 30px minmax(0, 1fr) auto !important;
+  gap: 7px !important;
+}
+
+.betterinv-item.betterinv-favorite-compact > img {
+  width: 30px;
+  height: 30px;
+}
+
+.betterinv-item.betterinv-favorite-compact .betterinv-item-main {
+  min-width: 0;
+}
+
+.betterinv-item.betterinv-favorite-compact .betterinv-open-item {
+  width: 100%;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-favorite-quantity {
+  min-width: 25px;
+  padding: 2px 5px;
+  border: 1px solid rgba(200,168,90,.28);
+  border-radius: 3px;
+  background: rgba(8,8,11,.72);
+  color: #d8c795;
+  font-size: 10px;
+  font-weight: 900;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The category picker is now a real lightweight button. Category options are
+   created once, on demand, in a shared floating menu instead of being copied
+   as a full <select> list into every item row. */
+button.betterinv-category-picker {
+  margin: 0;
+  padding: 0;
+  font: inherit;
+}
+
+button.betterinv-category-picker:focus-visible {
+  outline: 1px solid var(--bi-gold);
+  outline-offset: 1px;
+}
+
+.betterinv-category-menu {
+  position: fixed;
+  z-index: 13050;
+  width: min(260px, calc(100vw - 16px));
+  max-height: min(390px, calc(100vh - 16px));
+  padding: 5px;
+  overflow: auto;
+  border: 1px solid rgba(200,168,90,.55);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #202026, #111115);
+  box-shadow: 0 14px 34px rgba(0,0,0,.72), 0 0 0 1px rgba(0,0,0,.75) inset;
+  scrollbar-width: thin;
+  scrollbar-color: #665a39 #111;
+}
+
+.betterinv-category-menu-option {
+  width: 100%;
+  min-height: 30px;
+  margin: 0;
+  padding: 5px 8px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #ddd2b9;
+  font: 800 11px/1.2 Signika, Georgia, serif;
+  text-align: left;
+  cursor: pointer;
+}
+
+.betterinv-category-menu-option + .betterinv-category-menu-option {
+  margin-top: 2px;
+}
+
+.betterinv-category-menu-option > i {
+  color: #9e8b59;
+  font-size: 10px;
+  text-align: center;
+}
+
+.betterinv-category-menu-option > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-category-menu-option.is-subcategory {
+  padding-left: 18px;
+  color: #bfb49d;
+}
+
+.betterinv-category-menu-option:hover,
+.betterinv-category-menu-option:focus-visible {
+  outline: none;
+  background: #302c22;
+  color: #fff1c5;
+}
+
+.betterinv-category-menu-option.is-selected {
+  background: rgba(103,82,35,.5);
+  color: #f2d98e;
+}
+
+.betterinv-category-menu-option.is-selected > i {
+  color: #e0bd5b;
+}
+
+@media (max-width: 560px) {
+  .betterinv-item.betterinv-favorite-compact {
+    grid-template-columns: 18px 28px minmax(0, 1fr) auto !important;
+  }
+
+  .betterinv-item.betterinv-favorite-compact > img {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+.betterinv-item.betterinv-favorite-compact {
+  grid-template-columns: 18px 30px minmax(0, 1fr) auto auto !important;
+}
+
+@media (max-width: 560px) {
+  .betterinv-item.betterinv-favorite-compact {
+    grid-template-columns: 18px 28px minmax(0, 1fr) auto auto !important;
+  }
+}

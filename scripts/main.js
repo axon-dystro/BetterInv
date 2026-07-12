@@ -85,6 +85,8 @@ const BETTER_INV_SETTINGS_GROUPS = [
 let betterInvPopup = null;
 let betterInvActionMenuCleanup = null;
 let betterInvActionMenuButton = null;
+let betterInvCategoryMenuCleanup = null;
+let betterInvCategoryMenuButton = null;
 let betterInvActiveItemDrag = null;
 let betterInvTokenDropOverlay = null;
 let betterInvTokenDropTargetId = null;
@@ -1192,6 +1194,7 @@ function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
   if (existing) {
     closeBetterInvItemActionMenu();
+    closeBetterInvCategoryMenu();
     disposeBetterInvWindowEventCycle(existing);
     existing.remove();
     return;
@@ -1243,6 +1246,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   cancelScheduledBetterInvRefresh();
   const renderSequence = ++betterInvRenderSequence;
   closeBetterInvItemActionMenu();
+  closeBetterInvCategoryMenu();
   let windowEl = document.getElementById("betterinv-window");
   const previousBody = windowEl?.querySelector?.(".betterinv-body");
   const previousScrollTop = preserveScroll ? (previousBody?.scrollTop ?? 0) : 0;
@@ -1447,7 +1451,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         : directItems.concat(nestedItemsByParentCategory.get(section.id) ?? []);
       const rows = directItems.length
         ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
-        : `<p class="betterinv-empty">Leer</p>`;
+        : "";
 
       let subcategoryHtml = "";
       if (subs.length) {
@@ -1456,7 +1460,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
           const subItems = regularItemsByCategory.get(subId) ?? [];
           const subRows = subItems.length
             ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
-            : `<p class="betterinv-empty">Leer</p>`;
+            : "";
           return `
             <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
               <summary>
@@ -1490,7 +1494,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   } else if (features.items) {
     const flatRows = regularItems.length
       ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
-      : `<p class="betterinv-empty">Keine Items vorhanden.</p>`;
+      : "";
     sectionHtml = `
       <section class="betterinv-system-category betterinv-flat-category">
         <div class="betterinv-unknown-header">
@@ -1524,7 +1528,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
         <span class="betterinv-category-count">${favoriteItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-favorite-items">
-        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { favoriteView: true, settings: userSettings, features })).join("")}
+        ${favoriteItems.map(item => favoriteItemRowHtml(item, { settings: userSettings, features })).join("")}
       </div>
     </section>` : "";
 
@@ -1585,7 +1589,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     </div>
   `);
 
-  activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems });
+  activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems, categoryOptions });
   windowEl.dataset.betterInvRenderedSearch = String(betterInvState.search ?? "");
   applyBetterInvScale(windowEl);
   const newBody = windowEl.querySelector(".betterinv-body");
@@ -3749,6 +3753,15 @@ function closeBetterInvItemActionMenu() {
   document.getElementById("betterinv-item-action-menu")?.remove();
 }
 
+function closeBetterInvCategoryMenu() {
+  if (typeof betterInvCategoryMenuCleanup === "function") {
+    betterInvCategoryMenuCleanup();
+    return;
+  }
+  document.getElementById("betterinv-category-menu")?.remove();
+  betterInvCategoryMenuButton = null;
+}
+
 async function duplicateBetterInvItem(actor, item) {
   if (!actor || !item) return;
   const data = item.toObject();
@@ -5796,7 +5809,105 @@ async function createBetterInvItem(actor, activeContainer = null) {
   return item;
 }
 
+function openBetterInvCategoryMenu(button, actor, item, categoryOptions, containerId = null) {
+  const existingMenu = document.getElementById("betterinv-category-menu");
+  if (existingMenu && betterInvCategoryMenuButton === button) {
+    closeBetterInvCategoryMenu();
+    return;
+  }
+
+  closeBetterInvItemActionMenu();
+  closeBetterInvCategoryMenu();
+  if (!button || !actor || !item || !Array.isArray(categoryOptions) || !categoryOptions.length) return;
+  betterInvCategoryMenuButton = button;
+
+  const current = itemCategory(item, containerId);
+  const menu = document.createElement("div");
+  menu.id = "betterinv-category-menu";
+  menu.className = "betterinv-category-menu";
+  menu.setAttribute("role", "menu");
+  menu.setAttribute("aria-label", "Kategorie wählen");
+  menu.innerHTML = categoryOptions.map(category => {
+    const selected = category === current;
+    const nested = String(category).includes("::");
+    return `
+      <button type="button" class="betterinv-category-menu-option ${selected ? "is-selected" : ""} ${nested ? "is-subcategory" : ""}" data-category="${escapeAttr(category)}" role="menuitemradio" aria-checked="${selected ? "true" : "false"}">
+        <i class="fas ${selected ? "fa-check" : nested ? "fa-level-down-alt" : "fa-folder"}" aria-hidden="true"></i>
+        <span>${escapeHtml(categoryOptionLabel(category))}</span>
+      </button>`;
+  }).join("");
+  document.body.appendChild(menu);
+
+  const rect = button.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const gap = 5;
+  let left = rect.right - menuRect.width;
+  let top = rect.bottom + gap;
+  left = Math.max(8, Math.min(left, window.innerWidth - menuRect.width - 8));
+  if (top + menuRect.height > window.innerHeight - 8) top = rect.top - menuRect.height - gap;
+  top = Math.max(8, top);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+
+  let closed = false;
+  const menuController = new AbortController();
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    menuController.abort();
+    menu.remove();
+    if (betterInvCategoryMenuCleanup === close) betterInvCategoryMenuCleanup = null;
+    if (betterInvCategoryMenuButton === button) betterInvCategoryMenuButton = null;
+  };
+  betterInvCategoryMenuCleanup = close;
+
+  menu.addEventListener("click", event => {
+    const option = event.target instanceof Element ? event.target.closest(".betterinv-category-menu-option") : null;
+    if (!option || !menu.contains(option)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const nextCategory = String(option.dataset.category ?? "");
+    if (!nextCategory || nextCategory === current) {
+      close();
+      return;
+    }
+    close();
+    void (async () => {
+      try {
+        await withBetterInvRefreshBatch(
+          () => setItemCategory(item, nextCategory, containerId),
+          { forceRefresh: true }
+        );
+      } catch (error) {
+        console.error("Better Inventory | Kategorie konnte nicht geändert werden", error);
+        ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
+      }
+    })();
+  }, { signal: menuController.signal });
+
+  const onOutsidePointerDown = event => {
+    if (menu.contains(event.target) || button.contains(event.target)) return;
+    close();
+  };
+  const onKeyDown = event => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    close();
+  };
+  setTimeout(() => {
+    if (!closed) document.addEventListener("pointerdown", onOutsidePointerDown, { capture: true, signal: menuController.signal });
+  }, 0);
+  const onScroll = event => {
+    if (menu.contains(event.target)) return;
+    close();
+  };
+  document.addEventListener("keydown", onKeyDown, { signal: menuController.signal });
+  window.addEventListener("resize", close, { once: true, signal: menuController.signal });
+  window.addEventListener("scroll", onScroll, { capture: true, signal: menuController.signal });
+}
+
 function openBetterInvItemActionMenu(button, actor, item) {
+  closeBetterInvCategoryMenu();
   const existingMenu = document.getElementById("betterinv-item-action-menu");
   if (existingMenu && betterInvActionMenuButton === button) {
     closeBetterInvItemActionMenu();
@@ -5895,7 +6006,27 @@ function openBetterInvItemActionMenu(button, actor, item) {
 
 }
 
+function favoriteItemRowHtml(item, { settings = null, features = null } = {}) {
+  const userSettings = settings ?? getBetterInvUserSettings();
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
+  const img = item.img || "icons/svg/item-bag.svg";
+  const quantity = featurePlan.quantityControls ? getItemQuantityData(item).value : null;
+  const equipped = getItemEquippedData(item);
+  const unidentified = isBetterInvUnidentified(item);
+  return `
+    <article class="betterinv-item betterinv-favorite-view betterinv-favorite-compact ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" draggable="false">
+      <span class="betterinv-item-grip" title="Favorit – das Original bleibt in seiner Kategorie">★</span>
+      <img src="${escapeAttr(img)}" alt="">
+      <div class="betterinv-item-main">
+        <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
+      </div>
+      ${featurePlan.quantityControls && Number(quantity) > 1 ? `<span class="betterinv-favorite-quantity" title="Anzahl">×${escapeHtml(String(quantity))}</span>` : ""}
+      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
+    </article>`;
+}
+
 function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null } = {}) {
+  if (favoriteView) return favoriteItemRowHtml(item, { settings, features });
   const userSettings = settings ?? getBetterInvUserSettings();
   const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   const img = item.img || "icons/svg/item-bag.svg";
@@ -5906,16 +6037,11 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
   const showCategoryPicker = featurePlan.categoryDropdown;
-  const options = showCategoryPicker
-    ? (categoryOptions ?? ["__unsorted"]).map(cat =>
-        `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(categoryOptionLabel(cat))}</option>`
-      ).join("")
-    : "";
   const priceHtml = featurePlan.itemValues ? betterInvItemPriceHtml(item, { unidentified, enabled: true }) : "";
 
   return `
-    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
-      <span class="betterinv-item-grip" title="${favoriteView ? "Favorit – das Original bleibt in seiner Kategorie" : "Gedrückt halten und Item verschieben"}">${favoriteView ? "★" : "☰"}</span>
+    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
+      <span class="betterinv-item-grip" title="Gedrückt halten und Item verschieben">☰</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
@@ -5937,17 +6063,16 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
         </div>` : ""}
       ${featurePlan.editButton ? `<button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
       ${showCategoryPicker ? `
-        <span class="betterinv-category-picker" title="Kategorie ändern">
+        <button type="button" class="betterinv-category-picker" title="Kategorie ändern" aria-label="Kategorie ändern">
           <i class="fas fa-chevron-down" aria-hidden="true"></i>
-          <select class="betterinv-category-select" aria-label="Kategorie wählen">${options}</select>
-        </span>` : ""}
+        </button>` : ""}
       ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
     </article>`;
 }
 
-
 function disposeBetterInvWindowEventCycle(windowEl) {
   if (!windowEl) return;
+  if (betterInvCategoryMenuButton && windowEl.contains(betterInvCategoryMenuButton)) closeBetterInvCategoryMenu();
   windowEl._betterInvEventController?.abort?.();
   windowEl._betterInvEventController = null;
   windowEl._betterInvDragController?.abort?.();
@@ -5993,34 +6118,23 @@ async function runBetterInvCurrencyAction(windowEl, actor, button, action, { log
   }
 }
 
-function installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, controller) {
+function installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, categoryOptions, controller) {
   const containerId = activeContainer?.id ?? null;
   const findTarget = (event, selector) => {
     const element = event.target instanceof Element ? event.target.closest(selector) : null;
     return element && windowEl.contains(element) ? element : null;
   };
 
-  addBetterInvEventListener(windowEl, "change", async event => {
-    const select = findTarget(event, ".betterinv-category-select");
-    if (!select || !featurePlan.categoryDropdown) return;
-    event.stopPropagation();
-    const row = select.closest(".betterinv-item");
-    const item = actor?.items?.get(row?.dataset?.itemId);
-    if (!item) return;
-    select.disabled = true;
-    try {
-      await withBetterInvRefreshBatch(
-        () => setItemCategory(item, select.value, containerId),
-        { forceRefresh: true }
-      );
-    } catch (error) {
-      console.error("Better Inventory | Kategorie konnte nicht geändert werden", error);
-      ui.notifications.error("Die Item-Kategorie konnte nicht geändert werden.");
-      select.disabled = false;
-    }
-  }, controller);
-
   addBetterInvEventListener(windowEl, "click", event => {
+    const categoryButton = findTarget(event, ".betterinv-category-picker");
+    if (categoryButton && featurePlan.categoryDropdown) {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = categoryButton.closest(".betterinv-item");
+      const item = actor?.items?.get(row?.dataset?.itemId);
+      if (item) openBetterInvCategoryMenu(categoryButton, actor, item, categoryOptions, containerId);
+      return;
+    }
     const gmActorButton = findTarget(event, ".betterinv-gm-actor");
     if (gmActorButton) {
       event.preventDefault();
@@ -6251,7 +6365,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
   }, controller);
 }
 
-function activateWindowListeners(windowEl, actor, activeContainer, { settings = null, features = null, inventoryItems = null } = {}) {
+function activateWindowListeners(windowEl, actor, activeContainer, { settings = null, features = null, inventoryItems = null, categoryOptions = [] } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
   const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   const eventController = beginBetterInvWindowEventCycle(windowEl);
@@ -6259,6 +6373,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
 
   listen(windowEl.querySelector(".betterinv-close"), "click", () => {
     closeBetterInvItemActionMenu();
+    closeBetterInvCategoryMenu();
     disposeBetterInvWindowEventCycle(windowEl);
     windowEl.remove();
   });
@@ -6280,7 +6395,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
   });
   updateBetterInvSettingsButtonState();
   makeBetterInvDraggable(windowEl);
-  installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, eventController);
+  installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, categoryOptions, eventController);
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
