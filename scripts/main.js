@@ -1,6 +1,29 @@
 /* Axon’s Inventory - Foundry VTT v14 lightweight module */
 
 const MODULE_ID = "betterinv";
+
+// Phase 8.3: keep every public support destination in one place so the
+// upcoming support menu and feedback actions cannot drift to different URLs.
+const BETTER_INV_SUPPORT_LINKS = Object.freeze({
+  discord: "https://discord.com/users/622739422332321792",
+  github: "https://github.com/axon-dystro/BetterInv",
+  issues: "https://github.com/axon-dystro/BetterInv/issues"
+});
+
+function getBetterInvSupportLink(key) {
+  return BETTER_INV_SUPPORT_LINKS[String(key ?? "")] ?? "";
+}
+
+function validateBetterInvSupportLinks() {
+  for (const [key, value] of Object.entries(BETTER_INV_SUPPORT_LINKS)) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "https:") throw new Error("Nur HTTPS-Verweise sind zulässig.");
+    } catch (error) {
+      console.warn(`Axon’s Inventory | Ungültiger Support-Verweis: ${key}`, value, error);
+    }
+  }
+}
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
 const BETTER_INV_USER_SETTINGS_VERSION = 4;
@@ -154,6 +177,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", async () => {
   console.log("Axon’s Inventory loaded!");
+  validateBetterInvSupportLinks();
   await initializeBetterInvUserSettings();
   ensureBetterInvButton();
   syncBetterInvRuntimeState(getBetterInvUserSettings());
@@ -2723,7 +2747,7 @@ function baseShellHtml(bodyHtml) {
   const settingsOpen = Boolean(document.getElementById("betterinv-settings-window"));
   return `
     <header class="betterinv-header">
-      <h2>Axon’s Inventory<small>von <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
+      <h2>Axon’s Inventory<small>von <a class="betterinv-author-link" href="${escapeAttr(getBetterInvSupportLink("discord"))}" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
