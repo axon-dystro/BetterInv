@@ -3124,7 +3124,7 @@
   color: #b7a476;
 }
 
-/* Disabled mode deliberately avoids actor/item rendering and keeps only reactivation. */
+/* Disabled mode avoids actor/item rendering and keeps only reactivation plus the lightweight diagnostics entry point. */
 .betterinv-window.betterinv-disabled-mode {
   width: 390px;
   height: 180px;
@@ -5876,5 +5876,328 @@ button.betterinv-category-picker:focus-visible {
   .betterinv-performance-window,
   .betterinv-support-window {
     max-height: calc(100vh - 20px);
+  }
+}
+
+/* Phase 9.1.1: diagnostics remain available in Ruhemodus and include local logs. */
+.betterinv-window.betterinv-disabled-mode {
+  height: 250px;
+  min-height: 230px;
+}
+
+.betterinv-disabled-body {
+  gap: 8px;
+  overflow: auto;
+}
+
+.betterinv-disabled-body > span {
+  max-width: 320px;
+  color: #9d9586;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.betterinv-disabled-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.betterinv-disabled-performance,
+.betterinv-disabled-performance-open {
+  border: 1px solid rgba(112,157,177,.48);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(42,61,70,.98), rgba(23,35,41,.98));
+  color: #b9d8e5;
+  cursor: pointer;
+}
+
+.betterinv-disabled-performance {
+  width: 30px;
+  height: 30px;
+  margin: 0;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+}
+
+.betterinv-disabled-performance-open {
+  min-height: 32px;
+  margin: 0;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font: 900 9px/1 Signika, Georgia, serif;
+}
+
+.betterinv-disabled-performance:hover,
+.betterinv-disabled-performance-open:hover,
+.betterinv-disabled-performance.is-active,
+.betterinv-disabled-performance-open.is-active {
+  border-color: rgba(135,185,211,.88);
+  background: linear-gradient(180deg, rgba(54,82,95,.98), rgba(29,46,54,.98));
+  color: #e0f5ff;
+}
+
+.betterinv-performance-window {
+  width: 520px;
+  height: min(820px, 88vh);
+  min-width: 390px;
+  min-height: 470px;
+}
+
+.betterinv-performance-assessment {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  border: 1px solid rgba(112,169,111,.38);
+  border-radius: 4px;
+  background: rgba(28,50,28,.52);
+}
+
+.betterinv-performance-assessment > i {
+  margin-top: 1px;
+  color: #bdddba;
+  font-size: 17px;
+  text-align: center;
+}
+
+.betterinv-performance-assessment strong,
+.betterinv-performance-assessment p,
+.betterinv-performance-assessment small {
+  display: block;
+}
+
+.betterinv-performance-assessment strong {
+  color: #e8e1cf;
+  font-size: 11px;
+}
+
+.betterinv-performance-assessment p {
+  margin: 4px 0 0;
+  color: #aaa291;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.betterinv-performance-assessment ul {
+  margin: 6px 0 0 15px;
+  padding: 0;
+  color: #c9b98f;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.betterinv-performance-assessment small {
+  margin-top: 6px;
+  color: #8e877a;
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+.betterinv-performance-assessment.is-warn {
+  border-color: rgba(199,159,76,.48);
+  background: rgba(73,56,25,.56);
+}
+
+.betterinv-performance-assessment.is-warn > i {
+  color: #efd893;
+}
+
+.betterinv-performance-assessment.is-bad {
+  border-color: rgba(190,91,77,.54);
+  background: rgba(71,34,30,.60);
+}
+
+.betterinv-performance-assessment.is-bad > i {
+  color: #efb0a7;
+}
+
+.betterinv-diagnostic-log-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.betterinv-diagnostic-log-heading > h3 {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #cbbd9a;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.betterinv-diagnostic-log-heading > span {
+  color: #958c7b;
+  font-size: 8px;
+  font-weight: 800;
+}
+
+.betterinv-diagnostic-actions {
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.betterinv-diagnostic-actions button {
+  min-width: 0;
+  min-height: 29px;
+  margin: 0;
+  padding: 5px 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid rgba(200,168,90,.28);
+  border-radius: 3px;
+  background: #19191e;
+  color: #c9b98f;
+  font: 850 8px/1.15 Signika, Georgia, serif;
+  cursor: pointer;
+}
+
+.betterinv-diagnostic-actions button:hover {
+  border-color: var(--bi-gold);
+  background: #292930;
+  color: #fff0bd;
+}
+
+.betterinv-diagnostic-log-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.betterinv-diagnostic-log-empty {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px dashed rgba(112,169,111,.30);
+  border-radius: 3px;
+  color: #a9bea6;
+  font-size: 9px;
+}
+
+.betterinv-diagnostic-log-entry {
+  border: 1px solid rgba(158,139,83,.18);
+  border-radius: 3px;
+  background: rgba(5,5,8,.58);
+  overflow: hidden;
+}
+
+.betterinv-diagnostic-log-entry.is-warn {
+  border-color: rgba(199,159,76,.32);
+}
+
+.betterinv-diagnostic-log-entry.is-error {
+  border-color: rgba(190,91,77,.38);
+}
+
+.betterinv-diagnostic-log-entry summary {
+  min-height: 34px;
+  padding: 6px 7px;
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.betterinv-diagnostic-log-entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.betterinv-diagnostic-log-entry summary code {
+  color: #d2b96e;
+  font: 800 8px/1 monospace;
+}
+
+.betterinv-diagnostic-log-entry summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #d8d0bf;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-diagnostic-log-entry summary time {
+  color: #7f786c;
+  font-size: 8px;
+}
+
+.betterinv-diagnostic-log-level {
+  color: #9ca5aa;
+  text-align: center;
+}
+
+.betterinv-diagnostic-log-entry.is-warn .betterinv-diagnostic-log-level {
+  color: #d5b568;
+}
+
+.betterinv-diagnostic-log-entry.is-error .betterinv-diagnostic-log-level {
+  color: #d98275;
+}
+
+.betterinv-diagnostic-log-detail {
+  padding: 7px;
+  border-top: 1px solid rgba(158,139,83,.14);
+  background: rgba(0,0,0,.22);
+}
+
+.betterinv-diagnostic-log-detail p {
+  margin: 0;
+  color: #b9b0a0;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.betterinv-diagnostic-log-detail pre {
+  max-height: 190px;
+  margin: 6px 0 0;
+  padding: 7px;
+  overflow: auto;
+  border: 1px solid rgba(158,139,83,.15);
+  border-radius: 3px;
+  background: #09090c;
+  color: #aaaeb2;
+  font: 8px/1.45 monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 560px) {
+  .betterinv-performance-window {
+    width: calc(100vw - 20px);
+    min-width: 0;
+  }
+
+  .betterinv-diagnostic-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 380px) {
+  .betterinv-diagnostic-actions,
+  .betterinv-diagnostic-log-entry summary {
+    grid-template-columns: 1fr;
+  }
+
+  .betterinv-diagnostic-log-entry summary time {
+    justify-self: start;
   }
 }

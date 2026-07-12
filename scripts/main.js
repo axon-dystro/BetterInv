@@ -23,7 +23,7 @@ function validateBetterInvSupportLinks() {
       const url = new URL(value);
       if (url.protocol !== "https:") throw new Error("Nur HTTPS-Verweise sind zulässig.");
     } catch (error) {
-      console.warn(`Axon’s Inventory | Ungültiger Support-Verweis: ${key}`, value, error);
+      logBetterInvDiagnostic("warn", "BI-SUPPORT-001", `Ungültiger Support-Verweis: ${key}`, error, { value: String(value ?? "") });
     }
   }
 }
@@ -149,6 +149,8 @@ const betterInvActorDataCaches = new Map();
 // current browser session and are never transmitted or persisted.
 const BETTER_INV_PERFORMANCE_SAMPLE_LIMIT = 60;
 const BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT = 120;
+const BETTER_INV_DIAGNOSTIC_LOG_LIMIT = 200;
+const BETTER_INV_PERFORMANCE_WARNING_COOLDOWN_MS = 60_000;
 const betterInvPerformanceState = {
   renders: [],
   refreshRequests: 0,
@@ -160,9 +162,106 @@ const betterInvPerformanceState = {
   cacheMisses: 0,
   cacheInvalidations: 0,
   eventLoopLag: [],
+  diagnosticLog: [],
+  diagnosticSequence: 0,
+  lastWarningAt: 0,
+  lastWarningFingerprint: "",
   monitorTimer: null,
-  monitorLastTick: null
+  monitorLastTick: null,
+  errorCaptureController: null
 };
+
+function getBetterInvModuleVersion() {
+  return String(game?.modules?.get?.(MODULE_ID)?.version ?? game?.modules?.get?.(MODULE_ID)?.manifest?.version ?? "unbekannt");
+}
+
+function betterInvErrorToDiagnostic(error) {
+  if (error == null) return { name: "", message: "", stack: "" };
+  if (error instanceof Error) {
+    return {
+      name: String(error.name ?? "Error"),
+      message: String(error.message ?? error),
+      stack: String(error.stack ?? "")
+    };
+  }
+  if (typeof error === "object") {
+    let serialized = "";
+    try { serialized = JSON.stringify(error); } catch (_error) { serialized = String(error); }
+    return { name: "Error", message: serialized, stack: "" };
+  }
+  return { name: "Error", message: String(error), stack: "" };
+}
+
+function getBetterInvDiagnosticContext(details = {}) {
+  let moduleEnabled = true;
+  try {
+    moduleEnabled = game?.user?.getFlag?.(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG)?.moduleEnabled !== false;
+  } catch (_error) {}
+  const context = {
+    moduleVersion: getBetterInvModuleVersion(),
+    foundryVersion: String(game?.version ?? game?.release?.version ?? "unbekannt"),
+    systemId: String(game?.system?.id ?? "unbekannt"),
+    systemVersion: String(game?.system?.version ?? "unbekannt"),
+    moduleEnabled,
+    runtimeOperational: Boolean(betterInvRuntimeOperational)
+  };
+  for (const [key, value] of Object.entries(details ?? {})) {
+    if (["actor", "item", "document", "token", "user"].includes(key)) continue;
+    if (["string", "number", "boolean"].includes(typeof value) || value == null) context[key] = value;
+  }
+  return context;
+}
+
+function logBetterInvDiagnostic(level, code, message, error = null, details = {}) {
+  const normalizedLevel = ["error", "warn", "info"].includes(level) ? level : "info";
+  const safeCode = String(code || "BI-UNKNOWN-000");
+  const safeMessage = String(message || "Unbekanntes Diagnoseereignis");
+  const errorData = betterInvErrorToDiagnostic(error);
+  const entry = {
+    id: ++betterInvPerformanceState.diagnosticSequence,
+    at: Date.now(),
+    level: normalizedLevel,
+    code: safeCode,
+    message: safeMessage,
+    error: errorData,
+    context: getBetterInvDiagnosticContext(details)
+  };
+  betterInvPerformanceState.diagnosticLog.push(entry);
+  if (betterInvPerformanceState.diagnosticLog.length > BETTER_INV_DIAGNOSTIC_LOG_LIMIT) {
+    betterInvPerformanceState.diagnosticLog.splice(0, betterInvPerformanceState.diagnosticLog.length - BETTER_INV_DIAGNOSTIC_LOG_LIMIT);
+  }
+
+  const consoleMethod = normalizedLevel === "error" ? "error" : normalizedLevel === "warn" ? "warn" : "info";
+  console[consoleMethod]?.(`Axon’s Inventory | ${safeCode} | ${safeMessage}`, error ?? "");
+  updateBetterInvPerformanceWindow();
+  return entry;
+}
+
+function isBetterInvRelatedUnhandledError(error, source = "") {
+  const errorData = betterInvErrorToDiagnostic(error);
+  const haystack = `${source}
+${errorData.message}
+${errorData.stack}`.toLowerCase();
+  return haystack.includes("betterinv") || haystack.includes("axon’s inventory") || haystack.includes("axon's inventory");
+}
+
+function installBetterInvDiagnosticErrorCapture() {
+  if (betterInvPerformanceState.errorCaptureController) return;
+  const controller = new AbortController();
+  betterInvPerformanceState.errorCaptureController = controller;
+  window.addEventListener("error", event => {
+    if (!isBetterInvRelatedUnhandledError(event.error, event.filename)) return;
+    logBetterInvDiagnostic("error", "BI-UNCAUGHT-001", "Unbehandelter Fehler im Modul", event.error ?? event.message, {
+      source: String(event.filename ?? ""),
+      line: Number(event.lineno) || 0,
+      column: Number(event.colno) || 0
+    });
+  }, { signal: controller.signal });
+  window.addEventListener("unhandledrejection", event => {
+    if (!isBetterInvRelatedUnhandledError(event.reason)) return;
+    logBetterInvDiagnostic("error", "BI-PROMISE-001", "Unbehandeltes Promise im Modul", event.reason);
+  }, { signal: controller.signal });
+}
 
 let betterInvState = {
   actorId: null,
@@ -186,6 +285,7 @@ Hooks.once("init", () => {
 
 Hooks.once("ready", async () => {
   console.log("Axon’s Inventory loaded!");
+  installBetterInvDiagnosticErrorCapture();
   validateBetterInvSupportLinks();
   await initializeBetterInvUserSettings();
   ensureBetterInvButton();
@@ -253,7 +353,7 @@ function installBetterInvOperationalHooks() {
     try {
       await handleBetterInvCanvasItemDrop(canvasInstance, data, event);
     } catch (error) {
-      console.error("Axon’s Inventory | Gegenstand konnte nicht auf den Token übertragen werden", error);
+      logBetterInvDiagnostic("error", "BI-TRANSFER-001", "Gegenstand konnte nicht auf den Token übertragen werden", error);
       ui.notifications.error(error?.betterInvUserMessage || error?.message || "Der Gegenstand konnte nicht auf den Token übertragen werden.");
     }
   });
@@ -270,6 +370,7 @@ function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
   const shouldRun = settings?.moduleEnabled !== false;
   if (shouldRun === betterInvRuntimeOperational) return;
   betterInvRuntimeOperational = shouldRun;
+  logBetterInvDiagnostic("info", shouldRun ? "BI-RUNTIME-STATE-001" : "BI-RUNTIME-STATE-002", shouldRun ? "Axon’s Inventory wurde aktiviert" : "Ruhemodus wurde aktiviert");
 
   if (shouldRun) {
     installBetterInvOperationalHooks();
@@ -296,7 +397,6 @@ function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
   clearBetterInvTokenDropFeedback();
   removeBetterInvItemDragPreview();
   betterInvActiveItemDrag = null;
-  closeBetterInvPerformanceWindow();
   closeBetterInvSettingsWindow();
   closeBetterInvSupportWindow();
   betterInvState.containerId = null;
@@ -345,7 +445,7 @@ function getBetterInvUserSettings() {
   try {
     return normalizeBetterInvUserSettings(game.user?.getFlag?.(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG));
   } catch (error) {
-    console.warn("Axon’s Inventory | Persönliche Einstellungen konnten nicht gelesen werden", error);
+    logBetterInvDiagnostic("warn", "BI-SETTINGS-001", "Persönliche Einstellungen konnten nicht gelesen werden", error);
     return { ...DEFAULT_BETTER_INV_USER_SETTINGS };
   }
 }
@@ -1021,6 +1121,8 @@ function resetBetterInvPerformanceMeasurements() {
   betterInvPerformanceState.cacheMisses = 0;
   betterInvPerformanceState.cacheInvalidations = 0;
   betterInvPerformanceState.eventLoopLag.length = 0;
+  betterInvPerformanceState.lastWarningAt = 0;
+  betterInvPerformanceState.lastWarningFingerprint = "";
   updateBetterInvPerformanceWindow();
 }
 
@@ -1912,6 +2014,39 @@ function applyBetterInvScale(windowEl) {
   if (content) content.style.zoom = String(scale);
 }
 
+function activateBetterInvDisabledShellListeners(windowEl, eventController) {
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
+    disposeBetterInvWindowEventCycle(windowEl);
+    windowEl.remove();
+  }, eventController);
+
+  const openDiagnostics = event => {
+    event?.preventDefault?.();
+    openBetterInvPerformanceWindow();
+    windowEl.querySelectorAll(".betterinv-disabled-performance, .betterinv-disabled-performance-open").forEach(button => {
+      button.classList.toggle("is-active", true);
+      button.setAttribute?.("aria-expanded", "true");
+    });
+  };
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-disabled-performance"), "click", openDiagnostics, eventController);
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-disabled-performance-open"), "click", openDiagnostics, eventController);
+
+  addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
+    const button = event.currentTarget;
+    if (button instanceof HTMLButtonElement) button.disabled = true;
+    try {
+      await saveBetterInvUserSettings({ moduleEnabled: true });
+      await renderBetterInvWindow({ preserveScroll: false });
+      updateBetterInvPerformanceWindow();
+    } catch (error) {
+      logBetterInvDiagnostic("error", "BI-RUNTIME-001", "Reaktivierung fehlgeschlagen", error);
+      ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
+      if (button instanceof HTMLButtonElement) button.disabled = false;
+    }
+  }, eventController);
+  makeBetterInvDraggable(windowEl);
+}
+
 async function renderBetterInvDisabledWindow() {
   cancelScheduledBetterInvRefresh();
   betterInvRenderSequence += 1;
@@ -1919,7 +2054,6 @@ async function renderBetterInvDisabledWindow() {
   closeBetterInvCategoryMenu();
   closeBetterInvSettingsWindow();
   closeBetterInvSupportWindow();
-  closeBetterInvPerformanceWindow();
 
   let windowEl = document.getElementById("betterinv-window");
   if (!windowEl) {
@@ -1938,24 +2072,7 @@ async function renderBetterInvDisabledWindow() {
   windowEl.classList.add("betterinv-disabled-mode");
   windowEl.innerHTML = betterInvDisabledShellHtml();
   const eventController = beginBetterInvWindowEventCycle(windowEl);
-
-  addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
-    disposeBetterInvWindowEventCycle(windowEl);
-    windowEl.remove();
-  }, eventController);
-  addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
-    const button = event.currentTarget;
-    if (button instanceof HTMLButtonElement) button.disabled = true;
-    try {
-      await saveBetterInvUserSettings({ moduleEnabled: true });
-      await renderBetterInvWindow({ preserveScroll: false });
-    } catch (error) {
-      console.error("Axon’s Inventory | Reaktivierung fehlgeschlagen", error);
-      ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
-      if (button instanceof HTMLButtonElement) button.disabled = false;
-    }
-  }, eventController);
-  makeBetterInvDraggable(windowEl);
+  activateBetterInvDisabledShellListeners(windowEl, eventController);
 }
 
 async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
@@ -2000,24 +2117,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     windowEl.classList.add("betterinv-disabled-mode");
     windowEl.innerHTML = betterInvDisabledShellHtml();
     const eventController = beginBetterInvWindowEventCycle(windowEl);
-    addBetterInvEventListener(windowEl.querySelector(".betterinv-close"), "click", () => {
-      disposeBetterInvWindowEventCycle(windowEl);
-      closeBetterInvPerformanceWindow();
-      windowEl.remove();
-    }, eventController);
-    addBetterInvEventListener(windowEl.querySelector(".betterinv-reactivate"), "click", async event => {
-      const button = event.currentTarget;
-      if (button instanceof HTMLButtonElement) button.disabled = true;
-      try {
-        await saveBetterInvUserSettings({ moduleEnabled: true });
-        await renderBetterInvWindow({ preserveScroll: false });
-      } catch (error) {
-        console.error("Axon’s Inventory | Reaktivierung fehlgeschlagen", error);
-        ui.notifications.error("Axon’s Inventory konnte nicht wieder aktiviert werden.");
-        if (button instanceof HTMLButtonElement) button.disabled = false;
-      }
-    }, eventController);
-    makeBetterInvDraggable(windowEl);
+    activateBetterInvDisabledShellListeners(windowEl, eventController);
     performanceSample.mode = "disabled";
     markBetterInvPerformancePhase(performanceSample, "domCommitted");
     markBetterInvPerformancePhase(performanceSample, "listenersReady");
@@ -2493,7 +2593,8 @@ function formatBetterInvBytes(value) {
   return `${amount.toFixed(digits)} ${units[unitIndex]}`;
 }
 
-function getBetterInvPerformanceRating(avgRenderMs) {
+function getBetterInvPerformanceRating(avgRenderMs, moduleEnabled = true) {
+  if (!moduleEnabled) return { label: "Modul deaktiviert", className: "is-neutral" };
   if (!Number.isFinite(avgRenderMs)) return { label: "Noch keine Messung", className: "is-neutral" };
   if (avgRenderMs <= 16.7) return { label: "Sehr flüssig", className: "is-good" };
   if (avgRenderMs <= 33.4) return { label: "Flüssig", className: "is-good" };
@@ -2509,6 +2610,9 @@ function getBetterInvPerformanceSnapshot() {
   const renderTimes = renders.map(entry => entry.totalMs);
   const lagValues = betterInvPerformanceState.eventLoopLag;
   const avgRenderMs = getBetterInvAverage(renderTimes);
+  let moduleEnabled = true;
+  try { moduleEnabled = game?.user?.getFlag?.(MODULE_ID, BETTER_INV_USER_SETTINGS_FLAG)?.moduleEnabled !== false; }
+  catch (_error) {}
   return {
     last,
     sampleCount: renders.length,
@@ -2527,8 +2631,109 @@ function getBetterInvPerformanceSnapshot() {
     cacheMisses: betterInvPerformanceState.cacheMisses,
     cacheInvalidations: betterInvPerformanceState.cacheInvalidations,
     cacheEntries: betterInvActorDataCaches.size,
-    rating: getBetterInvPerformanceRating(avgRenderMs)
+    errorCount: betterInvPerformanceState.diagnosticLog.filter(entry => entry.level === "error").length,
+    warningCount: betterInvPerformanceState.diagnosticLog.filter(entry => entry.level === "warn").length,
+    logCount: betterInvPerformanceState.diagnosticLog.length,
+    moduleEnabled,
+    runtimeOperational: Boolean(betterInvRuntimeOperational),
+    rating: getBetterInvPerformanceRating(avgRenderMs, moduleEnabled)
   };
+}
+
+function getBetterInvPerformanceBottleneck(snapshot = getBetterInvPerformanceSnapshot()) {
+  if (!snapshot.moduleEnabled) {
+    return {
+      severity: "good",
+      title: "Ruhemodus aktiv",
+      description: "Axon’s Inventory hat seine operationalen Hooks, Berechnungen und Inventar-Listener pausiert. Die Diagnose misst nur noch die allgemeine Verzögerung des Foundry-Fensters.",
+      recommendations: []
+    };
+  }
+
+  const last = snapshot.last;
+  const avg = Number(snapshot.avgRenderMs);
+  const p95 = Number(snapshot.p95RenderMs);
+  const avgLag = Number(snapshot.avgEventLoopLagMs);
+  const worstLag = Number(snapshot.worstEventLoopLagMs);
+  const severe = (Number.isFinite(avg) && avg > 60) || (Number.isFinite(p95) && p95 > 100);
+  const warning = severe || (Number.isFinite(avg) && avg > 33.4) || (Number.isFinite(avgLag) && avgLag > 35);
+
+  if (!warning) {
+    return {
+      severity: "good",
+      title: "Keine auffällige Belastung erkannt",
+      description: "Die bisher gemessenen Renderzeiten und Hauptthread-Verzögerungen liegen im unauffälligen Bereich.",
+      recommendations: []
+    };
+  }
+
+  if (Number.isFinite(avgLag) && avgLag > 45 && (!Number.isFinite(avg) || avg < 33.4)) {
+    return {
+      severity: worstLag > 150 ? "bad" : "warn",
+      title: "Foundry-Hauptthread ist belastet",
+      description: "Die Inventar-Renderzeit ist relativ niedrig, aber das gesamte Foundry-Fenster reagiert verzögert. Das kann von einer Szene, einem anderen Modul oder dem Browser stammen und lässt sich nicht zuverlässig Axon’s Inventory zuordnen.",
+      recommendations: ["Andere Module oder eine schwere Szene testweise prüfen", "Diagnose mit deaktiviertem Axon’s Inventory vergleichen"]
+    };
+  }
+
+  const phases = [
+    ["data", Number(last?.dataMs) || 0],
+    ["html", Number(last?.htmlMs) || 0],
+    ["dom", Number(last?.domMs) || 0],
+    ["listeners", Number(last?.listenersMs) || 0]
+  ].sort((a, b) => b[1] - a[1]);
+  const mainPhase = phases[0]?.[0] ?? "unknown";
+  const itemRows = Number(last?.itemRows ?? last?.itemCount ?? 0);
+  const domNodes = Number(last?.domNodes ?? 0);
+
+  if (mainPhase === "data") {
+    return {
+      severity: severe ? "bad" : "warn",
+      title: "Datenaufbereitung ist wahrscheinlich der größte Anteil",
+      description: `Das Zusammenstellen und Berechnen der Inventardaten benötigt im letzten Render am meisten Zeit. Gemessen wurden etwa ${itemRows || "mehrere"} Gegenstandszeilen.`,
+      recommendations: ["Kategoriegewicht deaktivieren", "Rucksackkapazität deaktivieren", "Nicht benötigte Gegenstands- oder Rucksackbereiche ausblenden"]
+    };
+  }
+  if (mainPhase === "html" || mainPhase === "dom") {
+    return {
+      severity: severe ? "bad" : "warn",
+      title: "Darstellung und DOM sind wahrscheinlich der größte Anteil",
+      description: `Das Erzeugen oder Einfügen der Oberfläche benötigt im letzten Render am meisten Zeit${domNodes ? `; das Inventar enthält etwa ${domNodes} DOM-Knoten` : ""}.`,
+      recommendations: ["Favoriten oder Unterkategorien deaktivieren", "Gegenstandswerte oder Mengensteuerung ausblenden", "Gegenstands- oder Rucksackbereich ausblenden, wenn er nicht gebraucht wird"]
+    };
+  }
+  if (mainPhase === "listeners") {
+    return {
+      severity: severe ? "bad" : "warn",
+      title: "Bedienelemente und Listener sind wahrscheinlich der größte Anteil",
+      description: "Das Aktivieren der Bedienelemente benötigt im letzten Render den größten Zeitanteil.",
+      recommendations: ["Mengensteuerung deaktivieren", "Kategorieauswahl deaktivieren", "Drei-Punkte-Menü oder Bearbeiten-Button deaktivieren"]
+    };
+  }
+
+  return {
+    severity: severe ? "bad" : "warn",
+    title: "Erhöhte Belastung erkannt",
+    description: "Die Messung ist auffällig, aber es gibt noch keinen eindeutig dominierenden Teil. Die Zuordnung ist eine Näherung und kein exakter CPU-Profiler.",
+    recommendations: ["Diagnose nach dem Deaktivieren einzelner Einstellungsgruppen vergleichen"]
+  };
+}
+
+function maybeWarnBetterInvPerformance(snapshot = getBetterInvPerformanceSnapshot()) {
+  if (!document.getElementById("betterinv-performance-window")) return;
+  const bottleneck = getBetterInvPerformanceBottleneck(snapshot);
+  if (bottleneck.severity !== "bad") return;
+  const fingerprint = `${bottleneck.title}|${bottleneck.recommendations.join("|")}`;
+  const now = Date.now();
+  if (fingerprint === betterInvPerformanceState.lastWarningFingerprint && now - betterInvPerformanceState.lastWarningAt < BETTER_INV_PERFORMANCE_WARNING_COOLDOWN_MS) return;
+  betterInvPerformanceState.lastWarningFingerprint = fingerprint;
+  betterInvPerformanceState.lastWarningAt = now;
+  logBetterInvDiagnostic("warn", "BI-PERF-001", bottleneck.title, null, {
+    avgRenderMs: Number(snapshot.avgRenderMs) || 0,
+    p95RenderMs: Number(snapshot.p95RenderMs) || 0,
+    recommendation: bottleneck.recommendations[0] ?? ""
+  });
+  ui.notifications?.warn?.(`Axon’s Inventory: ${bottleneck.title}. Details stehen in der Performance-Diagnose.`);
 }
 
 function betterInvPerformanceMetricHtml(label, value, hint = "") {
@@ -2539,21 +2744,155 @@ function betterInvPerformanceMetricHtml(label, value, hint = "") {
     </div>`;
 }
 
+function formatBetterInvDiagnosticTime(timestamp) {
+  try {
+    return new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(timestamp));
+  } catch (_error) {
+    return new Date(timestamp).toLocaleTimeString();
+  }
+}
+
+function betterInvDiagnosticLogsHtml() {
+  const logs = betterInvPerformanceState.diagnosticLog.slice(-60).reverse();
+  if (!logs.length) {
+    return `<div class="betterinv-diagnostic-log-empty"><i class="fas fa-check-circle" aria-hidden="true"></i><span>Noch keine Fehler oder Warnungen protokolliert.</span></div>`;
+  }
+  return logs.map(entry => {
+    const errorText = [entry.error?.name, entry.error?.message].filter(Boolean).join(": ");
+    const stack = String(entry.error?.stack ?? "").trim();
+    return `
+      <details class="betterinv-diagnostic-log-entry is-${escapeAttr(entry.level)}" data-log-id="${entry.id}">
+        <summary>
+          <span class="betterinv-diagnostic-log-level"><i class="fas ${entry.level === "error" ? "fa-times-circle" : entry.level === "warn" ? "fa-exclamation-triangle" : "fa-info-circle"}" aria-hidden="true"></i></span>
+          <code>${escapeHtml(entry.code)}</code>
+          <strong>${escapeHtml(entry.message)}</strong>
+          <time>${escapeHtml(formatBetterInvDiagnosticTime(entry.at))}</time>
+        </summary>
+        <div class="betterinv-diagnostic-log-detail">
+          ${errorText ? `<p>${escapeHtml(errorText)}</p>` : ""}
+          ${stack ? `<pre>${escapeHtml(stack)}</pre>` : ""}
+        </div>
+      </details>`;
+  }).join("");
+}
+
+function getBetterInvDiagnosticExportData() {
+  const snapshot = getBetterInvPerformanceSnapshot();
+  const settings = getBetterInvUserSettings();
+  return {
+    generatedAt: new Date().toISOString(),
+    privacy: "Lokaler, vom Nutzer ausgelöster Export. Keine automatische Übertragung.",
+    environment: {
+      moduleVersion: getBetterInvModuleVersion(),
+      foundryVersion: String(game?.version ?? game?.release?.version ?? "unbekannt"),
+      systemId: String(game?.system?.id ?? "unbekannt"),
+      systemVersion: String(game?.system?.version ?? "unbekannt"),
+      browser: String(navigator?.userAgent ?? "unbekannt")
+    },
+    settings: Object.fromEntries(Object.entries(settings).filter(([, value]) => typeof value === "boolean")),
+    performance: snapshot,
+    assessment: getBetterInvPerformanceBottleneck(snapshot),
+    logs: betterInvPerformanceState.diagnosticLog
+  };
+}
+
+function getBetterInvDiagnosticExportText() {
+  return JSON.stringify(getBetterInvDiagnosticExportData(), null, 2);
+}
+
+async function copyBetterInvDiagnosticReport() {
+  const text = getBetterInvDiagnosticExportText();
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (_error) {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  }
+  ui.notifications?.info?.("Diagnosebericht wurde in die Zwischenablage kopiert.");
+}
+
+function downloadBetterInvDiagnosticReport() {
+  const blob = new Blob([getBetterInvDiagnosticExportText()], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `axons-inventory-diagnose-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function openBetterInvDiagnosticIssue() {
+  const data = getBetterInvDiagnosticExportData();
+  const recentLogs = data.logs.slice(-30).map(entry => `- ${entry.code} | ${entry.level.toUpperCase()} | ${entry.message}${entry.error?.message ? ` — ${entry.error.message}` : ""}`).join("\n") || "- Keine Fehler protokolliert";
+  const assessment = data.assessment;
+  const body = [
+    "## Beschreibung",
+    "Bitte beschreibe hier, was passiert ist und wie der Fehler reproduziert werden kann.",
+    "",
+    "## Umgebung",
+    `- Axon’s Inventory: ${data.environment.moduleVersion}`,
+    `- Foundry: ${data.environment.foundryVersion}`,
+    `- System: ${data.environment.systemId} ${data.environment.systemVersion}`,
+    "",
+    "## Performance",
+    `- Zustand: ${data.performance.rating.label}`,
+    `- Durchschnittlicher Render: ${formatBetterInvMilliseconds(data.performance.avgRenderMs)}`,
+    `- 95. Perzentil: ${formatBetterInvMilliseconds(data.performance.p95RenderMs)}`,
+    `- Einschätzung: ${assessment.title}`,
+    "",
+    "## Letzte Diagnoseeinträge",
+    recentLogs,
+    "",
+    "> Der Bericht wurde lokal erzeugt. Prüfe den Inhalt vor dem Absenden und ergänze bei Bedarf die exportierte JSON-Datei."
+  ].join("\n").slice(0, 7500);
+  const issueUrl = new URL("https://github.com/axon-dystro/BetterInv/issues/new");
+  issueUrl.searchParams.set("title", "[Bug] Diagnosebericht");
+  issueUrl.searchParams.set("body", body);
+  window.open(issueUrl.toString(), "_blank", "noopener,noreferrer");
+}
+
+function clearBetterInvDiagnosticLog() {
+  betterInvPerformanceState.diagnosticLog.length = 0;
+  updateBetterInvPerformanceWindow();
+}
+
 function betterInvPerformanceContentHtml() {
   const snapshot = getBetterInvPerformanceSnapshot();
+  const bottleneck = getBetterInvPerformanceBottleneck(snapshot);
   const last = snapshot.last;
   const memoryDelta = last?.heapDelta;
   const memoryDeltaText = Number.isFinite(memoryDelta)
     ? `${memoryDelta >= 0 ? "+" : "−"}${formatBetterInvBytes(Math.abs(memoryDelta))}`
     : "nicht verfügbar";
+  const recommendations = bottleneck.recommendations.length
+    ? `<ul>${bottleneck.recommendations.map(item => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+    : "";
 
   return `
     <section class="betterinv-performance-summary">
       <div>
         <strong>Aktueller Zustand</strong>
-        <small>${snapshot.sampleCount} von maximal ${BETTER_INV_PERFORMANCE_SAMPLE_LIMIT} Render-Messungen im Arbeitsspeicher</small>
+        <small>${snapshot.moduleEnabled ? `${snapshot.sampleCount} von maximal ${BETTER_INV_PERFORMANCE_SAMPLE_LIMIT} Render-Messungen im Arbeitsspeicher` : "Das Modul ist deaktiviert; die Event-Loop-Messung läuft weiter."}</small>
       </div>
       <span class="betterinv-performance-rating ${escapeAttr(snapshot.rating.className)}">${escapeHtml(snapshot.rating.label)}</span>
+    </section>
+
+    <section class="betterinv-performance-assessment is-${escapeAttr(bottleneck.severity)}">
+      <i class="fas ${bottleneck.severity === "bad" ? "fa-exclamation-circle" : bottleneck.severity === "warn" ? "fa-exclamation-triangle" : "fa-check-circle"}" aria-hidden="true"></i>
+      <div>
+        <strong>${escapeHtml(bottleneck.title)}</strong>
+        <p>${escapeHtml(bottleneck.description)}</p>
+        ${recommendations}
+        ${bottleneck.severity !== "good" ? `<small>Die Ursachenangabe ist eine Messwert-Näherung. Sie zeigt den wahrscheinlich größten Anteil, nicht einen exakt gemessenen CPU-Verbrauch einzelner Funktionen.</small>` : ""}
+      </div>
     </section>
 
     <section class="betterinv-performance-section">
@@ -2612,6 +2951,21 @@ function betterInvPerformanceContentHtml() {
         ${betterInvPerformanceMetricHtml("Letzter Render Δ", memoryDeltaText, "Ungefähre Heap-Veränderung während des letzten Render-Vorgangs.")}
       </div>
       <p class="betterinv-performance-note">Ein exakter CPU-Prozentsatz ist innerhalb eines Browser-Moduls nicht zuverlässig verfügbar. Deshalb misst die Diagnose Renderzeiten und Verzögerungen des Hauptthreads. RAM-Werte erscheinen nur, wenn dein Foundry-Browser sie bereitstellt.</p>
+    </section>
+
+    <section class="betterinv-performance-section betterinv-diagnostic-log-section">
+      <div class="betterinv-diagnostic-log-heading">
+        <h3><i class="fas fa-file-medical-alt" aria-hidden="true"></i>Fehler- und Belastungsprotokoll</h3>
+        <span>${snapshot.errorCount} Fehler · ${snapshot.warningCount} Warnungen</span>
+      </div>
+      <div class="betterinv-diagnostic-actions" role="group" aria-label="Diagnosebericht verwenden">
+        <button type="button" data-diagnostic-action="copy"><i class="fas fa-copy" aria-hidden="true"></i>Kopieren</button>
+        <button type="button" data-diagnostic-action="download"><i class="fas fa-download" aria-hidden="true"></i>JSON speichern</button>
+        <button type="button" data-diagnostic-action="issue"><i class="fab fa-github" aria-hidden="true"></i>Issue vorbereiten</button>
+        <button type="button" data-diagnostic-action="clear"><i class="fas fa-trash-alt" aria-hidden="true"></i>Protokoll leeren</button>
+      </div>
+      <p class="betterinv-performance-note">Protokolliert werden Fehler und Warnungen von Axon’s Inventory sowie erkannte Überlastungswarnungen. Es erfolgt keine automatische Übertragung. Ein GitHub-Issue wird nur vorausgefüllt und erst von dir abgesendet.</p>
+      <div class="betterinv-diagnostic-log-list">${betterInvDiagnosticLogsHtml()}</div>
     </section>`;
 }
 
@@ -2620,7 +2974,11 @@ function updateBetterInvPerformanceWindow() {
   const content = windowEl?.querySelector?.(".betterinv-performance-content");
   if (!content) return;
   const scrollTop = content.scrollTop;
+  const openLogIds = new Set(Array.from(content.querySelectorAll(".betterinv-diagnostic-log-entry[open]")).map(entry => entry.dataset.logId));
   content.innerHTML = betterInvPerformanceContentHtml();
+  for (const entry of content.querySelectorAll(".betterinv-diagnostic-log-entry")) {
+    if (openLogIds.has(entry.dataset.logId)) entry.open = true;
+  }
   content.scrollTop = scrollTop;
 }
 
@@ -2637,6 +2995,8 @@ function startBetterInvPerformanceMonitor() {
     if (betterInvPerformanceState.eventLoopLag.length > BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT) {
       betterInvPerformanceState.eventLoopLag.splice(0, betterInvPerformanceState.eventLoopLag.length - BETTER_INV_EVENT_LOOP_SAMPLE_LIMIT);
     }
+    const snapshot = getBetterInvPerformanceSnapshot();
+    maybeWarnBetterInvPerformance(snapshot);
     updateBetterInvPerformanceWindow();
   }, intervalMs);
 }
@@ -2652,6 +3012,10 @@ function closeBetterInvPerformanceWindow() {
   windowEl?._betterInvDragController?.abort?.();
   windowEl?.remove();
   stopBetterInvPerformanceMonitor();
+  document.querySelectorAll(".betterinv-disabled-performance, .betterinv-disabled-performance-open").forEach(button => {
+    button.classList.remove("is-active");
+    button.setAttribute?.("aria-expanded", "false");
+  });
 }
 
 function openBetterInvPerformanceWindow() {
@@ -2670,7 +3034,7 @@ function openBetterInvPerformanceWindow() {
     <header class="betterinv-settings-window-header">
       <div>
         <strong>Performance-Diagnose</strong>
-        <small>Lokale Live-Messung für Axon’s Inventory</small>
+        <small>Lokale Live-Messung und Fehlerprotokoll für Axon’s Inventory</small>
       </div>
       <div class="betterinv-performance-header-actions">
         <button type="button" class="betterinv-performance-reset" title="Messwerte zurücksetzen" aria-label="Messwerte zurücksetzen"><i class="fas fa-undo" aria-hidden="true"></i></button>
@@ -2680,7 +3044,7 @@ function openBetterInvPerformanceWindow() {
     <div class="betterinv-settings-window-scroll betterinv-performance-content">${betterInvPerformanceContentHtml()}</div>
     <footer class="betterinv-settings-window-footer">
       <i class="fas fa-shield-alt" aria-hidden="true"></i>
-      <span>Die Messwerte bleiben nur in dieser Sitzung und werden nirgendwohin übertragen.</span>
+      <span>Messwerte und Fehlerprotokoll bleiben lokal, bis du selbst Kopieren, Speichern oder Issue vorbereiten auswählst.</span>
     </footer>`;
 
   const settingsWindow = document.getElementById("betterinv-settings-window");
@@ -2689,6 +3053,16 @@ function openBetterInvPerformanceWindow() {
   positionBetterInvAuxiliaryWindow(windowEl, [settingsWindow, inventoryWindow]);
   bringBetterInvFloatingWindowToFront(windowEl);
 
+  windowEl.addEventListener("click", event => {
+    const actionButton = event.target?.closest?.("[data-diagnostic-action]");
+    if (!actionButton) return;
+    event.preventDefault();
+    const action = String(actionButton.dataset.diagnosticAction ?? "");
+    if (action === "copy") void copyBetterInvDiagnosticReport();
+    else if (action === "download") downloadBetterInvDiagnosticReport();
+    else if (action === "issue") openBetterInvDiagnosticIssue();
+    else if (action === "clear") clearBetterInvDiagnosticLog();
+  });
   windowEl.querySelector(".betterinv-performance-close")?.addEventListener("click", closeBetterInvPerformanceWindow);
   windowEl.querySelector(".betterinv-performance-reset")?.addEventListener("click", event => {
     event.preventDefault();
@@ -2696,7 +3070,7 @@ function openBetterInvPerformanceWindow() {
   });
   makeBetterInvSettingsDraggable(windowEl);
   startBetterInvPerformanceMonitor();
-  if (document.getElementById("betterinv-window")) renderBetterInvWindow({ preserveScroll: true });
+  if (document.getElementById("betterinv-window") && getBetterInvUserSettings().moduleEnabled !== false) renderBetterInvWindow({ preserveScroll: true });
   return windowEl;
 }
 
@@ -2782,13 +3156,12 @@ function openBetterInvSettingsWindow() {
 
       syncBetterInvSettingsControls(settingsWindow, savedSettings);
       if (savedSettings.moduleEnabled === false) {
-        closeBetterInvPerformanceWindow();
         closeBetterInvSettingsWindow();
       }
       if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
       return savedSettings;
     } catch (error) {
-      console.error("Axon’s Inventory | Persönliche Einstellung konnte nicht gespeichert werden", error);
+      logBetterInvDiagnostic("error", "BI-SETTINGS-002", "Persönliche Einstellung konnte nicht gespeichert werden", error);
       ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
       syncBetterInvSettingsControls(settingsWindow, previousSettings);
       return null;
@@ -3006,17 +3379,23 @@ function baseShellHtml(bodyHtml) {
 }
 
 function betterInvDisabledShellHtml() {
+  const diagnosticsOpen = Boolean(document.getElementById("betterinv-performance-window"));
   return `
     <header class="betterinv-header betterinv-disabled-header">
       <h2>Axon’s Inventory</h2>
       <div class="betterinv-header-actions">
+        <button type="button" class="betterinv-disabled-performance${diagnosticsOpen ? " is-active" : ""}" title="Performance-Diagnose öffnen" aria-label="Performance-Diagnose öffnen" aria-expanded="${diagnosticsOpen}"><i class="fas fa-chart-line" aria-hidden="true"></i></button>
         <button type="button" class="betterinv-close" title="Schließen">×</button>
       </div>
     </header>
     <div class="betterinv-body betterinv-disabled-body">
       <i class="fas fa-power-off" aria-hidden="true"></i>
       <strong>Axon’s Inventory ist deaktiviert.</strong>
-      <button type="button" class="betterinv-reactivate">Wieder aktivieren</button>
+      <span>Operationalen Hooks, Inventarberechnungen und Gegenstands-Listener sind pausiert. Die Diagnose kann weiterhin die allgemeine Foundry-Auslastung und vorhandene Fehlerprotokolle anzeigen.</span>
+      <div class="betterinv-disabled-actions">
+        <button type="button" class="betterinv-reactivate">Wieder aktivieren</button>
+        <button type="button" class="betterinv-disabled-performance-open"><i class="fas fa-tachometer-alt" aria-hidden="true"></i>Diagnose öffnen</button>
+      </div>
     </div>`;
 }
 
@@ -3771,7 +4150,7 @@ async function commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfe
           });
         }
       } catch (rollbackError) {
-        console.error("Axon’s Inventory | Geldtransfer-Rollback fehlgeschlagen", rollbackError);
+        logBetterInvDiagnostic("error", "BI-CURRENCY-ROLLBACK-001", "Geldtransfer-Rollback fehlgeschlagen", rollbackError);
         error.betterInvUserMessage =
           `Der Geldtransfer ist unklar. Prüfe ${targetActor.name} auf eine zusätzliche Gutschrift und ${sourceActor.name} auf die Abbuchung.`;
         error.betterInvUpdateMayHaveSucceeded = true;
@@ -5181,7 +5560,7 @@ async function resolveBetterInvNativeTransferSource(item) {
       ? item.toDragData()
       : { type: "Item", uuid: item.uuid };
   } catch (error) {
-    console.debug("Axon’s Inventory | Foundry-Dragdaten konnten nicht erzeugt werden; direkter Dokument-Fallback", error);
+    logBetterInvDiagnostic("info", "BI-TRANSFER-FALLBACK-001", "Foundry-Dragdaten konnten nicht erzeugt werden; direkter Dokument-Fallback", error);
     dragData = { type: "Item", uuid: item.uuid };
   }
 
@@ -5193,7 +5572,7 @@ async function resolveBetterInvNativeTransferSource(item) {
         return { document: resolved, dragData, usedNativeDropData: true };
       }
     } catch (error) {
-      console.debug("Axon’s Inventory | Foundrys fromDropData konnte den Gegenstand nicht auflösen; direkter Dokument-Fallback", error);
+      logBetterInvDiagnostic("info", "BI-TRANSFER-FALLBACK-002", "Foundrys fromDropData konnte den Gegenstand nicht auflösen; direkter Dokument-Fallback", error);
     }
   }
 
@@ -5512,7 +5891,7 @@ async function transferBetterInvItemToActor(sourceActor, item, targetActor, requ
     if (createdItem) {
       try { await createdItem.delete({ ...operation, betterInventoryRollback: true }); }
       catch (rollbackError) {
-        console.error("Axon’s Inventory | Rollback des übertragenen Gegenstands fehlgeschlagen", rollbackError);
+        logBetterInvDiagnostic("error", "BI-TRANSFER-ROLLBACK-001", "Rollback des übertragenen Gegenstands fehlgeschlagen", rollbackError);
         ui.notifications.error(`Die Übertragung ist unklar. Prüfe ${targetActor.name} auf einen zusätzlichen Gegenstand.`);
       }
     }
@@ -5593,7 +5972,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
       const document = await ItemImplementation.fromDropData(data);
       if (document) return document;
     } catch (error) {
-      console.debug("Axon’s Inventory | Foundry konnte die Drop-Daten nicht direkt auflösen", error);
+      logBetterInvDiagnostic("info", "BI-DROP-FALLBACK-001", "Foundry konnte die Drop-Daten nicht direkt auflösen", error);
     }
   }
 
@@ -5603,7 +5982,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
       const document = await globalThis.fromUuid(uuid);
       if (document) return document;
     } catch (error) {
-      console.debug("Axon’s Inventory | UUID-Drop-Fallback fehlgeschlagen", error);
+      logBetterInvDiagnostic("info", "BI-DROP-FALLBACK-002", "UUID-Drop-Fallback fehlgeschlagen", error);
     }
   }
 
@@ -5613,7 +5992,7 @@ async function resolveBetterInvDroppedItemDocument(data) {
     try {
       return await game.packs?.get?.(packId)?.getDocument?.(documentId) ?? null;
     } catch (error) {
-      console.debug("Axon’s Inventory | Kompendium-Drop-Fallback fehlgeschlagen", error);
+      logBetterInvDiagnostic("info", "BI-DROP-FALLBACK-003", "Kompendium-Drop-Fallback fehlgeschlagen", error);
     }
   }
   return null;
@@ -5643,7 +6022,7 @@ async function importBetterInvDroppedItem(actor, sourceItem, { targetContainer =
     if (targetContainer) await moveItemToContainer(item, targetContainer);
     await setItemCategory(item, targetCategory || "__unsorted", targetContainer?.id ?? null);
   } catch (error) {
-    console.warn("Axon’s Inventory | Abgelegter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
+    logBetterInvDiagnostic("warn", "BI-DROP-001", "Abgelegter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde hinzugefügt, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -5725,7 +6104,7 @@ function enableBetterInvExternalItemDrops(windowEl, actor, activeContainer = nul
         { forceRefresh: true }
       );
     } catch (error) {
-      console.error("Axon’s Inventory | Externer Gegenstand konnte nicht importiert werden", error);
+      logBetterInvDiagnostic("error", "BI-DROP-002", "Externer Gegenstand konnte nicht importiert werden", error);
       ui.notifications.error(error?.message || "Der Gegenstand konnte nicht in das Inventar gezogen werden.");
     }
   });
@@ -6233,7 +6612,7 @@ async function getBetterInvCompendiumDocument(pack, selected) {
       if (document) return document;
     } catch (error) {
       primaryError = error;
-      console.warn("Axon’s Inventory | Kompendium getDocument fehlgeschlagen, UUID-Fallback wird versucht", error);
+      logBetterInvDiagnostic("warn", "BI-COMPENDIUM-001", "Kompendium getDocument fehlgeschlagen; UUID-Fallback wird versucht", error);
     }
   }
 
@@ -6243,7 +6622,7 @@ async function getBetterInvCompendiumDocument(pack, selected) {
       if (document) return document;
     } catch (error) {
       if (!primaryError) primaryError = error;
-      console.warn("Axon’s Inventory | Kompendium UUID-Fallback fehlgeschlagen", error);
+      logBetterInvDiagnostic("warn", "BI-COMPENDIUM-002", "Kompendium UUID-Fallback fehlgeschlagen", error);
     }
   }
 
@@ -6278,7 +6657,7 @@ async function importBetterInvCompendiumItem(actor, selected, activeContainer = 
     if (activeContainer) await moveItemToContainer(item, activeContainer);
     await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
   } catch (error) {
-    console.warn("Axon’s Inventory | Importierter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
+    logBetterInvDiagnostic("warn", "BI-COMPENDIUM-003", "Importierter Gegenstand wurde erstellt, aber nicht vollständig einsortiert", error);
     ui.notifications.warn(`${item.name} wurde importiert, konnte aber nicht vollständig einsortiert werden.`);
   }
 
@@ -7072,7 +7451,7 @@ function openBetterInvCategoryMenu(button, actor, item, categoryOptions, contain
           { forceRefresh: true }
         );
       } catch (error) {
-        console.error("Axon’s Inventory | Kategorie konnte nicht geändert werden", error);
+        logBetterInvDiagnostic("error", "BI-CATEGORY-001", "Kategorie konnte nicht geändert werden", error);
         ui.notifications.error("Die Kategorie des Gegenstands konnte nicht geändert werden.");
       }
     })();
@@ -7185,7 +7564,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
           delete: ["Gegenstand konnte nicht gelöscht werden", "Der Gegenstand konnte nicht gelöscht werden."]
         };
         const [logLabel, userMessage] = labels[action] ?? ["Gegenstandsaktion fehlgeschlagen", "Die Gegenstandsaktion konnte nicht ausgeführt werden."];
-        console.error(`Axon’s Inventory | ${logLabel}`, error);
+        logBetterInvDiagnostic("error", "BI-ACTION-001", String(logLabel || "Aktion fehlgeschlagen"), error);
         ui.notifications.error(userMessage);
       }
     })();
@@ -7314,7 +7693,7 @@ async function runBetterInvCurrencyAction(windowEl, actor, button, action, { log
       { refreshResult: true }
     );
   } catch (error) {
-    console.error(logMessage, error);
+    logBetterInvDiagnostic("error", "BI-CURRENCY-001", String(logMessage || "Geldaktion fehlgeschlagen").replace(/^Axon’s Inventory\s*\|\s*/, ""), error);
     if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
     else notifyBetterInvCurrencyError(errorMessage);
   } finally {
@@ -7368,7 +7747,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
             { forceRefresh: true }
           );
         } catch (error) {
-          console.error("Axon’s Inventory | Rucksackname konnte nicht geändert werden", error);
+          logBetterInvDiagnostic("error", "BI-CONTAINER-001", "Rucksackname konnte nicht geändert werden", error);
           ui.notifications.error("Der Rucksackname konnte nicht geändert werden.");
         }
       })();
@@ -7439,7 +7818,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
 
     if (button.matches(".betterinv-open-item")) {
       void useOrOpenItem(item, event).catch(error => {
-        console.error("Axon’s Inventory | Gegenstand konnte nicht geöffnet oder benutzt werden", error);
+        logBetterInvDiagnostic("error", "BI-ITEM-USE-001", "Gegenstand konnte nicht geöffnet oder benutzt werden", error);
         ui.notifications.error("Der Gegenstand konnte nicht geöffnet oder benutzt werden.");
       });
       return;
@@ -7452,7 +7831,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         const delta = button.classList.contains("betterinv-quantity-plus") ? 1 : -1;
         await changeItemQuantity(item, delta);
       } catch (error) {
-        console.error("Axon’s Inventory | Menge konnte nicht geändert werden", error);
+        logBetterInvDiagnostic("error", "BI-QUANTITY-001", "Menge konnte nicht geändert werden", error);
         ui.notifications.error("Die Anzahl konnte nicht geändert werden.");
       } finally {
         if (button.isConnected) button.disabled = false;
@@ -7562,7 +7941,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
         field.dataset.originalValue = String(next);
       } catch (error) {
         if (field.isConnected) field.value = String(oldValue);
-        console.error("Axon’s Inventory | Menge konnte nicht direkt geändert werden", error);
+        logBetterInvDiagnostic("error", "BI-QUANTITY-002", "Menge konnte nicht direkt geändert werden", error);
         ui.notifications.error("Die Anzahl konnte nicht geändert werden.");
       } finally {
         delete field.dataset.saving;
@@ -7664,7 +8043,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     try {
       await createBetterInvItem(actor, activeContainer);
     } catch (error) {
-      console.error("Axon’s Inventory | Gegenstand konnte nicht erstellt oder importiert werden", error);
+      logBetterInvDiagnostic("error", "BI-ITEM-CREATE-001", "Gegenstand konnte nicht erstellt oder importiert werden", error);
       const reason = sanitizePlainText(error?.message, { max: 220 });
       ui.notifications.error(reason
         ? `Der Gegenstand konnte nicht erstellt oder importiert werden: ${reason}`
@@ -7970,10 +8349,10 @@ async function moveItemToContainer(item, targetContainer = null) {
   }
 
   try { await item.update(update); return; }
-  catch (err) { console.warn("Axon’s Inventory | direct container update failed, trying id fallback", err); }
+  catch (err) { logBetterInvDiagnostic("warn", "BI-CONTAINER-002", "Direktes Rucksack-Update fehlgeschlagen; ID-Fallback wird versucht", err); }
 
   try { await item.update({ "system.container": targetContainer?.id ?? "" }); return; }
-  catch (err) { console.warn("Axon’s Inventory | id container update failed", err); }
+  catch (err) { logBetterInvDiagnostic("warn", "BI-CONTAINER-003", "Rucksack-Update über ID ist fehlgeschlagen", err); }
 
   ui.notifications.warn("Der Gegenstand konnte nicht automatisch in den Rucksack verschoben werden. DnD5e hat das Datenfeld nicht akzeptiert.");
 }
@@ -8244,7 +8623,7 @@ async function useOrOpenItem(item, event) {
       elevateRecentFoundryApps();
       if (result !== null && result !== undefined) return;
     } catch (err) {
-      console.warn("Axon’s Inventory | native item use failed, trying fallback", err);
+      logBetterInvDiagnostic("warn", "BI-ITEM-USE-002", "Native Gegenstandsnutzung fehlgeschlagen; Fallback wird versucht", err);
     }
   }
 
