@@ -103,6 +103,12 @@ let betterInvQueuedRenderOptions = null;
 let betterInvDialogMutationFrame = null;
 const betterInvPendingDialogElements = new Set();
 
+// Phase 7.8: derived actor data can safely survive several UI-only renders.
+// The cache is deliberately small and is invalidated by Actor/Item hooks so it
+// never becomes a second source of truth beside Foundry's documents.
+const BETTER_INV_ACTOR_CACHE_LIMIT = 8;
+const betterInvActorDataCaches = new Map();
+
 // Phase 7.6: lightweight runtime diagnostics. Measurements stay local to the
 // current browser session and are never transmitted or persisted.
 const BETTER_INV_PERFORMANCE_SAMPLE_LIMIT = 60;
@@ -114,6 +120,9 @@ const betterInvPerformanceState = {
   coalescedRefreshRequests: 0,
   discardedRenders: 0,
   activeDelegatedListeners: 0,
+  cacheHits: 0,
+  cacheMisses: 0,
+  cacheInvalidations: 0,
   eventLoopLag: [],
   monitorTimer: null,
   monitorLastTick: null
@@ -164,6 +173,9 @@ Hooks.on("updateItem", (item, changes, options) => {
 });
 Hooks.on("deleteItem", (item, options) => {
   refreshIfItemActor(item, null, options, { lifecycle: "delete" });
+});
+Hooks.on("deleteActor", actor => {
+  invalidateBetterInvActorDataCache(actor, { all: true });
 });
 Hooks.on("dropCanvasData", async (canvasInstance, data, event) => {
   // Canvas drops happen frequently for many document types. Ignore everything
@@ -776,6 +788,9 @@ function resetBetterInvPerformanceMeasurements() {
   betterInvPerformanceState.refreshFrames = 0;
   betterInvPerformanceState.coalescedRefreshRequests = 0;
   betterInvPerformanceState.discardedRenders = 0;
+  betterInvPerformanceState.cacheHits = 0;
+  betterInvPerformanceState.cacheMisses = 0;
+  betterInvPerformanceState.cacheInvalidations = 0;
   betterInvPerformanceState.eventLoopLag.length = 0;
   updateBetterInvPerformanceWindow();
 }
@@ -837,6 +852,9 @@ function cancelScheduledBetterInvRefresh() {
 }
 
 function refreshIfCurrentActor(actor, changes = null, options = null) {
+  // Cache invalidation must also happen while the inventory window is closed or
+  // when an internal update deliberately suppresses a refresh.
+  invalidateBetterInvActorCacheFromChanges(actor, changes);
   if (!isBetterInvWindowOpen() || shouldBetterInvSkipHookRefresh(options)) return;
   const current = getCurrentActor();
   if (current?.id !== actor?.id) return;
@@ -847,6 +865,12 @@ function refreshIfCurrentActor(actor, changes = null, options = null) {
 }
 
 function refreshIfItemActor(item, changes = null, options = null, { lifecycle = "update" } = {}) {
+  const changedPaths = getBetterInvChangedPaths(changes);
+  const cacheRelevant = lifecycle !== "update"
+    ? isBetterInvInventoryRelevantItem(item)
+    : isBetterInvInventoryRelevantItem(item) || betterInvPathsTouch(changedPaths, ["type"]);
+  if (cacheRelevant) invalidateBetterInvActorDataCache(item?.parent, { inventory: true });
+
   if (!isBetterInvWindowOpen() || shouldBetterInvSkipHookRefresh(options)) return;
   const current = getCurrentActor();
   if (current?.id !== item?.parent?.id) return;
@@ -857,6 +881,212 @@ function refreshIfItemActor(item, changes = null, options = null, { lifecycle = 
 }
 
 const BETTER_INV_INVENTORY_TYPES = new Set(["weapon", "equipment", "consumable", "tool", "loot", "container", "backpack"]);
+
+function getBetterInvActorCacheKey(actorOrId) {
+  if (!actorOrId) return null;
+  if (typeof actorOrId === "string") return actorOrId;
+  return actorOrId.id ? String(actorOrId.id) : null;
+}
+
+function createBetterInvActorDataCache(actor) {
+  return {
+    actor,
+    inventoryItems: null,
+    inventorySize: null,
+    renderCache: null,
+    sortedItemsByContext: new Map(),
+    sortedContainers: null,
+    categoriesByContext: new Map(),
+    subcategoriesByContext: new Map(),
+    lastUsedAt: Date.now()
+  };
+}
+
+function pruneBetterInvActorDataCaches() {
+  if (betterInvActorDataCaches.size <= BETTER_INV_ACTOR_CACHE_LIMIT) return;
+  const entries = [...betterInvActorDataCaches.entries()]
+    .sort(([, left], [, right]) => (left?.lastUsedAt ?? 0) - (right?.lastUsedAt ?? 0));
+  while (betterInvActorDataCaches.size > BETTER_INV_ACTOR_CACHE_LIMIT && entries.length) {
+    const [key] = entries.shift();
+    betterInvActorDataCaches.delete(key);
+  }
+}
+
+function getBetterInvActorDataCache(actor) {
+  const key = getBetterInvActorCacheKey(actor);
+  if (!key) return null;
+  let cache = betterInvActorDataCaches.get(key);
+  if (!cache || cache.actor !== actor) {
+    cache = createBetterInvActorDataCache(actor);
+    betterInvActorDataCaches.set(key, cache);
+    pruneBetterInvActorDataCaches();
+  } else {
+    // Refresh insertion order as a simple LRU signal.
+    betterInvActorDataCaches.delete(key);
+    cache.lastUsedAt = Date.now();
+    betterInvActorDataCaches.set(key, cache);
+  }
+  return cache;
+}
+
+function noteBetterInvCacheHit() {
+  betterInvPerformanceState.cacheHits += 1;
+}
+
+function noteBetterInvCacheMiss() {
+  betterInvPerformanceState.cacheMisses += 1;
+}
+
+function invalidateBetterInvActorDataCache(actorOrId, {
+  all = false,
+  inventory = false,
+  itemOrder = false,
+  containerOrder = false,
+  categories = false
+} = {}) {
+  const key = getBetterInvActorCacheKey(actorOrId);
+  if (!key) return false;
+  const cache = betterInvActorDataCaches.get(key);
+  if (!cache) return false;
+
+  if (all) {
+    betterInvActorDataCaches.delete(key);
+    betterInvPerformanceState.cacheInvalidations += 1;
+    return true;
+  }
+
+  let changed = false;
+  if (inventory) {
+    cache.inventoryItems = null;
+    cache.inventorySize = null;
+    cache.renderCache = null;
+    cache.sortedItemsByContext.clear();
+    cache.sortedContainers = null;
+    changed = true;
+  }
+  if (itemOrder) {
+    cache.sortedItemsByContext.clear();
+    changed = true;
+  }
+  if (containerOrder) {
+    cache.sortedContainers = null;
+    changed = true;
+  }
+  if (categories) {
+    cache.categoriesByContext.clear();
+    cache.subcategoriesByContext.clear();
+    changed = true;
+  }
+  if (changed) betterInvPerformanceState.cacheInvalidations += 1;
+  return changed;
+}
+
+function invalidateBetterInvActorCacheFromChanges(actor, changes) {
+  const changedPaths = getBetterInvChangedPaths(changes);
+  if (!changedPaths.length) {
+    invalidateBetterInvActorDataCache(actor, { all: true });
+    return;
+  }
+
+  const inventory = betterInvPathsTouch(changedPaths, ["items"]);
+  const itemOrder = betterInvPathsTouch(changedPaths, ["flags.betterinv.itemOrderByContext"]);
+  const containerOrder = betterInvPathsTouch(changedPaths, ["flags.betterinv.containerOrder"]);
+  const categories = betterInvPathsTouch(changedPaths, [
+    "flags.betterinv.categoriesByContext",
+    "flags.betterinv.subcategoriesByContext"
+  ]);
+  if (inventory || itemOrder || containerOrder || categories) {
+    invalidateBetterInvActorDataCache(actor, { inventory, itemOrder, containerOrder, categories });
+  }
+}
+
+function getBetterInvCachedInventoryContext(actor, actorCache = getBetterInvActorDataCache(actor)) {
+  if (!actorCache) {
+    noteBetterInvCacheMiss();
+    const inventoryItems = getInventoryItems(actor);
+    return { inventoryItems, renderCache: createBetterInvRenderCache(inventoryItems), actorCache: null };
+  }
+
+  const collectionSize = Number(actor?.items?.size ?? actor?.items?.length ?? 0);
+  if (Array.isArray(actorCache.inventoryItems)
+      && actorCache.renderCache
+      && actorCache.inventorySize === collectionSize) {
+    noteBetterInvCacheHit();
+    return {
+      inventoryItems: actorCache.inventoryItems,
+      renderCache: actorCache.renderCache,
+      actorCache
+    };
+  }
+
+  noteBetterInvCacheMiss();
+  const inventoryItems = getInventoryItems(actor);
+  actorCache.inventoryItems = inventoryItems;
+  actorCache.inventorySize = collectionSize;
+  actorCache.renderCache = createBetterInvRenderCache(inventoryItems);
+  actorCache.sortedItemsByContext.clear();
+  actorCache.sortedContainers = null;
+  return { inventoryItems, renderCache: actorCache.renderCache, actorCache };
+}
+
+async function getBetterInvCachedSortedItems(actor, items, containerId, actorCache) {
+  if (!actorCache) return sortItemsBySavedOrder(actor, items, containerId);
+  const key = getContextKey(containerId);
+  if (actorCache.sortedItemsByContext.has(key)) {
+    noteBetterInvCacheHit();
+    return actorCache.sortedItemsByContext.get(key);
+  }
+  noteBetterInvCacheMiss();
+  const sorted = await sortItemsBySavedOrder(actor, items, containerId);
+  actorCache.sortedItemsByContext.set(key, sorted);
+  return sorted;
+}
+
+async function getBetterInvCachedSortedContainers(actor, containers, actorCache) {
+  if (!actorCache) return sortContainersBySavedOrder(actor, containers);
+  if (Array.isArray(actorCache.sortedContainers)) {
+    noteBetterInvCacheHit();
+    return actorCache.sortedContainers;
+  }
+  noteBetterInvCacheMiss();
+  actorCache.sortedContainers = await sortContainersBySavedOrder(actor, containers);
+  return actorCache.sortedContainers;
+}
+
+async function getBetterInvCachedCategories(actor, containerId, actorCache) {
+  if (!actorCache) return getCategories(actor, containerId);
+  const key = getContextKey(containerId);
+  if (actorCache.categoriesByContext.has(key)) {
+    noteBetterInvCacheHit();
+    return actorCache.categoriesByContext.get(key);
+  }
+  noteBetterInvCacheMiss();
+  const categories = Object.freeze([...(await getCategories(actor, containerId))]);
+  actorCache.categoriesByContext.set(key, categories);
+  return categories;
+}
+
+function getBetterInvCachedSubcategories(actor, containerId, categories, actorCache) {
+  const key = getContextKey(containerId);
+  if (actorCache?.subcategoriesByContext?.has(key)) {
+    noteBetterInvCacheHit();
+    return actorCache.subcategoriesByContext.get(key);
+  }
+
+  noteBetterInvCacheMiss();
+  const result = new Map();
+  const allSubcategories = actor?.getFlag?.(MODULE_ID, "subcategoriesByContext") ?? {};
+  const contextSubcategories = allSubcategories?.[key] ?? {};
+  for (const category of categories ?? []) {
+    const stored = contextSubcategories?.[category];
+    const clean = Array.isArray(stored)
+      ? Object.freeze(stored.map(value => sanitizePlainText(value, { max: 48 })).filter(Boolean))
+      : Object.freeze([]);
+    result.set(category, clean);
+  }
+  actorCache?.subcategoriesByContext?.set(key, result);
+  return result;
+}
 
 function getInventoryItems(actor) {
   return Array.from(actor?.items ?? []).filter(item => BETTER_INV_INVENTORY_TYPES.has(item.type));
@@ -1545,21 +1775,33 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   const activeContainer = features.containers && betterInvState.containerId ? currentContainer : null;
   const query = features.search ? String(betterInvState.search ?? "").trim().toLowerCase() : "";
 
-  // Scan actor inventory documents only when items or containers are enabled.
-  // The same array is reused for item rows, container detection, capacity and
-  // encumbrance fallbacks instead of repeatedly traversing actor.items.
-  const inventoryItems = features.needsInventoryCollection ? getInventoryItems(actor) : null;
-  const renderCache = createBetterInvRenderCache(inventoryItems ?? []);
+  // Reuse the immutable parts of the actor inventory between UI-only renders
+  // such as search, settings and window changes. Actor/Item hooks invalidate
+  // the relevant cache scope before Foundry schedules a fresh render.
+  const actorDataCache = (features.needsInventoryCollection || features.categories)
+    ? getBetterInvActorDataCache(actor)
+    : null;
+  const inventoryContext = features.needsInventoryCollection
+    ? getBetterInvCachedInventoryContext(actor, actorDataCache)
+    : { inventoryItems: null, renderCache: createBetterInvRenderCache([]), actorCache: actorDataCache };
+  const inventoryItems = inventoryContext.inventoryItems;
+  const renderCache = inventoryContext.renderCache;
   const contextContainerId = activeContainer?.id ?? null;
+  const visibleInventoryItems = features.items
+    ? getVisibleItems(actor, activeContainer, inventoryItems, renderCache)
+    : [];
+  const containerItems = features.containers
+    ? getContainerItems(actor, inventoryItems, renderCache)
+    : [];
   const [allVisibleItems, containers, categories] = await Promise.all([
     features.items
-      ? sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems, renderCache), contextContainerId)
+      ? getBetterInvCachedSortedItems(actor, visibleInventoryItems, contextContainerId, actorDataCache)
       : Promise.resolve([]),
     features.containers
-      ? sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems, renderCache))
+      ? getBetterInvCachedSortedContainers(actor, containerItems, actorDataCache)
       : Promise.resolve([]),
     features.categories
-      ? getCategories(actor, contextContainerId)
+      ? getBetterInvCachedCategories(actor, contextContainerId, actorDataCache)
       : Promise.resolve([])
   ]);
   markBetterInvPerformancePhase(performanceSample, "dataReady");
@@ -1572,20 +1814,11 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     ? allVisibleItems.filter(item => itemMatchesSearch(item, query, renderCache))
     : allVisibleItems;
 
-  // Read all subcategories once per render. The previous implementation read
-  // the same actor flag once for every category and again while rendering.
-  const subcategoriesByCategory = new Map();
-  if (features.subcategories) {
-    const allSubcategories = actor.getFlag(MODULE_ID, "subcategoriesByContext") ?? {};
-    const contextSubcategories = allSubcategories?.[getContextKey(contextContainerId)] ?? {};
-    for (const category of categories) {
-      const stored = contextSubcategories?.[category];
-      const clean = Array.isArray(stored)
-        ? stored.map(value => sanitizePlainText(value, { max: 48 })).filter(Boolean)
-        : [];
-      subcategoriesByCategory.set(category, clean);
-    }
-  }
+  // Normalized subcategories are cached per actor/context and invalidated as
+  // soon as their Foundry flag changes.
+  const subcategoriesByCategory = features.subcategories
+    ? getBetterInvCachedSubcategories(actor, contextContainerId, categories, actorDataCache)
+    : new Map();
 
   let categoryOptions = [];
   if (features.categoryDropdown) {
@@ -2004,6 +2237,10 @@ function getBetterInvPerformanceSnapshot() {
     coalescedRefreshRequests: betterInvPerformanceState.coalescedRefreshRequests,
     discardedRenders: betterInvPerformanceState.discardedRenders,
     activeDelegatedListeners: betterInvPerformanceState.activeDelegatedListeners,
+    cacheHits: betterInvPerformanceState.cacheHits,
+    cacheMisses: betterInvPerformanceState.cacheMisses,
+    cacheInvalidations: betterInvPerformanceState.cacheInvalidations,
+    cacheEntries: betterInvActorDataCaches.size,
     rating: getBetterInvPerformanceRating(avgRenderMs)
   };
 }
@@ -2069,6 +2306,16 @@ function betterInvPerformanceContentHtml() {
         ${betterInvPerformanceMetricHtml("Zusammengefasst", String(snapshot.coalescedRefreshRequests), "Mehrere Aktualisierungen, die zu einem einzigen Render zusammengefasst wurden.")}
         ${betterInvPerformanceMetricHtml("Event-Loop Ø", formatBetterInvMilliseconds(snapshot.avgEventLoopLagMs), "Verzögerung des gesamten Foundry-Browserfensters während diese Diagnose geöffnet ist.")}
         ${betterInvPerformanceMetricHtml("Event-Loop Maximum", formatBetterInvMilliseconds(snapshot.worstEventLoopLagMs), "Dieser Wert betrifft das gesamte Foundry-Fenster und nicht ausschließlich Axon’s Inventory.")}
+      </div>
+    </section>
+
+    <section class="betterinv-performance-section">
+      <h3><i class="fas fa-database" aria-hidden="true"></i>Caching</h3>
+      <div class="betterinv-performance-grid">
+        ${betterInvPerformanceMetricHtml("Treffer", String(snapshot.cacheHits), "Bereits berechnete Inventardaten, die bei einem späteren Render wiederverwendet wurden.")}
+        ${betterInvPerformanceMetricHtml("Neu berechnet", String(snapshot.cacheMisses), "Cache-Bereiche, die noch nicht vorhanden oder zuvor ungültig geworden waren.")}
+        ${betterInvPerformanceMetricHtml("Ungültig gemacht", String(snapshot.cacheInvalidations), "Gezielte Cache-Löschungen nach relevanten Actor- oder Itemänderungen.")}
+        ${betterInvPerformanceMetricHtml("Actor-Caches", `${snapshot.cacheEntries}/${BETTER_INV_ACTOR_CACHE_LIMIT}`, "Der Cache behält höchstens einige zuletzt verwendete Actors und entfernt ältere automatisch.")}
       </div>
     </section>
 
