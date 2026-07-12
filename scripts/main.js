@@ -3082,6 +3082,93 @@ function getBetterInvCompendiumId(pack) {
   return String(pack?.collection ?? pack?.metadata?.id ?? pack?.metadata?.name ?? "");
 }
 
+function getBetterInvCompendiumById(packId) {
+  const cleanId = String(packId ?? "").trim();
+  if (!cleanId) return null;
+
+  const direct = game.packs?.get?.(cleanId);
+  if (direct) return direct;
+
+  return getBetterInvAccessibleItemCompendiums()
+    .find(pack => getBetterInvCompendiumId(pack) === cleanId) ?? null;
+}
+
+function prepareBetterInvCompendiumItemData(sourceItem) {
+  if (!sourceItem || typeof sourceItem.toObject !== "function") {
+    throw new Error("Das ausgewählte Kompendium-Item konnte nicht gelesen werden.");
+  }
+
+  const data = sourceItem.toObject();
+  if (!data || typeof data !== "object") {
+    throw new Error("Das Kompendium-Item enthält keine gültigen Itemdaten.");
+  }
+
+  // Embedded actor items receive a fresh id and do not use world-folder or
+  // ownership metadata from the compendium document.
+  delete data._id;
+  delete data.folder;
+  delete data.sort;
+  delete data.ownership;
+  delete data.permission;
+  delete data._stats;
+
+  // Preserve where the imported item came from. Foundry and other modules can
+  // use this source id later without keeping a live link to the compendium.
+  data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+  data.flags.core = data.flags.core && typeof data.flags.core === "object" ? data.flags.core : {};
+  if (!data.flags.core.sourceId && sourceItem.uuid) data.flags.core.sourceId = sourceItem.uuid;
+
+  // A compendium entry can contain a stale container reference. It must never
+  // point at an unrelated actor item after import. The selected active container
+  // is assigned explicitly after creation through moveItemToContainer().
+  const sourceContainer = foundry.utils.getProperty(data, "system.container");
+  if (sourceContainer && typeof sourceContainer === "object" && !Array.isArray(sourceContainer)) {
+    foundry.utils.setProperty(data, "system.container", {
+      ...foundry.utils.deepClone(sourceContainer),
+      id: null,
+      uuid: null,
+      value: null
+    });
+  } else if (sourceContainer !== undefined && sourceContainer !== null) {
+    foundry.utils.setProperty(data, "system.container", "");
+  }
+
+  return data;
+}
+
+async function importBetterInvCompendiumItem(actor, selected, activeContainer = null) {
+  if (!actor) throw new Error("Kein Actor für den Import ausgewählt.");
+  if (!selected?.packId || !selected?.id) throw new Error("Das ausgewählte Kompendium-Item ist unvollständig.");
+
+  const pack = getBetterInvCompendiumById(selected.packId);
+  if (!pack || pack.visible === false) {
+    throw new Error("Das ausgewählte Kompendium ist nicht mehr zugänglich.");
+  }
+
+  const sourceItem = await pack.getDocument(selected.id);
+  if (!sourceItem) {
+    throw new Error("Das ausgewählte Item wurde im Kompendium nicht gefunden.");
+  }
+
+  const itemData = prepareBetterInvCompendiumItemData(sourceItem);
+  const created = await actor.createEmbeddedDocuments("Item", [itemData]);
+  const item = created?.[0] ?? null;
+  if (!item) throw new Error("Foundry hat nach dem Import kein Item zurückgegeben.");
+
+  try {
+    if (activeContainer) await moveItemToContainer(item, activeContainer);
+    await setItemCategory(item, "__unsorted", activeContainer?.id ?? null);
+  } catch (error) {
+    console.warn("Better Inventory | Importiertes Item wurde erstellt, aber nicht vollständig einsortiert", error);
+    ui.notifications.warn(`${item.name} wurde importiert, konnte aber nicht vollständig einsortiert werden.`);
+  }
+
+  const packLabel = getBetterInvCompendiumLabel(pack);
+  ui.notifications.info(`${item.name} wurde aus ${packLabel} auf ${actor.name} kopiert.`);
+  openItemSheet(item);
+  return item;
+}
+
 function getBetterInvCollectionValues(collection) {
   if (!collection) return [];
   if (Array.isArray(collection.contents)) return collection.contents;
@@ -3618,8 +3705,7 @@ async function createBetterInvItem(actor, activeContainer = null) {
 
     const selected = await promptBetterInvCompendiumItem(itemPacks);
     if (!selected) return null;
-    ui.notifications.info(`${selected.name} aus ${selected.packLabel} wurde ausgewählt. Die Übernahme auf den Charakter folgt in Phase 6.4.`);
-    return null;
+    return await importBetterInvCompendiumItem(actor, selected, activeContainer);
   }
 
   const input = await promptNewBetterInvItem();
@@ -3918,8 +4004,11 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     try {
       await createBetterInvItem(actor, activeContainer);
     } catch (error) {
-      console.error("Better Inventory | Item konnte nicht erstellt werden", error);
-      ui.notifications.error("Das Item konnte nicht erstellt werden.");
+      console.error("Better Inventory | Item konnte nicht erstellt oder importiert werden", error);
+      const reason = sanitizePlainText(error?.message, { max: 220 });
+      ui.notifications.error(reason
+        ? `Das Item konnte nicht erstellt oder importiert werden: ${reason}`
+        : "Das Item konnte nicht erstellt oder importiert werden.");
     } finally {
       button.disabled = false;
     }
