@@ -165,6 +165,42 @@ function getBetterInvUserSettings() {
   }
 }
 
+function getBetterInvFeaturePlan(settings = getBetterInvUserSettings()) {
+  const enabled = settings?.moduleEnabled !== false;
+  const items = enabled && settings?.showItems !== false;
+  const containers = enabled && settings?.showContainers !== false;
+  const categories = items && settings?.showCategories !== false;
+  const subcategories = categories && settings?.showSubcategories !== false;
+  const currency = enabled && settings?.showCurrency !== false;
+  const currencyCalculator = currency && settings?.showCurrencyCalculator !== false;
+
+  return {
+    enabled,
+    items,
+    containers,
+    categories,
+    subcategories,
+    favorites: items && settings?.showFavorites !== false,
+    unknownItems: items && settings?.showUnknownItems !== false,
+    categoryWeights: categories && settings?.showCategoryWeights !== false,
+    itemValues: items && settings?.showItemValues !== false,
+    quantityControls: items && settings?.showQuantityControls !== false,
+    editButton: items && settings?.showEditButton !== false,
+    addItemButton: items && settings?.showAddItemButton !== false,
+    itemActionsMenu: items && settings?.showItemActionsMenu !== false,
+    equipActions: items && settings?.showEquipActions !== false,
+    categoryDropdown: categories && settings?.showCategoryDropdown !== false,
+    containerCapacity: containers && settings?.showContainerCapacity !== false,
+    encumbrance: enabled && settings?.showEncumbrance !== false,
+    currency,
+    currencyCalculator,
+    search: enabled && settings?.showSearch !== false && (items || containers),
+    needsInventoryCollection: items || containers,
+    needsItemDocumentRefresh: items || containers || (enabled && settings?.showEncumbrance !== false),
+    needsActorRefresh: currency || items || containers || (enabled && settings?.showEncumbrance !== false)
+  };
+}
+
 async function saveBetterInvUserSettings(patch = {}) {
   if (!game.user?.setFlag) throw new Error("Kein angemeldeter Foundry-Nutzer verfügbar.");
   const current = getBetterInvUserSettings();
@@ -319,13 +355,15 @@ function actorChooserHtml(actors) {
 }
 
 function refreshIfCurrentActor(actor) {
-  if (getBetterInvUserSettings().moduleEnabled === false) return;
+  const features = getBetterInvFeaturePlan();
+  if (!features.needsActorRefresh) return;
   const current = getCurrentActor();
   if (current?.id === actor?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
 }
 
 function refreshIfItemActor(item) {
-  if (getBetterInvUserSettings().moduleEnabled === false) return;
+  const features = getBetterInvFeaturePlan();
+  if (!features.needsItemDocumentRefresh) return;
   const current = getCurrentActor();
   if (current?.id === item?.parent?.id && document.getElementById("betterinv-window")) renderBetterInvWindow();
 }
@@ -355,8 +393,9 @@ function isContainerLike(item) {
   return /\b(backpack|saddlebags?|pouch|sack|chest|case|box|quiver|bag of holding|bag of devouring)\b/i.test(item.name ?? "");
 }
 
-function getContainerItems(actor) {
-  return getInventoryItems(actor).filter(item => isContainerLike(item));
+function getContainerItems(actor, inventoryItems = null) {
+  const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
+  return items.filter(item => isContainerLike(item));
 }
 
 function getItemContainerId(item) {
@@ -390,8 +429,8 @@ function itemIsInContainer(item, container) {
   return cid === container.id || cid === container.uuid || cid.endsWith(`.${container.id}`) || cid.includes(container.id);
 }
 
-function getVisibleItems(actor, container) {
-  const items = getInventoryItems(actor);
+function getVisibleItems(actor, container, inventoryItems = null) {
+  const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
 
   // Actor overview: container-like items are shown as cards in the backpack strip,
   // not again as normal unsorted inventory rows.
@@ -784,7 +823,8 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
   windowEl.style.setProperty("--bi-content-scale", String(betterInvState.scale || 1));
 
   const userSettings = getBetterInvUserSettings();
-  if (userSettings.moduleEnabled === false) {
+  const features = getBetterInvFeaturePlan(userSettings);
+  if (!features.enabled) {
     closeBetterInvSettingsWindow();
     windowEl.classList.add("betterinv-disabled-mode");
     windowEl.innerHTML = betterInvDisabledShellHtml();
@@ -832,61 +872,77 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     return;
   }
 
-  if (!userSettings.showContainers) betterInvState.containerId = null;
-  const currentContainer = betterInvState.containerId ? actor.items.get(betterInvState.containerId) : null;
+  if (!features.containers) betterInvState.containerId = null;
+  const currentContainer = features.containers && betterInvState.containerId
+    ? actor.items.get(betterInvState.containerId)
+    : null;
   if (betterInvState.containerId && !currentContainer) betterInvState.containerId = null;
-  const activeContainer = betterInvState.containerId ? currentContainer : null;
-  const query = userSettings.showSearch ? String(betterInvState.search ?? "").trim().toLowerCase() : "";
-  const allVisibleItems = userSettings.showItems
-    ? await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer), activeContainer?.id ?? null)
+  const activeContainer = features.containers && betterInvState.containerId ? currentContainer : null;
+  const query = features.search ? String(betterInvState.search ?? "").trim().toLowerCase() : "";
+
+  // Scan actor inventory documents only when items or containers are enabled.
+  // The same array is reused for item rows, container detection, capacity and
+  // encumbrance fallbacks instead of repeatedly traversing actor.items.
+  const inventoryItems = features.needsInventoryCollection ? getInventoryItems(actor) : null;
+  const allVisibleItems = features.items
+    ? await sortItemsBySavedOrder(actor, getVisibleItems(actor, activeContainer, inventoryItems), activeContainer?.id ?? null)
     : [];
-  const visibleItems = query ? allVisibleItems.filter(item => itemMatchesSearch(item, query)) : allVisibleItems;
-  const containers = userSettings.showContainers
-    ? await sortContainersBySavedOrder(actor, getContainerItems(actor))
+  const visibleItems = query && features.items
+    ? allVisibleItems.filter(item => itemMatchesSearch(item, query))
+    : allVisibleItems;
+  const containers = features.containers
+    ? await sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems))
     : [];
-  const categories = userSettings.showItems ? await getCategories(actor, activeContainer?.id ?? null) : [];
-  let categoryOptions = userSettings.showItems
+  const categories = features.categories ? await getCategories(actor, activeContainer?.id ?? null) : [];
+  let categoryOptions = features.categoryDropdown
     ? await getCategoryOptions(actor, categories, activeContainer?.id ?? null)
     : [];
-  if (!userSettings.showUnknownItems) categoryOptions = categoryOptions.filter(id => id !== "__unknown");
-  if (!userSettings.showSubcategories) categoryOptions = categoryOptions.filter(id => !String(id).includes("::"));
+  if (!features.unknownItems) categoryOptions = categoryOptions.filter(id => id !== "__unknown");
+  if (!features.subcategories) categoryOptions = categoryOptions.filter(id => !String(id).includes("::"));
 
-  const topContainerHtml = userSettings.showContainers
+  const topContainerHtml = features.containers
     ? (!activeContainer
-      ? await renderContainerCards(actor, containers, { showCapacity: userSettings.showContainerCapacity })
-      : renderContainerBreadcrumb(actor, activeContainer, { showCapacity: userSettings.showContainerCapacity }))
+      ? await renderContainerCards(actor, containers, {
+          showCapacity: features.containerCapacity,
+          inventoryItems
+        })
+      : renderContainerBreadcrumb(actor, activeContainer, {
+          showCapacity: features.containerCapacity,
+          showCount: features.items,
+          inventoryItems
+        }))
     : "";
-  const actorEncumbranceHtml = (!activeContainer && userSettings.showEncumbrance)
-    ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor))
+  const actorEncumbranceHtml = (!activeContainer && features.encumbrance)
+    ? betterInvActorEncumbranceHtml(getBetterInvActorEncumbrance(actor, { inventoryItems }))
     : "";
-  const actorCurrencyHtml = userSettings.showCurrency ? betterInvActorCurrencyHtml(
+  const actorCurrencyHtml = features.currency ? betterInvActorCurrencyHtml(
     getBetterInvActorCurrency(actor),
-    getBetterInvCurrencyDraft(actor),
+    features.currencyCalculator ? getBetterInvCurrencyDraft(actor) : {},
     {
       editable: actor.isOwner !== false && !isBetterInvCurrencyTransactionPending(actor),
-      showCalculator: userSettings.showCurrencyCalculator
+      showCalculator: features.currencyCalculator
     }
   ) : "";
-  const searchContainersHtml = (userSettings.showContainers && userSettings.showSearch && !activeContainer && query)
+  const searchContainersHtml = (features.containers && features.search && !activeContainer && query)
     ? renderSearchContainerHits(actor, containers, query)
     : "";
   const contextContainerId = activeContainer?.id ?? null;
   const displayCategoryForItem = item => {
     const raw = itemCategory(item, contextContainerId);
-    if (raw === "__unknown" && !userSettings.showUnknownItems) return "__unsorted";
-    if (!userSettings.showSubcategories && String(raw).includes("::")) return parseCategoryId(raw).parent;
+    if (raw === "__unknown" && !features.unknownItems) return "__unsorted";
+    if (!features.subcategories && String(raw).includes("::")) return parseCategoryId(raw).parent;
     return raw;
   };
 
-  const unknownItems = userSettings.showUnknownItems
+  const unknownItems = features.unknownItems
     ? visibleItems.filter(item => itemCategory(item, contextContainerId) === "__unknown")
     : [];
-  const regularItems = userSettings.showUnknownItems
+  const regularItems = features.unknownItems
     ? visibleItems.filter(item => itemCategory(item, contextContainerId) !== "__unknown")
     : visibleItems;
 
   let sectionHtml = "";
-  if (userSettings.showItems && userSettings.showCategories) {
+  if (features.categories) {
     const order = await getCategoryOrder(actor, contextContainerId, categories);
     const sectionNames = new Map([["__unsorted", "Unsortiert"], ...categories.map(c => [c, c])]);
     const sections = order.map(id => ({ id, name: sectionNames.get(id) })).filter(s => s.name);
@@ -896,20 +952,20 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       const directItems = regularItems.filter(item => displayCategoryForItem(item) === section.id);
       const categoryItems = regularItems.filter(item => {
         const category = displayCategoryForItem(item);
-        return category === section.id || (userSettings.showSubcategories && section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
+        return category === section.id || (features.subcategories && section.id !== "__unsorted" && category.startsWith(`${section.id}::`));
       });
       const rows = directItems.length
-        ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+        ? directItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
         : `<p class="betterinv-empty">Leer</p>`;
 
       let subcategoryHtml = "";
-      if (userSettings.showSubcategories && section.id !== "__unsorted") {
+      if (features.subcategories && section.id !== "__unsorted") {
         const subs = await getSubcategories(actor, section.id, contextContainerId);
         subcategoryHtml = subs.map(sub => {
           const subId = makeSubcategoryId(section.id, sub);
           const subItems = regularItems.filter(item => displayCategoryForItem(item) === subId);
           const subRows = subItems.length
-            ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+            ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
             : `<p class="betterinv-empty">Leer</p>`;
           return `
             <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
@@ -917,7 +973,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
                 <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
                 <span class="betterinv-sub-indent">↳</span>
                 <span class="betterinv-category-name">${escapeHtml(sub)}</span>
-                ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht") : ""}
+                ${features.categoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht") : ""}
                 <span class="betterinv-category-count">${subItems.length}</span>
                 <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
               </summary>
@@ -931,9 +987,9 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
           <summary>
             <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
             <span class="betterinv-category-name">${escapeHtml(section.name)}</span>
-            ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(categoryItems) : ""}
+            ${features.categoryWeights ? betterInvCategoryWeightHtml(categoryItems) : ""}
             <span class="betterinv-category-count">${directItems.length}</span>
-            ${userSettings.showSubcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
+            ${features.subcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
             <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
           </summary>
           <div class="betterinv-items">${rows}</div>
@@ -941,15 +997,15 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         </details>`);
     }
     sectionHtml = sectionHtmlParts.join("");
-  } else if (userSettings.showItems) {
+  } else if (features.items) {
     const flatRows = regularItems.length
-      ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")
+      ? regularItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")
       : `<p class="betterinv-empty">Keine Items vorhanden.</p>`;
     sectionHtml = `
       <section class="betterinv-system-category betterinv-flat-category">
         <div class="betterinv-unknown-header">
           <span class="betterinv-category-name">Items</span>
-          ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items") : ""}
+          ${features.categoryWeights ? betterInvCategoryWeightHtml(regularItems, "Gesamtgewicht der angezeigten Items") : ""}
           <span class="betterinv-category-count">${regularItems.length}</span>
         </div>
         <div class="betterinv-items">${flatRows}</div>
@@ -961,15 +1017,15 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       <div class="betterinv-unknown-header">
         <span class="betterinv-unknown-icon" aria-hidden="true"><i class="fas fa-question-circle"></i></span>
         <span class="betterinv-category-name">Unbekannt</span>
-        ${userSettings.showCategoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items") : ""}
+        ${features.categoryWeights ? betterInvCategoryWeightHtml(unknownItems, "Gewicht unbekannter Items") : ""}
         <span class="betterinv-category-count">${unknownItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-unknown-items">
-        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings })).join("")}
+        ${unknownItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features })).join("")}
       </div>
     </section>` : "";
 
-  const favoriteItems = userSettings.showFavorites ? visibleItems.filter(item => isBetterInvFavorite(item)) : [];
+  const favoriteItems = features.favorites ? visibleItems.filter(item => isBetterInvFavorite(item)) : [];
   const favoritesHtml = favoriteItems.length ? `
     <section class="betterinv-favorites">
       <div class="betterinv-favorites-header">
@@ -978,25 +1034,25 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
         <span class="betterinv-category-count">${favoriteItems.length}</span>
       </div>
       <div class="betterinv-items betterinv-favorite-items">
-        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { favoriteView: true, settings: userSettings })).join("")}
+        ${favoriteItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { favoriteView: true, settings: userSettings, features })).join("")}
       </div>
     </section>` : "";
 
-  const showInventoryHeader = userSettings.showContainers || userSettings.showItems;
+  const showInventoryHeader = features.containers || features.items;
   const inventoryHeaderHtml = showInventoryHeader ? `
     <div class="betterinv-actor">
       <strong>${activeContainer
         ? escapeHtml(getContainerAlias(actor, activeContainer))
-        : (userSettings.showContainers ? "Rucksäcke" : "Inventar")}</strong>
+        : (features.containers ? "Rucksäcke" : "Inventar")}</strong>
       <div class="betterinv-actor-right">
         ${activeContainer ? `
           <span class="betterinv-actor-meta">
-            Inhalt · ${visibleItems.length} Items
+            ${features.items ? `Inhalt · ${visibleItems.length} Items` : "Rucksack geöffnet"}
             ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
             <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksack-UI-Name ändern">✎</button>
           </span>` : `
           ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-          ${userSettings.showContainers ? `
+          ${features.containers ? `
             <div class="betterinv-container-tools betterinv-container-tools-inline" aria-label="Rucksack-Layer einstellen">
               <span>Layer</span>
               <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
@@ -1005,13 +1061,13 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       </div>
     </div>` : "";
 
-  const searchFieldHtml = userSettings.showSearch && (userSettings.showItems || userSettings.showContainers)
+  const searchFieldHtml = features.search && (features.items || features.containers)
     ? `<input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">`
     : "";
-  const addItemHtml = userSettings.showItems && userSettings.showAddItemButton
+  const addItemHtml = features.items && features.addItemButton
     ? `<button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>`
     : "";
-  const addCategoryHtml = userSettings.showItems && userSettings.showCategories
+  const addCategoryHtml = features.categories
     ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>`
     : "";
   const toolbarClasses = [
@@ -1031,13 +1087,13 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
       ${topContainerHtml}
       ${toolbarHtml}
       ${searchContainersHtml}
-      ${userSettings.showItems ? favoritesHtml : ""}
-      ${userSettings.showItems ? unknownHtml : ""}
-      ${userSettings.showItems ? sectionHtml : ""}
+      ${features.items ? favoritesHtml : ""}
+      ${features.items ? unknownHtml : ""}
+      ${features.items ? sectionHtml : ""}
     </div>
   `);
 
-  activateWindowListeners(windowEl, actor, activeContainer);
+  activateWindowListeners(windowEl, actor, activeContainer, { settings: userSettings, features, inventoryItems });
   const newBody = windowEl.querySelector(".betterinv-body");
   if (newBody) newBody.scrollTop = previousScrollTop;
   if (restoreSearchFocus) {
@@ -1445,8 +1501,8 @@ function formatBetterInvPrice(price, multiplier = 1) {
   }).join(" · ");
 }
 
-function betterInvItemPriceHtml(item, { unidentified = false } = {}) {
-  if (!betterInvShowsItemValues() || unidentified) return "";
+function betterInvItemPriceHtml(item, { unidentified = false, enabled = betterInvShowsItemValues() } = {}) {
+  if (!enabled || unidentified) return "";
   const price = getBetterInvItemPrice(item);
   const unitValue = formatBetterInvPrice(price);
   if (!unitValue) return "";
@@ -2592,12 +2648,12 @@ function betterInvCategoryWeightHtml(items, label = "Kategoriegewicht") {
     </span>`;
 }
 
-function getBetterInvContainerCapacity(actor, container) {
+function getBetterInvContainerCapacity(actor, container, inventoryItems = null) {
   if (!actor || !container) return null;
 
   const capacity = foundry.utils.getProperty(container, "system.capacity");
   const capacityObject = capacity && typeof capacity === "object" ? capacity : {};
-  const contents = getVisibleItems(actor, container);
+  const contents = getVisibleItems(actor, container, inventoryItems);
 
   // D&D5e 5.x / Foundry V14 stores container limits in nested fields:
   // capacity.count, capacity.weight.value and capacity.volume.value.
@@ -2721,7 +2777,7 @@ function betterInvContainerCapacityHtml(capacity, { compact = false } = {}) {
     </div>`;
 }
 
-function getBetterInvActorEncumbrance(actor) {
+function getBetterInvActorEncumbrance(actor, { inventoryItems = null } = {}) {
   if (!actor) return null;
 
   const encumbrance = foundry.utils.getProperty(actor, "system.attributes.encumbrance");
@@ -2748,7 +2804,8 @@ function getBetterInvActorEncumbrance(actor) {
   // object: sum only top-level stacks. This avoids counting container contents
   // twice when a prepared container total is available.
   if (current === null) {
-    current = getInventoryItems(actor)
+    const items = Array.isArray(inventoryItems) ? inventoryItems : getInventoryItems(actor);
+    current = items
       .filter(item => !getItemContainerId(item))
       .reduce((sum, item) => sum + getBetterInvItemWeight(item), 0);
   }
@@ -2807,7 +2864,7 @@ function betterInvActorEncumbranceHtml(encumbrance) {
     </section>`;
 }
 
-async function renderContainerCards(actor, containers, { showCapacity = true } = {}) {
+async function renderContainerCards(actor, containers, { showCapacity = true, inventoryItems = null } = {}) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke/Container gefunden. Top-Level-Items werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
   const layerCount = savedLayerCount ?? Math.max(1, Math.ceil(containers.length / 4));
@@ -2837,7 +2894,7 @@ async function renderContainerCards(actor, containers, { showCapacity = true } =
         <div class="betterinv-container-row ${row.length ? "" : "betterinv-container-row-empty"}" data-row-index="${rowIndex}">
           ${row.map(container => {
             const alias = getContainerAlias(actor, container);
-            const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container) : null;
+            const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems) : null;
             return `
               <div class="betterinv-container-card" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(alias)} öffnen">
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
@@ -2851,9 +2908,9 @@ async function renderContainerCards(actor, containers, { showCapacity = true } =
     </div>`;
 }
 
-function renderContainerBreadcrumb(actor, container, { showCapacity = true } = {}) {
-  const count = getVisibleItems(actor, container).length;
-  const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container) : null;
+function renderContainerBreadcrumb(actor, container, { showCapacity = true, showCount = true, inventoryItems = null } = {}) {
+  const count = showCount ? getVisibleItems(actor, container, inventoryItems).length : null;
+  const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems) : null;
   return `
     <div class="betterinv-container-view">
       <button type="button" class="betterinv-back">← Alle Rucksäcke</button>
@@ -2862,7 +2919,7 @@ function renderContainerBreadcrumb(actor, container, { showCapacity = true } = {
           <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
           <div class="betterinv-container-title-copy">
             <strong>${escapeHtml(getContainerAlias(actor, container))}</strong>
-            <small>${count} Inhalt(e)</small>
+            ${showCount ? `<small>${count} Inhalt(e)</small>` : ""}
           </div>
         </div>
         ${showCapacity ? betterInvContainerCapacityHtml(capacity) : ""}
@@ -3074,11 +3131,12 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.className = "betterinv-item-actions-menu";
   menu.setAttribute("role", "menu");
   const userSettings = getBetterInvUserSettings();
-  const equipped = getItemEquippedData(item);
-  const favorite = isBetterInvFavorite(item);
+  const features = getBetterInvFeaturePlan(userSettings);
+  const equipped = features.equipActions ? getItemEquippedData(item) : { supported: false, value: false };
+  const favorite = features.favorites ? isBetterInvFavorite(item) : false;
   menu.innerHTML = `
-    ${userSettings.showEquipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
-    ${userSettings.showFavorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
+    ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
+    ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
     <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
     <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
   `;
@@ -3165,19 +3223,23 @@ function openBetterInvItemActionMenu(button, actor, item) {
   window.addEventListener("scroll", close, { once: true, capture: true });
 }
 
-function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null } = {}) {
+function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   const img = item.img || "icons/svg/item-bag.svg";
-  const qty = getItemQuantityData(item).value;
+  const qty = featurePlan.quantityControls ? getItemQuantityData(item).value : null;
   const equipped = getItemEquippedData(item);
   const unidentified = isBetterInvUnidentified(item);
   const weightRaw = foundry.utils.getProperty(item, "system.weight") ?? foundry.utils.getProperty(item, "system.weight.value") ?? "–";
   const weight = typeof weightRaw === "object" ? (weightRaw.value ?? weightRaw.total ?? "–") : weightRaw;
   const current = itemCategory(item, containerId);
-  const options = (categoryOptions ?? ["__unsorted"]).map(cat =>
-    `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(categoryOptionLabel(cat))}</option>`
-  ).join("");
-  const showCategoryPicker = userSettings.showCategories && userSettings.showCategoryDropdown;
+  const showCategoryPicker = featurePlan.categoryDropdown;
+  const options = showCategoryPicker
+    ? (categoryOptions ?? ["__unsorted"]).map(cat =>
+        `<option value="${escapeAttr(cat)}" ${current === cat ? "selected" : ""}>${escapeHtml(categoryOptionLabel(cat))}</option>`
+      ).join("")
+    : "";
+  const priceHtml = featurePlan.itemValues ? betterInvItemPriceHtml(item, { unidentified, enabled: true }) : "";
 
   return `
     <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""} ${favoriteView ? "betterinv-favorite-view" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${favoriteView ? "false" : "true"}">
@@ -3187,10 +3249,10 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
         <button type="button" class="betterinv-open-item" title="Item öffnen">${escapeHtml(item.name)}</button>
         <div class="betterinv-item-meta-row">
           <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
-          ${betterInvItemPriceHtml(item, { unidentified })}
+          ${priceHtml}
         </div>
       </div>
-      ${userSettings.showQuantityControls ? `
+      ${featurePlan.quantityControls ? `
         <div class="betterinv-item-resources">
           <div class="betterinv-resource-block betterinv-quantity-resource" aria-label="Anzahl ändern">
             <span class="betterinv-resource-label">Anzahl</span>
@@ -3201,17 +3263,19 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
             </div>
           </div>
         </div>` : ""}
-      ${userSettings.showEditButton ? `<button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
+      ${featurePlan.editButton ? `<button type="button" class="betterinv-edit-item" title="Item bearbeiten" aria-label="Item bearbeiten"><i class="fas fa-pen"></i></button>` : ""}
       ${showCategoryPicker ? `
         <span class="betterinv-category-picker" title="Kategorie ändern">
           <i class="fas fa-chevron-down" aria-hidden="true"></i>
           <select class="betterinv-category-select" aria-label="Kategorie wählen">${options}</select>
         </span>` : ""}
-      ${userSettings.showItemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
+      ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Item-Aktionen" aria-label="Weitere Item-Aktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
     </article>`;
 }
 
-function activateWindowListeners(windowEl, actor, activeContainer) {
+function activateWindowListeners(windowEl, actor, activeContainer, { settings = null, features = null, inventoryItems = null } = {}) {
+  const userSettings = settings ?? getBetterInvUserSettings();
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
   windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => {
     closeBetterInvItemActionMenu();
     windowEl.remove();
@@ -3230,15 +3294,15 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
   makeBetterInvDraggable(windowEl);
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
-    const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor).length / 4));
+    const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
     await setContainerLayerCount(actor, current + 1);
     // Keep all existing backpack layer assignments exactly where they are.
     renderBetterInvWindow();
   });
   windowEl.querySelector(".betterinv-layer-minus")?.addEventListener("click", async () => {
-    const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor).length / 4));
+    const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
     const next = Math.max(1, current - 1);
-    const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor));
+    const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems));
     const map = await getContainerLayerMap(actor);
     const nextMap = {};
     containers.forEach((container, index) => {
@@ -3299,8 +3363,8 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     renderBetterInvWindow();
   });
 
-  enableContainerDragSorting(windowEl, actor, activeContainer);
-  enableItemToContainerDrop(windowEl, actor, activeContainer);
+  if (featurePlan.containers) enableContainerDragSorting(windowEl, actor, activeContainer);
+  if (featurePlan.items && featurePlan.containers) enableItemToContainerDrop(windowEl, actor, activeContainer);
 
   const searchInput = windowEl.querySelector(".betterinv-search");
   if (searchInput) {
@@ -3451,9 +3515,9 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
-  enableSubcategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
-  enableCategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
-  enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.subcategories) enableSubcategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.categories) enableCategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.items) enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
 
   windowEl.querySelectorAll(".betterinv-category-select").forEach(select => {
     select.addEventListener("change", async event => {
@@ -3492,155 +3556,161 @@ function activateWindowListeners(windowEl, actor, activeContainer) {
     });
   });
 
-  windowEl.querySelectorAll(".betterinv-quantity-minus, .betterinv-quantity-plus").forEach(button => {
-    button.addEventListener("click", async event => {
+  if (featurePlan.quantityControls) {
+    windowEl.querySelectorAll(".betterinv-quantity-minus, .betterinv-quantity-plus").forEach(button => {
+      button.addEventListener("click", async event => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (button.disabled) return;
+        const row = event.currentTarget.closest(".betterinv-item");
+        const item = actor?.items?.get(row?.dataset?.itemId);
+        if (!item) return;
+        button.disabled = true;
+        try {
+          const delta = event.currentTarget.classList.contains("betterinv-quantity-plus") ? 1 : -1;
+          await changeItemQuantity(item, delta);
+        } catch (error) {
+          console.error("Better Inventory | Menge konnte nicht geändert werden", error);
+          ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+        } finally {
+          button.disabled = false;
+        }
+      });
+    });
+  }
+
+  if (featurePlan.currencyCalculator) {
+    const runCurrencyAction = async (button, action, { logMessage, errorMessage } = {}) => {
+      if (!button || button.disabled) return;
+      const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
+      const currencyInputs = Array.from(windowEl.querySelectorAll(".betterinv-currency-input"));
+      actionButtons.forEach(actionButton => { actionButton.disabled = true; });
+      currencyInputs.forEach(input => { input.disabled = true; });
+      button.classList.add("betterinv-currency-action-busy");
+      try {
+        const changed = await action(actor);
+        if (changed) renderBetterInvWindow();
+      } catch (error) {
+        console.error(logMessage, error);
+        if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
+        else notifyBetterInvCurrencyError(errorMessage);
+      } finally {
+        const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
+        actionButtons.forEach(actionButton => { actionButton.disabled = disabled; });
+        currencyInputs.forEach(input => { input.disabled = disabled; });
+        button.classList.remove("betterinv-currency-action-busy");
+      }
+    };
+
+    windowEl.querySelector(".betterinv-currency-add")?.addEventListener("click", async event => {
       event.preventDefault();
       event.stopPropagation();
-      if (button.disabled) return;
-      const row = event.currentTarget.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      if (!item) return;
-      button.disabled = true;
-      try {
-        const delta = event.currentTarget.classList.contains("betterinv-quantity-plus") ? 1 : -1;
-        await changeItemQuantity(item, delta);
-      } catch (error) {
-        console.error("Better Inventory | Menge konnte nicht geändert werden", error);
-        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
-      } finally {
-        button.disabled = false;
-      }
+      await runCurrencyAction(event.currentTarget, addBetterInvCurrency, {
+        logMessage: "Better Inventory | Währung konnte nicht hinzugefügt werden",
+        errorMessage: "Die Münzen konnten nicht hinzugefügt werden."
+      });
     });
-  });
 
-  const runCurrencyAction = async (button, action, { logMessage, errorMessage } = {}) => {
-    if (!button || button.disabled) return;
-    const actionButtons = Array.from(windowEl.querySelectorAll(".betterinv-currency-action"));
-    const currencyInputs = Array.from(windowEl.querySelectorAll(".betterinv-currency-input"));
-    actionButtons.forEach(actionButton => { actionButton.disabled = true; });
-    currencyInputs.forEach(input => { input.disabled = true; });
-    button.classList.add("betterinv-currency-action-busy");
-    try {
-      const changed = await action(actor);
-      if (changed) renderBetterInvWindow();
-    } catch (error) {
-      console.error(logMessage, error);
-      if (error?.betterInvUserMessage) ui.notifications.error(error.betterInvUserMessage);
-      else notifyBetterInvCurrencyError(errorMessage);
-    } finally {
-      const disabled = actor?.isOwner === false || isBetterInvCurrencyTransactionPending(actor);
-      actionButtons.forEach(actionButton => { actionButton.disabled = disabled; });
-      currencyInputs.forEach(input => { input.disabled = disabled; });
-      button.classList.remove("betterinv-currency-action-busy");
-    }
-  };
-
-  windowEl.querySelector(".betterinv-currency-add")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    await runCurrencyAction(event.currentTarget, addBetterInvCurrency, {
-      logMessage: "Better Inventory | Währung konnte nicht hinzugefügt werden",
-      errorMessage: "Die Münzen konnten nicht hinzugefügt werden."
-    });
-  });
-
-  windowEl.querySelector(".betterinv-currency-remove")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    await runCurrencyAction(event.currentTarget, removeBetterInvCurrency, {
-      logMessage: "Better Inventory | Währung konnte nicht entfernt werden",
-      errorMessage: "Die Münzen konnten nicht bezahlt oder entfernt werden."
-    });
-  });
-
-  windowEl.querySelector(".betterinv-currency-exchange-down")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyDown, {
-      logMessage: "Better Inventory | Münzen konnten nicht abgerundet werden",
-      errorMessage: "Die Münzen konnten nicht abgerundet werden."
-    });
-  });
-
-  windowEl.querySelector(".betterinv-currency-exchange-up")?.addEventListener("click", async event => {
-    event.preventDefault();
-    event.stopPropagation();
-    await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyUp, {
-      logMessage: "Better Inventory | Münzen konnten nicht aufgerundet werden",
-      errorMessage: "Die Münzen konnten nicht aufgerundet werden."
-    });
-  });
-
-  windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
-    input.addEventListener("click", event => event.stopPropagation());
-    input.addEventListener("focus", event => {
+    windowEl.querySelector(".betterinv-currency-remove")?.addEventListener("click", async event => {
+      event.preventDefault();
       event.stopPropagation();
-      event.currentTarget.select();
+      await runCurrencyAction(event.currentTarget, removeBetterInvCurrency, {
+        logMessage: "Better Inventory | Währung konnte nicht entfernt werden",
+        errorMessage: "Die Münzen konnten nicht bezahlt oder entfernt werden."
+      });
     });
-    input.addEventListener("keydown", event => {
-      event.stopPropagation();
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.currentTarget.blur();
-      }
-    });
-    input.addEventListener("input", event => {
-      event.stopPropagation();
-      const field = event.currentTarget;
-      const key = String(field.dataset.currencyKey ?? "");
-      if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
-      const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
-      if (field.value !== next) field.value = next;
-      betterInvState.currencyDraft[key] = next;
-    });
-  });
 
-  windowEl.querySelectorAll(".betterinv-quantity-value").forEach(input => {
-    input.addEventListener("click", event => event.stopPropagation());
-    input.addEventListener("focus", event => {
+    windowEl.querySelector(".betterinv-currency-exchange-down")?.addEventListener("click", async event => {
+      event.preventDefault();
       event.stopPropagation();
-      event.currentTarget.dataset.originalValue = event.currentTarget.value;
-      event.currentTarget.select();
+      await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyDown, {
+        logMessage: "Better Inventory | Münzen konnten nicht abgerundet werden",
+        errorMessage: "Die Münzen konnten nicht abgerundet werden."
+      });
     });
-    input.addEventListener("keydown", event => {
+
+    windowEl.querySelector(".betterinv-currency-exchange-up")?.addEventListener("click", async event => {
+      event.preventDefault();
       event.stopPropagation();
-      if (event.key === "Enter") {
-        event.preventDefault();
-        event.currentTarget.blur();
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
-        event.currentTarget.dataset.cancelled = "true";
-        event.currentTarget.blur();
-      }
+      await runCurrencyAction(event.currentTarget, exchangeBetterInvCurrencyUp, {
+        logMessage: "Better Inventory | Münzen konnten nicht aufgerundet werden",
+        errorMessage: "Die Münzen konnten nicht aufgerundet werden."
+      });
     });
-    input.addEventListener("blur", async event => {
-      event.stopPropagation();
-      const field = event.currentTarget;
-      if (field.dataset.cancelled === "true") {
-        delete field.dataset.cancelled;
-        return;
-      }
-      const row = field.closest(".betterinv-item");
-      const item = actor?.items?.get(row?.dataset?.itemId);
-      if (!item) return;
-      const oldValue = getItemQuantityData(item).value;
-      const parsed = Number(field.value);
-      const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
-      field.value = String(next);
-      field.disabled = true;
-      try {
-        await setItemQuantity(item, next);
-        field.dataset.originalValue = String(next);
-      } catch (error) {
-        field.value = String(oldValue);
-        console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
-        ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
-      } finally {
-        field.disabled = false;
-      }
+
+    windowEl.querySelectorAll(".betterinv-currency-input").forEach(input => {
+      input.addEventListener("click", event => event.stopPropagation());
+      input.addEventListener("focus", event => {
+        event.stopPropagation();
+        event.currentTarget.select();
+      });
+      input.addEventListener("keydown", event => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        }
+      });
+      input.addEventListener("input", event => {
+        event.stopPropagation();
+        const field = event.currentTarget;
+        const key = String(field.dataset.currencyKey ?? "");
+        if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
+        const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
+        if (field.value !== next) field.value = next;
+        betterInvState.currencyDraft[key] = next;
+      });
     });
-  });
+  }
+
+  if (featurePlan.quantityControls) {
+    windowEl.querySelectorAll(".betterinv-quantity-value").forEach(input => {
+      input.addEventListener("click", event => event.stopPropagation());
+      input.addEventListener("focus", event => {
+        event.stopPropagation();
+        event.currentTarget.dataset.originalValue = event.currentTarget.value;
+        event.currentTarget.select();
+      });
+      input.addEventListener("keydown", event => {
+        event.stopPropagation();
+        if (event.key === "Enter") {
+          event.preventDefault();
+          event.currentTarget.blur();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          event.currentTarget.value = event.currentTarget.dataset.originalValue ?? "0";
+          event.currentTarget.dataset.cancelled = "true";
+          event.currentTarget.blur();
+        }
+      });
+      input.addEventListener("blur", async event => {
+        event.stopPropagation();
+        const field = event.currentTarget;
+        if (field.dataset.cancelled === "true") {
+          delete field.dataset.cancelled;
+          return;
+        }
+        const row = field.closest(".betterinv-item");
+        const item = actor?.items?.get(row?.dataset?.itemId);
+        if (!item) return;
+        const oldValue = getItemQuantityData(item).value;
+        const parsed = Number(field.value);
+        const next = Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : oldValue;
+        field.value = String(next);
+        field.disabled = true;
+        try {
+          await setItemQuantity(item, next);
+          field.dataset.originalValue = String(next);
+        } catch (error) {
+          field.value = String(oldValue);
+          console.error("Better Inventory | Menge konnte nicht direkt geändert werden", error);
+          ui.notifications.error("Die Item-Anzahl konnte nicht geändert werden.");
+        } finally {
+          field.disabled = false;
+        }
+      });
+    });
+  }
 
 
 }
