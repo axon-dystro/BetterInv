@@ -10,6 +10,7 @@ let betterInvState = {
   containerId: null,
   search: "",
   scale: 1,
+  settingsOpen: false,
   currencyDraftActorId: null,
   currencyDraft: {}
 };
@@ -628,7 +629,12 @@ async function sortItemsBySavedOrder(actor, items, containerId = null) {
 
 function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
-  if (existing) { closeBetterInvItemActionMenu(); existing.remove(); return; }
+  if (existing) {
+    closeBetterInvItemActionMenu();
+    betterInvState.settingsOpen = false;
+    existing.remove();
+    return;
+  }
   betterInvState.containerId = null;
   renderBetterInvWindow();
 }
@@ -828,16 +834,39 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
 }
 
 function baseShellHtml(bodyHtml) {
+  const settingsOpen = betterInvState.settingsOpen === true;
+  const showItemValues = betterInvShowsItemValues();
   return `
     <header class="betterinv-header">
       <h2>Better Inventory<small>by <a class="betterinv-author-link" href="https://discord.com/users/622739422332321792" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
+        <button type="button" class="betterinv-settings${settingsOpen ? " is-active" : ""}" title="Inventar-Einstellungen öffnen" aria-label="Inventar-Einstellungen öffnen" aria-expanded="${settingsOpen}"><i class="fas fa-cog" aria-hidden="true"></i></button>
         <button type="button" class="betterinv-popout" title="Als Browser-Popup öffnen">⧉</button>
         <button type="button" class="betterinv-close" title="Schließen">×</button>
       </div>
     </header>
+    <aside class="betterinv-settings-panel" aria-label="Inventar-Einstellungen" ${settingsOpen ? "" : "hidden"}>
+      <div class="betterinv-settings-panel-header">
+        <div>
+          <strong>Einstellungen</strong>
+          <small>Persönliche Inventaransicht</small>
+        </div>
+        <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
+      </div>
+      <label class="betterinv-settings-row">
+        <span>
+          <strong>Itempreise anzeigen</strong>
+          <small>Zeigt den gespeicherten Wert direkt am Item.</small>
+        </span>
+        <input type="checkbox" class="betterinv-setting-show-item-values" ${showItemValues ? "checked" : ""}>
+      </label>
+      <div class="betterinv-settings-coming-soon">
+        <i class="fas fa-sliders-h" aria-hidden="true"></i>
+        <span>Weitere Anzeigeoptionen folgen in Phase 5.</span>
+      </div>
+    </aside>
     <div class="betterinv-body">${bodyHtml}</div>
     <div class="betterinv-resize-hint">↘</div>`;
 }
@@ -2830,10 +2859,45 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false 
 }
 
 function activateWindowListeners(windowEl, actor, activeContainer) {
-  windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => { closeBetterInvItemActionMenu(); windowEl.remove(); });
+  windowEl.querySelector(".betterinv-close")?.addEventListener("click", () => {
+    closeBetterInvItemActionMenu();
+    betterInvState.settingsOpen = false;
+    windowEl.remove();
+  });
   windowEl.querySelector(".betterinv-popout")?.addEventListener("pointerdown", event => { event.preventDefault(); openBetterInvPopup(windowEl); });
   windowEl.querySelector(".betterinv-scale-down")?.addEventListener("click", () => { betterInvState.scale = Math.max(0.65, Math.round(((betterInvState.scale || 1) - 0.1) * 10) / 10); renderBetterInvWindow(); });
   windowEl.querySelector(".betterinv-scale-up")?.addEventListener("click", () => { betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10); renderBetterInvWindow(); });
+
+  const settingsButton = windowEl.querySelector(".betterinv-settings");
+  const settingsPanel = windowEl.querySelector(".betterinv-settings-panel");
+  const setSettingsOpen = open => {
+    betterInvState.settingsOpen = open === true;
+    if (settingsPanel) settingsPanel.hidden = !betterInvState.settingsOpen;
+    settingsButton?.setAttribute("aria-expanded", String(betterInvState.settingsOpen));
+    settingsButton?.classList.toggle("is-active", betterInvState.settingsOpen);
+  };
+  settingsButton?.addEventListener("click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    setSettingsOpen(!betterInvState.settingsOpen);
+  });
+  windowEl.querySelector(".betterinv-settings-close")?.addEventListener("click", event => {
+    event.preventDefault();
+    setSettingsOpen(false);
+  });
+  windowEl.querySelector(".betterinv-setting-show-item-values")?.addEventListener("change", async event => {
+    const input = event.currentTarget;
+    if (!(input instanceof HTMLInputElement)) return;
+    input.disabled = true;
+    betterInvState.settingsOpen = true;
+    try {
+      await game.settings.set(MODULE_ID, "showItemValues", input.checked);
+    } catch (error) {
+      console.error("Better Inventory | Einstellung konnte nicht gespeichert werden", error);
+      ui.notifications.error("Die Einstellung konnte nicht gespeichert werden.");
+      input.disabled = false;
+    }
+  });
   makeBetterInvDraggable(windowEl);
 
   windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {

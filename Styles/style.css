@@ -125,6 +125,7 @@
 }
 .betterinv-scale-down,
 .betterinv-scale-up,
+.betterinv-settings,
 .betterinv-popout,
 .betterinv-close {
   width: 30px;
@@ -141,11 +142,150 @@
 }
 .betterinv-scale-down:hover,
 .betterinv-scale-up:hover,
+.betterinv-settings:hover,
+.betterinv-settings.is-active,
 .betterinv-popout:hover,
 .betterinv-close:hover {
   background: #28282f;
   border-color: var(--bi-gold);
   color: #fff;
+}
+
+
+/* Phase 5.1: inventory settings entry point and compact settings panel. */
+.betterinv-settings {
+  font-size: 13px;
+}
+
+.betterinv-settings-panel {
+  position: absolute;
+  top: 64px;
+  right: 12px;
+  z-index: 25;
+  width: min(330px, calc(100% - 24px));
+  padding: 10px;
+  border: 1px solid rgba(200,168,90,.52);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(31,31,37,.99), rgba(15,15,19,.99));
+  box-shadow:
+    0 16px 42px rgba(0,0,0,.72),
+    0 0 0 1px rgba(0,0,0,.72) inset;
+  color: var(--bi-text);
+}
+
+.betterinv-settings-panel[hidden] {
+  display: none !important;
+}
+
+.betterinv-settings-panel-header {
+  min-height: 36px;
+  padding: 0 0 8px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid rgba(200,168,90,.20);
+}
+
+.betterinv-settings-panel-header strong {
+  display: block;
+  color: #f3e8cf;
+  font-size: 15px;
+  line-height: 1.1;
+}
+
+.betterinv-settings-panel-header small {
+  display: block;
+  margin-top: 3px;
+  color: var(--bi-muted);
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+.betterinv-settings-close {
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.34);
+  border-radius: 3px;
+  background: #18181d;
+  color: var(--bi-text);
+  font-size: 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.betterinv-settings-close:hover {
+  border-color: var(--bi-gold);
+  background: #28282f;
+  color: #fff;
+}
+
+.betterinv-settings-row {
+  min-height: 58px;
+  margin-top: 8px;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(200,168,90,.20);
+  border-radius: 3px;
+  background: rgba(8,8,11,.52);
+  cursor: pointer;
+}
+
+.betterinv-settings-row > span {
+  min-width: 0;
+}
+
+.betterinv-settings-row strong {
+  display: block;
+  color: #eadebf;
+  font-size: 12px;
+  line-height: 1.15;
+}
+
+.betterinv-settings-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--bi-muted);
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.betterinv-settings-row input[type="checkbox"] {
+  width: 34px;
+  height: 18px;
+  flex: 0 0 auto;
+  margin: 0;
+  accent-color: #a98a3b;
+  cursor: pointer;
+}
+
+.betterinv-settings-coming-soon {
+  margin-top: 7px;
+  padding: 7px 8px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px dashed rgba(169,159,138,.24);
+  border-radius: 3px;
+  color: #8f8778;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+@supports (container-type: inline-size) {
+  @container (max-width: 430px) {
+    .betterinv-settings-panel {
+      right: 8px;
+      width: calc(100% - 16px);
+    }
+  }
 }
 
 .betterinv-body {
