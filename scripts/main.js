@@ -1205,21 +1205,21 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true } 
       <div class="betterinv-currency-heading betterinv-currency-heading-actions">
         <button
           type="button"
-          class="betterinv-currency-action betterinv-currency-exchange-down"
-          title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 1 GP in 10 SP"
-          ${editable ? "" : "disabled"}
-        >
-          <i class="fas fa-arrow-down" aria-hidden="true"></i>
-          <span>Nach unten wechseln</span>
-        </button>
-        <button
-          type="button"
           class="betterinv-currency-action betterinv-currency-exchange-up"
           title="Eingegebene Münzen in die nächsthöhere praktische Währung wechseln, zum Beispiel 10 SP in 1 GP"
           ${editable ? "" : "disabled"}
         >
           <i class="fas fa-arrow-up" aria-hidden="true"></i>
           <span>Nach oben wechseln</span>
+        </button>
+        <button
+          type="button"
+          class="betterinv-currency-action betterinv-currency-exchange-down"
+          title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 1 GP in 10 SP"
+          ${editable ? "" : "disabled"}
+        >
+          <i class="fas fa-arrow-down" aria-hidden="true"></i>
+          <span>Nach unten wechseln</span>
         </button>
       </div>
       <div class="betterinv-currency-main">
