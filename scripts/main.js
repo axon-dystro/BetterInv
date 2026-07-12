@@ -1065,7 +1065,7 @@ async function renderBetterInvWindow({ preserveScroll = true } = {}) {
     ? `<input type="search" class="betterinv-search" value="${escapeAttr(betterInvState.search ?? "")}" placeholder="Suchen: Item, Pergament, Arrow, Bagpipes …">`
     : "";
   const addItemHtml = features.items && features.addItemButton
-    ? `<button type="button" class="betterinv-add-item" title="Neues Item für diesen Charakter erstellen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>`
+    ? `<button type="button" class="betterinv-add-item" title="Item hinzufügen: leer erstellen oder aus einem Kompendium übernehmen"><i class="fas fa-plus" aria-hidden="true"></i><span>Item</span></button>`
     : "";
   const addCategoryHtml = features.categories
     ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>`
@@ -3040,6 +3040,63 @@ function getBetterInvItemTypeLabel(type) {
   return String(type ?? "Item").replace(/(^|[-_\s])([a-z])/g, (_match, space, letter) => `${space ? " " : ""}${letter.toUpperCase()}`);
 }
 
+async function promptBetterInvItemSource() {
+  return await new Promise(resolve => {
+    let settled = false;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+
+    const dialog = new Dialog({
+      title: "Item hinzufügen",
+      content: `
+        <div class="betterinv-item-source-choice">
+          <p class="betterinv-item-source-intro">Wie möchtest du das Item hinzufügen?</p>
+          <div class="betterinv-item-source-preview">
+            <div class="betterinv-item-source-preview-card">
+              <i class="fas fa-file" aria-hidden="true"></i>
+              <div>
+                <strong>Leeres Item</strong>
+                <span>Name und Itemtyp selbst festlegen.</span>
+              </div>
+            </div>
+            <div class="betterinv-item-source-preview-card">
+              <i class="fas fa-book-open" aria-hidden="true"></i>
+              <div>
+                <strong>Aus Kompendium</strong>
+                <span>Ein vorhandenes Item aus einem zugänglichen Kompendium übernehmen.</span>
+              </div>
+            </div>
+          </div>
+        </div>`,
+      buttons: {
+        empty: {
+          icon: '<i class="fas fa-file"></i>',
+          label: "Leeres Item",
+          callback: () => done("empty")
+        },
+        compendium: {
+          icon: '<i class="fas fa-book-open"></i>',
+          label: "Aus Kompendium",
+          callback: () => done("compendium")
+        },
+        cancel: {
+          icon: '<i class="fas fa-xmark"></i>',
+          label: "Abbrechen",
+          callback: () => done(null)
+        }
+      },
+      default: "empty",
+      close: () => done(null)
+    });
+
+    dialog.render(true);
+    setTimeout(() => bringFoundryDialogsToFront({ avoidOverlap: false }), 50);
+  });
+}
+
 async function promptNewBetterInvItem() {
   const types = getBetterInvCreatableItemTypes();
   const defaultType = types.includes("loot") ? "loot" : types[0];
@@ -3098,6 +3155,14 @@ async function promptNewBetterInvItem() {
 
 async function createBetterInvItem(actor, activeContainer = null) {
   if (!actor) return null;
+
+  const source = await promptBetterInvItemSource();
+  if (!source) return null;
+  if (source === "compendium") {
+    ui.notifications.info("Die Kompendiumauswahl ist vorbereitet. Zugängliche Kompendien werden im nächsten Schritt eingebunden.");
+    return null;
+  }
+
   const input = await promptNewBetterInvItem();
   if (!input) return null;
 
