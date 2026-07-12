@@ -125,6 +125,7 @@
 }
 .betterinv-scale-down,
 .betterinv-scale-up,
+.betterinv-support,
 .betterinv-settings,
 .betterinv-popout,
 .betterinv-close {
@@ -142,6 +143,8 @@
 }
 .betterinv-scale-down:hover,
 .betterinv-scale-up:hover,
+.betterinv-support:hover,
+.betterinv-support.is-active,
 .betterinv-settings:hover,
 .betterinv-settings.is-active,
 .betterinv-popout:hover,
@@ -153,7 +156,8 @@
 
 
 /* Phase 5.1: inventory settings entry point and compact settings panel. */
-.betterinv-settings {
+.betterinv-settings,
+.betterinv-support {
   font-size: 13px;
 }
 
@@ -5621,5 +5625,177 @@ button.betterinv-category-picker:focus-visible {
   .betterinv-performance-grid,
   .betterinv-performance-phases {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Phase 8.4: visible support and help window. */
+.betterinv-support-window {
+  width: 390px;
+  height: min(610px, 78vh);
+  min-width: 330px;
+  min-height: 430px;
+  z-index: 20025;
+}
+
+.betterinv-support-window-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.betterinv-support-intro {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  border: 1px solid rgba(200,168,90,.30);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(50,42,25,.52), rgba(22,19,13,.58));
+}
+
+.betterinv-support-intro > i {
+  width: 34px;
+  height: 34px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.38);
+  border-radius: 4px;
+  background: rgba(9,9,12,.72);
+  color: #e0c36f;
+  font-size: 15px;
+}
+
+.betterinv-support-intro strong {
+  display: block;
+  color: #f2e5c8;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.betterinv-support-intro small {
+  display: block;
+  margin-top: 3px;
+  color: #a99f8a;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.betterinv-support-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 7px;
+}
+
+.betterinv-support-card {
+  min-height: 62px;
+  padding: 8px 9px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(183,164,118,.28);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(31,31,37,.94), rgba(16,16,20,.96));
+  color: var(--bi-text);
+  text-decoration: none;
+  box-shadow: 0 1px 0 rgba(255,255,255,.025) inset, 0 2px 8px rgba(0,0,0,.22);
+  transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+
+.betterinv-support-card:hover,
+.betterinv-support-card:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(200,168,90,.68);
+  background: linear-gradient(180deg, rgba(43,43,51,.98), rgba(21,21,26,.98));
+  color: #fff4d6;
+  outline: none;
+}
+
+.betterinv-support-card.is-disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.betterinv-support-card.is-disabled:hover {
+  transform: none;
+  border-color: rgba(183,164,118,.28);
+}
+
+.betterinv-support-card-icon {
+  width: 38px;
+  height: 38px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(200,168,90,.30);
+  border-radius: 4px;
+  background: rgba(8,8,11,.72);
+  color: #d8c795;
+  font-size: 14px;
+}
+
+.betterinv-support-tone-discord {
+  border-color: rgba(116,130,221,.46);
+  color: #b8c0ff;
+}
+
+.betterinv-support-tone-github {
+  border-color: rgba(176,181,191,.36);
+  color: #d4d7df;
+}
+
+.betterinv-support-tone-bug {
+  border-color: rgba(190,91,78,.46);
+  color: #efb2a8;
+}
+
+.betterinv-support-tone-feature {
+  border-color: rgba(200,168,90,.46);
+  color: #ebd17f;
+}
+
+.betterinv-support-tone-docs {
+  border-color: rgba(103,148,169,.46);
+  color: #b9dbe8;
+}
+
+.betterinv-support-card-copy {
+  min-width: 0;
+}
+
+.betterinv-support-card-copy strong {
+  display: block;
+  color: #f2e7cd;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.betterinv-support-card-copy small {
+  display: block;
+  margin-top: 3px;
+  color: #a99f8a;
+  font-size: 9px;
+  line-height: 1.28;
+}
+
+.betterinv-support-card-arrow {
+  color: #8f846d;
+  font-size: 10px;
+  text-align: center;
+}
+
+.betterinv-support-card:hover .betterinv-support-card-arrow,
+.betterinv-support-card:focus-visible .betterinv-support-card-arrow {
+  color: #e0c36f;
+}
+
+.betterinv-support-footer {
+  min-height: 42px;
+}
+
+@media (max-width: 560px) {
+  .betterinv-support-window {
+    width: min(390px, calc(100vw - 20px));
+    min-width: 300px;
   }
 }

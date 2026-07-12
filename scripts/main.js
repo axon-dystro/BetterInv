@@ -7,7 +7,10 @@ const MODULE_ID = "betterinv";
 const BETTER_INV_SUPPORT_LINKS = Object.freeze({
   discord: "https://discord.com/users/622739422332321792",
   github: "https://github.com/axon-dystro/BetterInv",
-  issues: "https://github.com/axon-dystro/BetterInv/issues"
+  issues: "https://github.com/axon-dystro/BetterInv/issues",
+  bugReport: "https://github.com/axon-dystro/BetterInv/issues/new?title=%5BBug%5D%20",
+  featureRequest: "https://github.com/axon-dystro/BetterInv/issues/new?title=%5BFeature%5D%20",
+  documentation: "https://github.com/axon-dystro/BetterInv#readme"
 });
 
 function getBetterInvSupportLink(key) {
@@ -288,6 +291,7 @@ function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
   betterInvActiveItemDrag = null;
   closeBetterInvPerformanceWindow();
   closeBetterInvSettingsWindow();
+  closeBetterInvSupportWindow();
   betterInvState.containerId = null;
   betterInvState.search = "";
   betterInvState.currencyDraftActorId = null;
@@ -1811,6 +1815,7 @@ async function renderBetterInvDisabledWindow() {
   closeBetterInvItemActionMenu();
   closeBetterInvCategoryMenu();
   closeBetterInvSettingsWindow();
+  closeBetterInvSupportWindow();
   closeBetterInvPerformanceWindow();
 
   let windowEl = document.getElementById("betterinv-window");
@@ -1884,6 +1889,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   const features = getBetterInvFeaturePlan(userSettings);
   if (!features.enabled) {
     closeBetterInvSettingsWindow();
+    closeBetterInvSupportWindow();
     windowEl.classList.add("betterinv-disabled-mode");
     windowEl.innerHTML = betterInvDisabledShellHtml();
     const eventController = beginBetterInvWindowEventCycle(windowEl);
@@ -2743,14 +2749,157 @@ function toggleBetterInvSettingsWindow() {
   else openBetterInvSettingsWindow();
 }
 
+function updateBetterInvSupportButtonState() {
+  const open = Boolean(document.getElementById("betterinv-support-window"));
+  const button = document.querySelector("#betterinv-window .betterinv-support");
+  button?.setAttribute("aria-expanded", String(open));
+  button?.classList.toggle("is-active", open);
+}
+
+function closeBetterInvSupportWindow() {
+  const supportWindow = document.getElementById("betterinv-support-window");
+  supportWindow?._betterInvDragController?.abort?.();
+  supportWindow?.remove();
+  updateBetterInvSupportButtonState();
+}
+
+function isBetterInvSafeSupportLink(value) {
+  try {
+    const url = new URL(String(value ?? ""));
+    return url.protocol === "https:";
+  } catch (_error) {
+    return false;
+  }
+}
+
+function betterInvSupportCardHtml({ key, icon, title, description, tone = "neutral" }) {
+  const href = getBetterInvSupportLink(key);
+  const valid = isBetterInvSafeSupportLink(href);
+  if (!valid) {
+    return `
+      <div class="betterinv-support-card is-disabled" aria-disabled="true">
+        <span class="betterinv-support-card-icon betterinv-support-tone-${escapeAttr(tone)}"><i class="fas ${escapeAttr(icon)}" aria-hidden="true"></i></span>
+        <span class="betterinv-support-card-copy">
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(description)}</small>
+        </span>
+        <i class="fas fa-exclamation-triangle betterinv-support-card-arrow" aria-hidden="true"></i>
+      </div>`;
+  }
+  return `
+    <a class="betterinv-support-card" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">
+      <span class="betterinv-support-card-icon betterinv-support-tone-${escapeAttr(tone)}"><i class="fas ${escapeAttr(icon)}" aria-hidden="true"></i></span>
+      <span class="betterinv-support-card-copy">
+        <strong>${escapeHtml(title)}</strong>
+        <small>${escapeHtml(description)}</small>
+      </span>
+      <i class="fas fa-external-link-alt betterinv-support-card-arrow" aria-hidden="true"></i>
+    </a>`;
+}
+
+function openBetterInvSupportWindow() {
+  const existing = document.getElementById("betterinv-support-window");
+  if (existing) {
+    existing.style.zIndex = "20030";
+    updateBetterInvSupportButtonState();
+    return existing;
+  }
+
+  const supportWindow = document.createElement("section");
+  supportWindow.id = "betterinv-support-window";
+  supportWindow.className = "betterinv-settings-window betterinv-support-window";
+  supportWindow.innerHTML = `
+    <header class="betterinv-settings-window-header">
+      <div>
+        <strong>Support & Hilfe</strong>
+        <small>Direkte Verweise für Fragen, Fehler und Wünsche</small>
+      </div>
+      <button type="button" class="betterinv-support-close betterinv-settings-close" title="Support schließen" aria-label="Support schließen">×</button>
+    </header>
+    <div class="betterinv-settings-window-scroll betterinv-support-window-scroll">
+      <section class="betterinv-support-intro">
+        <i class="fas fa-life-ring" aria-hidden="true"></i>
+        <div>
+          <strong>Wobei brauchst du Hilfe?</strong>
+          <small>Die folgenden Schaltflächen öffnen externe Seiten. Axon’s Inventory überträgt selbst keine Nachrichten oder Diagnosedaten.</small>
+        </div>
+      </section>
+      <div class="betterinv-support-grid">
+        ${betterInvSupportCardHtml({
+          key: "discord",
+          icon: "fa-comments",
+          title: "Discord",
+          description: "Axon direkt über Discord kontaktieren.",
+          tone: "discord"
+        })}
+        ${betterInvSupportCardHtml({
+          key: "issues",
+          icon: "fa-list-alt",
+          title: "GitHub-Issues",
+          description: "Offene und bereits gemeldete Probleme ansehen.",
+          tone: "github"
+        })}
+        ${betterInvSupportCardHtml({
+          key: "bugReport",
+          icon: "fa-bug",
+          title: "Bug melden",
+          description: "Einen neuen Fehlerbericht auf GitHub beginnen.",
+          tone: "bug"
+        })}
+        ${betterInvSupportCardHtml({
+          key: "featureRequest",
+          icon: "fa-lightbulb",
+          title: "Feature wünschen",
+          description: "Eine neue Idee oder Verbesserung vorschlagen.",
+          tone: "feature"
+        })}
+        ${betterInvSupportCardHtml({
+          key: "documentation",
+          icon: "fa-book-open",
+          title: "Dokumentation",
+          description: "Projektbeschreibung und Nutzungshinweise öffnen.",
+          tone: "docs"
+        })}
+      </div>
+    </div>
+    <footer class="betterinv-settings-window-footer betterinv-support-footer">
+      <i class="fas fa-shield-alt" aria-hidden="true"></i>
+      <span>Alle Verweise werden in deinem Browser außerhalb des Inventars geöffnet.</span>
+    </footer>`;
+
+  const inventoryWindow = document.getElementById("betterinv-window");
+  const inventoryRect = inventoryWindow?.getBoundingClientRect?.();
+  const settingsRect = document.getElementById("betterinv-settings-window")?.getBoundingClientRect?.();
+  const width = 390;
+  const gap = 12;
+  const anchorRect = settingsRect ?? inventoryRect;
+  let left = anchorRect ? anchorRect.right + gap : Math.max(20, window.innerWidth - width - 30);
+  if (left + width > window.innerWidth - 10 && inventoryRect) left = Math.max(10, inventoryRect.left - width - gap);
+  supportWindow.style.left = `${Math.max(10, left)}px`;
+  supportWindow.style.top = `${Math.max(10, anchorRect?.top ?? 90)}px`;
+  document.body.appendChild(supportWindow);
+
+  supportWindow.querySelector(".betterinv-support-close")?.addEventListener("click", closeBetterInvSupportWindow);
+  makeBetterInvSettingsDraggable(supportWindow);
+  updateBetterInvSupportButtonState();
+  return supportWindow;
+}
+
+function toggleBetterInvSupportWindow() {
+  if (document.getElementById("betterinv-support-window")) closeBetterInvSupportWindow();
+  else openBetterInvSupportWindow();
+}
+
 function baseShellHtml(bodyHtml) {
   const settingsOpen = Boolean(document.getElementById("betterinv-settings-window"));
+  const supportOpen = Boolean(document.getElementById("betterinv-support-window"));
   return `
     <header class="betterinv-header">
       <h2>Axon’s Inventory<small>von <a class="betterinv-author-link" href="${escapeAttr(getBetterInvSupportLink("discord"))}" target="_blank" rel="noopener noreferrer" title="Axon auf Discord öffnen">Axon</a></small></h2>
       <div class="betterinv-header-actions">
         <button type="button" class="betterinv-scale-down" title="UI kleiner">−</button>
         <button type="button" class="betterinv-scale-up" title="UI größer">+</button>
+        <button type="button" class="betterinv-support${supportOpen ? " is-active" : ""}" title="Support und Hilfe öffnen" aria-label="Support und Hilfe öffnen" aria-expanded="${supportOpen}"><i class="fas fa-life-ring" aria-hidden="true"></i></button>
         <button type="button" class="betterinv-settings${settingsOpen ? " is-active" : ""}" title="Inventar-Einstellungen in eigenem Fenster öffnen" aria-label="Inventar-Einstellungen öffnen" aria-expanded="${settingsOpen}"><i class="fas fa-cog" aria-hidden="true"></i></button>
         <button type="button" class="betterinv-popout" title="Als Browser-Popup öffnen">⧉</button>
         <button type="button" class="betterinv-close" title="Schließen">×</button>
@@ -7349,6 +7498,14 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     betterInvState.scale = Math.min(1.35, Math.round(((betterInvState.scale || 1) + 0.1) * 10) / 10);
     applyBetterInvScale(windowEl);
   });
+
+  const supportButton = windowEl.querySelector(".betterinv-support");
+  listen(supportButton, "click", event => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleBetterInvSupportWindow();
+  });
+  updateBetterInvSupportButtonState();
 
   const settingsButton = windowEl.querySelector(".betterinv-settings");
   listen(settingsButton, "click", event => {
