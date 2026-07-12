@@ -3165,11 +3165,17 @@ async function promptBetterInvCompendiumItem(packs) {
     id: item.packId,
     label: item.packLabel
   }])).values()).sort((left, right) => left.label.localeCompare(right.label, game.i18n?.lang ?? undefined, { sensitivity: "base" }));
-  const packOptions = indexedPacks.map(pack => `<option value="${escapeAttr(pack.id)}">${escapeHtml(pack.label)}</option>`).join("");
+  const packOptions = indexedPacks.map(pack => `
+    <button type="button" class="betterinv-compendium-dropdown-option" data-compendium-dropdown-option data-value="${escapeAttr(pack.id)}" role="option" aria-selected="false">
+      <span>${escapeHtml(pack.label)}</span>
+    </button>`).join("");
 
   const typeValues = Array.from(new Set(items.map(item => item.type).filter(Boolean)))
     .sort((left, right) => getBetterInvItemTypeLabel(left).localeCompare(getBetterInvItemTypeLabel(right), game.i18n?.lang ?? undefined, { sensitivity: "base" }));
-  const typeOptions = typeValues.map(type => `<option value="${escapeAttr(type)}">${escapeHtml(getBetterInvItemTypeLabel(type))}</option>`).join("");
+  const typeOptions = typeValues.map(type => `
+    <button type="button" class="betterinv-compendium-dropdown-option" data-compendium-dropdown-option data-value="${escapeAttr(type)}" role="option" aria-selected="false">
+      <span>${escapeHtml(getBetterInvItemTypeLabel(type))}</span>
+    </button>`).join("");
 
   return await new Promise(resolve => {
     let settled = false;
@@ -3208,20 +3214,36 @@ async function promptBetterInvCompendiumItem(packs) {
                 <input type="search" data-compendium-search placeholder="Name, Typ oder Kompendium …" autocomplete="off">
               </span>
             </label>
-            <label>
+            <div class="betterinv-compendium-browser-filter">
               <span>Kompendium</span>
-              <select data-compendium-pack>
-                <option value="">Alle Kompendien</option>
-                ${packOptions}
-              </select>
-            </label>
-            <label>
+              <div class="betterinv-compendium-dropdown" data-compendium-dropdown="pack">
+                <button type="button" class="betterinv-compendium-dropdown-toggle" data-compendium-dropdown-toggle aria-haspopup="listbox" aria-expanded="false">
+                  <span data-compendium-dropdown-label>Alle Kompendien</span>
+                  <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                </button>
+                <div class="betterinv-compendium-dropdown-menu" data-compendium-dropdown-menu role="listbox" hidden>
+                  <button type="button" class="betterinv-compendium-dropdown-option is-selected" data-compendium-dropdown-option data-value="" role="option" aria-selected="true">
+                    <span>Alle Kompendien</span>
+                  </button>
+                  ${packOptions}
+                </div>
+              </div>
+            </div>
+            <div class="betterinv-compendium-browser-filter">
               <span>Itemtyp</span>
-              <select data-compendium-type>
-                <option value="">Alle Itemtypen</option>
-                ${typeOptions}
-              </select>
-            </label>
+              <div class="betterinv-compendium-dropdown" data-compendium-dropdown="type">
+                <button type="button" class="betterinv-compendium-dropdown-toggle" data-compendium-dropdown-toggle aria-haspopup="listbox" aria-expanded="false">
+                  <span data-compendium-dropdown-label>Alle Itemtypen</span>
+                  <i class="fas fa-chevron-down" aria-hidden="true"></i>
+                </button>
+                <div class="betterinv-compendium-dropdown-menu" data-compendium-dropdown-menu role="listbox" hidden>
+                  <button type="button" class="betterinv-compendium-dropdown-option is-selected" data-compendium-dropdown-option data-value="" role="option" aria-selected="true">
+                    <span>Alle Itemtypen</span>
+                  </button>
+                  ${typeOptions}
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="betterinv-compendium-browser-summary">
@@ -3261,14 +3283,16 @@ async function promptBetterInvCompendiumItem(packs) {
       if (!root) return;
 
       const searchInput = root.querySelector("[data-compendium-search]");
-      const packSelect = root.querySelector("[data-compendium-pack]");
-      const typeSelect = root.querySelector("[data-compendium-type]");
+      const packDropdown = root.querySelector('[data-compendium-dropdown="pack"]');
+      const typeDropdown = root.querySelector('[data-compendium-dropdown="type"]');
       const resultsElement = root.querySelector("[data-compendium-results]");
       const countElement = root.querySelector("[data-compendium-result-count]");
       const selectionElement = root.querySelector("[data-compendium-selection]");
       const confirmButton = root.querySelector("[data-compendium-confirm]");
       const cancelButton = root.querySelector("[data-compendium-cancel]");
       const resultLimit = 200;
+      let selectedPackId = "";
+      let selectedType = "";
 
       const getSelectedItem = () => items.find(item => item.key === selectedKey) ?? null;
 
@@ -3284,8 +3308,8 @@ async function promptBetterInvCompendiumItem(packs) {
 
       const renderResults = () => {
         const query = normalizeBetterInvSearchText(searchInput?.value ?? "").trim();
-        const packId = String(packSelect?.value ?? "");
-        const type = String(typeSelect?.value ?? "");
+        const packId = selectedPackId;
+        const type = selectedType;
         const filtered = items.filter(item => {
           if (packId && item.packId !== packId) return false;
           if (type && item.type !== type) return false;
@@ -3340,16 +3364,76 @@ async function promptBetterInvCompendiumItem(packs) {
         });
       };
 
-      [searchInput, packSelect, typeSelect].forEach(control => {
-        if (!control) return;
-        ["keydown", "keyup", "keypress", "beforeinput", "input", "change", "paste"].forEach(type => {
-          control.addEventListener(type, event => event.stopPropagation(), { capture: true });
+      const closeDropdowns = except => {
+        root.querySelectorAll("[data-compendium-dropdown]").forEach(dropdown => {
+          if (dropdown === except) return;
+          const toggle = dropdown.querySelector("[data-compendium-dropdown-toggle]");
+          const menu = dropdown.querySelector("[data-compendium-dropdown-menu]");
+          dropdown.classList.remove("is-open");
+          toggle?.setAttribute("aria-expanded", "false");
+          if (menu) menu.hidden = true;
         });
+      };
+
+      const setDropdownOpen = (dropdown, open) => {
+        if (!dropdown) return;
+        const toggle = dropdown.querySelector("[data-compendium-dropdown-toggle]");
+        const menu = dropdown.querySelector("[data-compendium-dropdown-menu]");
+        if (!toggle || !menu) return;
+        if (open) closeDropdowns(dropdown);
+        dropdown.classList.toggle("is-open", open);
+        toggle.setAttribute("aria-expanded", open ? "true" : "false");
+        menu.hidden = !open;
+      };
+
+      const bindDropdown = (dropdown, onSelect) => {
+        if (!dropdown) return;
+        const toggle = dropdown.querySelector("[data-compendium-dropdown-toggle]");
+        const label = dropdown.querySelector("[data-compendium-dropdown-label]");
+        const options = Array.from(dropdown.querySelectorAll("[data-compendium-dropdown-option]"));
+
+        toggle?.addEventListener("click", event => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDropdownOpen(dropdown, !dropdown.classList.contains("is-open"));
+        });
+
+        options.forEach(option => {
+          option.addEventListener("click", event => {
+            event.preventDefault();
+            event.stopPropagation();
+            const value = String(option.dataset.value ?? "");
+            options.forEach(entry => {
+              const selected = entry === option;
+              entry.classList.toggle("is-selected", selected);
+              entry.setAttribute("aria-selected", selected ? "true" : "false");
+            });
+            if (label) label.textContent = option.textContent?.trim() || "Alle";
+            onSelect(value);
+            setDropdownOpen(dropdown, false);
+            renderResults();
+          });
+        });
+      };
+
+      bindDropdown(packDropdown, value => { selectedPackId = value; });
+      bindDropdown(typeDropdown, value => { selectedType = value; });
+
+      // Handle the search in the capture phase. Foundry registers global keyboard
+      // handlers on dialogs; handling the event here keeps those hotkeys away while
+      // still updating the result list immediately.
+      searchInput?.addEventListener("input", event => {
+        event.stopPropagation();
+        renderResults();
+      }, { capture: true });
+      ["keydown", "keyup", "keypress", "beforeinput", "paste"].forEach(type => {
+        searchInput?.addEventListener(type, event => event.stopPropagation(), { capture: true });
       });
 
-      searchInput?.addEventListener("input", renderResults);
-      packSelect?.addEventListener("change", renderResults);
-      typeSelect?.addEventListener("change", renderResults);
+      root.addEventListener("click", event => {
+        if (!event.target?.closest?.("[data-compendium-dropdown]")) closeDropdowns();
+      });
+
       confirmButton?.addEventListener("click", () => {
         const selected = getSelectedItem();
         if (selected) choose(selected);
@@ -3357,10 +3441,20 @@ async function promptBetterInvCompendiumItem(packs) {
       cancelButton?.addEventListener("click", () => choose(null));
       root.addEventListener("keydown", event => {
         if (event.key === "Escape") {
+          const openDropdown = root.querySelector("[data-compendium-dropdown].is-open");
+          if (openDropdown) {
+            event.preventDefault();
+            event.stopPropagation();
+            setDropdownOpen(openDropdown, false);
+            return;
+          }
           event.preventDefault();
           choose(null);
         }
-        if (event.key === "Enter" && getSelectedItem() && event.target !== searchInput) {
+        if (event.key === "Enter"
+          && getSelectedItem()
+          && event.target !== searchInput
+          && !event.target?.closest?.("[data-compendium-dropdown]")) {
           event.preventDefault();
           choose(getSelectedItem());
         }

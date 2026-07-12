@@ -3525,7 +3525,8 @@
   gap: 8px;
 }
 
-.betterinv-compendium-browser-filters label {
+.betterinv-compendium-browser-filters label,
+.betterinv-compendium-browser-filter {
   min-width: 0;
   display: grid;
   gap: 4px;
@@ -3847,4 +3848,139 @@
     flex: 1 1 0;
     min-width: 0;
   }
+}
+
+/* Phase 6.3.1: custom dark dropdowns for the compendium browser. */
+.betterinv-compendium-dropdown {
+  position: relative;
+  min-width: 0;
+}
+
+.betterinv-compendium-dropdown-toggle {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  margin: 0 !important;
+  padding: 0 10px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid rgba(200,168,90,.27) !important;
+  border-radius: 4px !important;
+  outline: 0;
+  background: rgba(7,7,10,.92) !important;
+  color: #ece3cf !important;
+  font: 700 11px/1 Signika, Georgia, serif !important;
+  text-align: left !important;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.38) inset !important;
+  cursor: pointer;
+}
+
+.betterinv-compendium-dropdown-toggle > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-compendium-dropdown-toggle > i {
+  flex: 0 0 auto;
+  color: #9d927b;
+  font-size: 9px;
+  transition: transform .15s ease;
+}
+
+.betterinv-compendium-dropdown.is-open .betterinv-compendium-dropdown-toggle {
+  border-color: rgba(200,168,90,.72) !important;
+  box-shadow: 0 0 0 1px rgba(200,168,90,.12), 0 0 10px rgba(200,168,90,.08) !important;
+}
+
+.betterinv-compendium-dropdown.is-open .betterinv-compendium-dropdown-toggle > i {
+  transform: rotate(180deg);
+}
+
+.betterinv-compendium-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  width: 100%;
+  min-width: 180px;
+  max-height: 240px;
+  padding: 5px;
+  overflow-y: auto;
+  border: 1px solid rgba(200,168,90,.36);
+  border-radius: 5px;
+  background: linear-gradient(180deg, #1a1a20, #0e0e12);
+  box-shadow: 0 14px 34px rgba(0,0,0,.72), 0 0 0 1px rgba(0,0,0,.72) inset;
+  scrollbar-width: thin;
+  scrollbar-color: #665b3d #111;
+}
+
+.betterinv-compendium-dropdown-menu[hidden] {
+  display: none !important;
+}
+
+.betterinv-compendium-dropdown-menu::-webkit-scrollbar {
+  width: 8px;
+}
+
+.betterinv-compendium-dropdown-menu::-webkit-scrollbar-track {
+  background: #111;
+}
+
+.betterinv-compendium-dropdown-menu::-webkit-scrollbar-thumb {
+  background: #665b3d;
+  border: 2px solid #111;
+}
+
+.betterinv-compendium-dropdown-option {
+  width: 100%;
+  min-width: 0;
+  min-height: 29px;
+  margin: 0 !important;
+  padding: 5px 8px !important;
+  display: flex !important;
+  align-items: center;
+  border: 1px solid transparent !important;
+  border-radius: 3px !important;
+  background: transparent !important;
+  color: #c8c0b0 !important;
+  font: 700 10px/1.2 Signika, Georgia, serif !important;
+  text-align: left !important;
+  box-shadow: none !important;
+  cursor: pointer;
+}
+
+.betterinv-compendium-dropdown-option > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-compendium-dropdown-option:hover,
+.betterinv-compendium-dropdown-option:focus-visible {
+  border-color: rgba(200,168,90,.30) !important;
+  background: rgba(200,168,90,.09) !important;
+  color: #f0e6d0 !important;
+  outline: none;
+}
+
+.betterinv-compendium-dropdown-option.is-selected {
+  border-color: rgba(200,168,90,.48) !important;
+  background: linear-gradient(180deg, rgba(78,65,34,.78), rgba(40,33,19,.78)) !important;
+  color: #f0d994 !important;
+}
+
+.betterinv-compendium-browser-filters {
+  position: relative;
+  z-index: 6;
+}
+
+.betterinv-compendium-browser-summary,
+.betterinv-compendium-browser-results {
+  position: relative;
+  z-index: 1;
 }
