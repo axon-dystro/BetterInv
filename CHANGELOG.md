@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.1.0
+
+- Granulare GM-Funktionssperren als geschützte Weltregeln hinzugefügt
+- Regeln können global für alle Spieler, pro Foundry-Nutzer oder für den aktuell geöffneten Rucksack gesetzt werden
+- Vom GM gesperrte Funktionen können Spieler in ihren persönlichen Einstellungen nicht wieder aktivieren
+- Geldaktionen getrennt schaltbar: Hinzufügen, Bezahlen, Aufrunden, Abrunden und Handeln
+- Gegenstandsaktionen getrennt schaltbar: Öffnen, Bearbeiten, Hinzufügen, Übertragen, Duplizieren, Löschen und Ausrüsten
+- Kategorien, Sortierung, Rucksack-Layer, Umbenennen und Verschieben in Rucksäcke separat steuerbar
+- GM-Regelbereich direkt in das bestehende Einstellungsfenster integriert
+- Rucksackregeln wirken nur innerhalb des jeweiligen geöffneten Rucksacks und eignen sich dadurch für Soulbound-, Fluch- oder One-Shot-Regeln
+
 ## 1.0.1
 
 - Proprietäre Freeware-Lizenz hinzugefügt und im Modulmanifest verknüpft

@@ -32,12 +32,18 @@ function validateBetterInvSupportLinks() {
 }
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
-const BETTER_INV_USER_SETTINGS_VERSION = 4;
+const BETTER_INV_USER_SETTINGS_VERSION = 5;
+const BETTER_INV_GM_RESTRICTIONS_SETTING = "gmRestrictions";
+const BETTER_INV_GM_RESTRICTIONS_VERSION = 1;
 const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   version: BETTER_INV_USER_SETTINGS_VERSION,
   moduleEnabled: true,
   showCurrency: true,
   showCurrencyCalculator: true,
+  showCurrencyAdd: true,
+  showCurrencyRemove: true,
+  showCurrencyRoundUp: true,
+  showCurrencyRoundDown: true,
   showCurrencyTransfer: true,
   showItems: true,
   showSearch: true,
@@ -48,15 +54,32 @@ const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   showCategoryWeights: true,
   showItemValues: true,
   showQuantityControls: true,
+  showItemOpen: true,
   showEditButton: true,
   showAddItemButton: true,
   showItemActionsMenu: true,
   showItemTransfer: true,
+  showItemDuplicate: true,
+  showItemDelete: true,
   showEquipActions: true,
   showCategoryDropdown: true,
+  showItemSorting: true,
+  showCategorySorting: true,
+  showCategoryManagement: true,
   showContainers: true,
   showContainerCapacity: true,
+  showContainerRename: true,
+  showContainerLayerControls: true,
+  showContainerSorting: true,
+  showItemMoveToContainer: true,
   showEncumbrance: true
+});
+
+const DEFAULT_BETTER_INV_GM_RESTRICTIONS = Object.freeze({
+  version: BETTER_INV_GM_RESTRICTIONS_VERSION,
+  global: [],
+  users: {},
+  containers: {}
 });
 
 const BETTER_INV_SETTINGS_GROUPS = [
@@ -66,8 +89,12 @@ const BETTER_INV_SETTINGS_GROUPS = [
     icon: "fa-coins",
     settings: [
       ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
-      ["showCurrencyCalculator", "Geldrechner", "Zeigt Eingaben sowie Hinzufügen, Bezahlen, Aufrunden und Abrunden."],
-      ["showCurrencyTransfer", "Geld handeln", "Zeigt den Handeln-Button für den direkten Münztransfer an andere Spielercharaktere."]
+      ["showCurrencyCalculator", "Geldrechner / Eingabefelder", "Zeigt die Eingabefelder für Geldaktionen."],
+      ["showCurrencyAdd", "Geld hinzufügen", "Erlaubt eingegebene Münzen hinzuzufügen."],
+      ["showCurrencyRemove", "Bezahlen / entfernen", "Erlaubt Geld nach Gesamtwert zu bezahlen oder zu entfernen."],
+      ["showCurrencyRoundUp", "Aufrunden", "Erlaubt niedrigere Münzen in höhere Münzarten umzuwandeln."],
+      ["showCurrencyRoundDown", "Abrunden", "Erlaubt höhere Münzen in niedrigere Münzarten umzuwandeln."],
+      ["showCurrencyTransfer", "Geld handeln", "Erlaubt den direkten Münztransfer an andere Spielercharaktere."]
     ]
   },
   {
@@ -77,17 +104,23 @@ const BETTER_INV_SETTINGS_GROUPS = [
     settings: [
       ["showItems", "Gegenstände anzeigen", "Blendet die vollständige Gegenstandsliste ein oder aus."],
       ["showSearch", "Suchleiste", "Zeigt die Suche oberhalb der Gegenstände und Rucksäcke."],
-      ["showCategories", "Kategorien", "Zeigt Kategorien und ihre Verwaltungsfunktionen."],
-      ["showSubcategories", "Unterkategorien", "Zeigt Unterkategorien innerhalb der Hauptkategorien."],
+      ["showCategories", "Kategorien anzeigen", "Zeigt Hauptkategorien im Inventar."],
+      ["showSubcategories", "Unterkategorien anzeigen", "Zeigt Unterkategorien innerhalb der Hauptkategorien."],
+      ["showCategoryManagement", "Kategorien verwalten", "Erlaubt Kategorien und Unterkategorien anzulegen, umzubenennen und zu löschen."],
+      ["showCategorySorting", "Kategorien sortieren", "Erlaubt Kategorien und Unterkategorien per Drag-and-drop zu verschieben."],
+      ["showItemSorting", "Gegenstände sortieren", "Erlaubt Gegenstände innerhalb und zwischen Kategorien zu verschieben."],
       ["showFavorites", "Favoriten", "Zeigt den Favoritenbereich und die Favoritenaktion."],
       ["showUnknownItems", "Unbekannte Gegenstände", "Zeigt nicht identifizierte Gegenstände in einem eigenen Bereich."],
       ["showCategoryWeights", "Kategoriegewicht", "Zeigt Gewichte an Kategorien und Unterkategorien."],
       ["showItemValues", "Gegenstandswerte", "Zeigt den gespeicherten Wert direkt am Gegenstand."],
-      ["showQuantityControls", "Mengensteuerung", "Zeigt Anzahl sowie Plus- und Minussteuerung."],
+      ["showQuantityControls", "Mengensteuerung", "Erlaubt Anzahl sowie Plus-, Minus- und Direkteingabe."],
+      ["showItemOpen", "Gegenstand öffnen / benutzen", "Erlaubt den Klick auf den Gegenstandsnamen."],
       ["showEditButton", "Bearbeiten-Button", "Zeigt den Stift direkt am Gegenstand."],
-      ["showAddItemButton", "Gegenstand hinzufügen", "Zeigt den Button zum Erstellen eines neuen Gegenstands."],
-      ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt weitere Gegenstandsaktionen wie Duplizieren und Löschen."],
-      ["showItemTransfer", "Gegenstand handeln / übertragen", "Zeigt Übertragen im Drei-Punkte-Menü und erlaubt die Übergabe per Drag-and-drop auf Spieler-Tokens."],
+      ["showAddItemButton", "Gegenstand hinzufügen", "Erlaubt das Erstellen oder Importieren neuer Gegenstände."],
+      ["showItemActionsMenu", "Drei-Punkte-Menü", "Zeigt das Menü für weitere Gegenstandsaktionen."],
+      ["showItemTransfer", "Gegenstand handeln / übertragen", "Erlaubt Übertragen im Menü und Drag-and-drop auf Spieler-Tokens."],
+      ["showItemDuplicate", "Gegenstand duplizieren", "Erlaubt das Duplizieren einzelner Gegenstände."],
+      ["showItemDelete", "Gegenstand löschen", "Erlaubt das dauerhafte Löschen einzelner Gegenstände."],
       ["showEquipActions", "Ausrüsten / Ablegen", "Zeigt die Ausrüstungsaktion im Drei-Punkte-Menü."],
       [null, "Einstimmung", "Unterstützung für eingestimmte Gegenstände folgt in einer späteren Version.", { disabled: true, badge: "Demnächst" }],
       ["showCategoryDropdown", "Kategorieauswahl", "Zeigt die kleine Kategorieauswahl direkt am Gegenstand."]
@@ -99,7 +132,11 @@ const BETTER_INV_SETTINGS_GROUPS = [
     icon: "fa-box-open",
     settings: [
       ["showContainers", "Rucksäcke anzeigen", "Blendet Rucksackkarten und die Rucksackansicht vollständig ein oder aus."],
-      ["showContainerCapacity", "Rucksackkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."]
+      ["showContainerCapacity", "Rucksackkapazität", "Zeigt Kapazität und Balken auf Rucksäcken."],
+      ["showContainerRename", "Rucksäcke umbenennen", "Erlaubt das Ändern der sichtbaren Rucksacknamen."],
+      ["showContainerLayerControls", "Rucksack-Layer ändern", "Erlaubt Layer hinzuzufügen oder zu entfernen."],
+      ["showContainerSorting", "Rucksäcke sortieren", "Erlaubt Rucksäcke per Drag-and-drop zu verschieben."],
+      ["showItemMoveToContainer", "Gegenstände in Rucksäcke verschieben", "Erlaubt Gegenstände per Drag-and-drop in oder aus Rucksäcken zu bewegen."]
     ]
   },
   {
@@ -272,6 +309,7 @@ let betterInvState = {
   search: "",
   scale: 1,
   settingsOpen: false,
+  gmRestrictionScope: "",
   currencyDraftActorId: null,
   currencyDraft: {}
 };
@@ -280,6 +318,7 @@ let betterInvState = {
 // updateActor-triggered re-renders which can temporarily create fresh buttons.
 const betterInvCurrencyTransactions = new Set();
 let betterInvSettingsWriteDepth = 0;
+let betterInvGmRulesWriteDepth = 0;
 
 Hooks.once("init", () => {
   registerBetterInvHotkey();
@@ -318,6 +357,23 @@ Hooks.on("updateUser", (user, changes, options) => {
   if (betterInvRuntimeOperational && assignedCharacterChanged) {
     scheduleBetterInvRefresh({ preserveScroll: false });
   }
+});
+
+Hooks.on("updateSetting", (setting, changes, options, userId) => {
+  if (String(setting?.key ?? "") !== `${MODULE_ID}.${BETTER_INV_GM_RESTRICTIONS_SETTING}`) return;
+  closeBetterInvItemActionMenu();
+  closeBetterInvCategoryMenu();
+  syncBetterInvRuntimeState(getBetterInvUserSettings());
+
+  const localGmWrite = game.user?.isGM && String(userId ?? "") === String(game.user?.id ?? "");
+  if (betterInvGmRulesWriteDepth === 0 && !localGmWrite) {
+    const settingsWasOpen = Boolean(document.getElementById("betterinv-settings-window"));
+    if (settingsWasOpen) {
+      closeBetterInvSettingsWindow();
+      openBetterInvSettingsWindow();
+    }
+  }
+  if (isBetterInvWindowOpen()) renderBetterInvWindow({ preserveScroll: true });
 });
 
 function registerBetterInvOperationalHook(name, callback) {
@@ -370,7 +426,7 @@ function uninstallBetterInvOperationalHooks() {
 }
 
 function syncBetterInvRuntimeState(settings = getBetterInvUserSettings()) {
-  const shouldRun = settings?.moduleEnabled !== false;
+  const shouldRun = getBetterInvFeaturePlan(settings).enabled;
   if (shouldRun === betterInvRuntimeOperational) return;
   betterInvRuntimeOperational = shouldRun;
   logBetterInvDiagnostic("info", shouldRun ? "BI-RUNTIME-STATE-001" : "BI-RUNTIME-STATE-002", shouldRun ? "Axon’s Inventory wurde aktiviert" : "Ruhemodus wurde aktiviert");
@@ -432,6 +488,19 @@ function registerBetterInvSettings() {
     type: Boolean,
     default: true
   });
+
+  // GM-enforced restrictions are deliberately stored as a hidden world
+  // setting. Players can read the effective rules, but only a GM may change
+  // them. This prevents a player from simply re-enabling a locked option in
+  // their personal settings.
+  game.settings.register(MODULE_ID, BETTER_INV_GM_RESTRICTIONS_SETTING, {
+    name: "GM-Funktionssperren",
+    hint: "Interne Weltregeln für globale, spielerbezogene und rucksackbezogene Funktionssperren.",
+    scope: "world",
+    config: false,
+    type: Object,
+    default: foundry.utils.deepClone(DEFAULT_BETTER_INV_GM_RESTRICTIONS)
+  });
 }
 
 function normalizeBetterInvUserSettings(raw = {}) {
@@ -453,41 +522,219 @@ function getBetterInvUserSettings() {
   }
 }
 
-function getBetterInvFeaturePlan(settings = getBetterInvUserSettings()) {
-  const enabled = settings?.moduleEnabled !== false;
-  const items = enabled && settings?.showItems !== false;
-  const containers = enabled && settings?.showContainers !== false;
-  const categories = items && settings?.showCategories !== false;
-  const subcategories = categories && settings?.showSubcategories !== false;
-  const currency = enabled && settings?.showCurrency !== false;
-  const currencyCalculator = currency && settings?.showCurrencyCalculator !== false;
+function getBetterInvAllRestrictableSettingKeys() {
+  return Object.keys(DEFAULT_BETTER_INV_USER_SETTINGS)
+    .filter(key => key !== "version" && typeof DEFAULT_BETTER_INV_USER_SETTINGS[key] === "boolean");
+}
+
+function normalizeBetterInvRestrictionKeyList(value) {
+  const validKeys = new Set(getBetterInvAllRestrictableSettingKeys());
+  return Array.from(new Set(Array.isArray(value) ? value : []))
+    .map(key => String(key ?? ""))
+    .filter(key => validKeys.has(key))
+    .sort();
+}
+
+function normalizeBetterInvGmRestrictions(raw = {}) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  const users = {};
+  const containers = {};
+
+  for (const [userId, keys] of Object.entries(source.users ?? {})) {
+    const normalized = normalizeBetterInvRestrictionKeyList(keys);
+    if (normalized.length) users[String(userId)] = normalized;
+  }
+  for (const [containerKey, keys] of Object.entries(source.containers ?? {})) {
+    const normalized = normalizeBetterInvRestrictionKeyList(keys);
+    if (normalized.length) containers[String(containerKey)] = normalized;
+  }
+
+  return {
+    version: BETTER_INV_GM_RESTRICTIONS_VERSION,
+    global: normalizeBetterInvRestrictionKeyList(source.global),
+    users,
+    containers
+  };
+}
+
+function getBetterInvGmRestrictions() {
+  try {
+    return normalizeBetterInvGmRestrictions(game.settings?.get?.(MODULE_ID, BETTER_INV_GM_RESTRICTIONS_SETTING));
+  } catch (error) {
+    logBetterInvDiagnostic("warn", "BI-GM-RULES-001", "GM-Funktionssperren konnten nicht gelesen werden", error);
+    return normalizeBetterInvGmRestrictions(DEFAULT_BETTER_INV_GM_RESTRICTIONS);
+  }
+}
+
+function getBetterInvContainerRestrictionKey(actorOrId, containerOrId) {
+  const actorId = typeof actorOrId === "string" ? actorOrId : actorOrId?.id;
+  const containerId = typeof containerOrId === "string" ? containerOrId : containerOrId?.id;
+  if (!actorId || !containerId) return "";
+  return `${actorId}:${containerId}`;
+}
+
+function parseBetterInvGmRestrictionScope(scope) {
+  const value = String(scope ?? "");
+  if (value === "global") return { type: "global", key: "global" };
+  if (value.startsWith("user:")) {
+    const userId = value.slice(5);
+    return userId ? { type: "user", key: userId, userId } : null;
+  }
+  if (value.startsWith("container:")) {
+    const rest = value.slice(10);
+    const splitAt = rest.indexOf(":");
+    if (splitAt <= 0 || splitAt >= rest.length - 1) return null;
+    const actorId = rest.slice(0, splitAt);
+    const containerId = rest.slice(splitAt + 1);
+    return { type: "container", key: getBetterInvContainerRestrictionKey(actorId, containerId), actorId, containerId };
+  }
+  return null;
+}
+
+function getBetterInvExactScopeDisabledKeys(scope, rules = getBetterInvGmRestrictions()) {
+  const parsed = typeof scope === "string" ? parseBetterInvGmRestrictionScope(scope) : scope;
+  if (!parsed) return new Set();
+  if (parsed.type === "global") return new Set(rules.global ?? []);
+  if (parsed.type === "user") return new Set(rules.users?.[parsed.userId] ?? []);
+  if (parsed.type === "container") return new Set(rules.containers?.[parsed.key] ?? []);
+  return new Set();
+}
+
+function getBetterInvEffectiveDisabledKeys({
+  user = game.user,
+  actor = null,
+  containerId = null,
+  includeForGm = false,
+  rules = getBetterInvGmRestrictions()
+} = {}) {
+  if (!user || (user.isGM && !includeForGm)) return new Set();
+  const disabled = new Set(rules.global ?? []);
+  for (const key of rules.users?.[user.id] ?? []) disabled.add(key);
+  const containerKey = getBetterInvContainerRestrictionKey(actor, containerId);
+  if (containerKey) {
+    for (const key of rules.containers?.[containerKey] ?? []) disabled.add(key);
+  }
+  return disabled;
+}
+
+function getBetterInvCurrentLockedSettingKeys({ actor = null, containerId = null } = {}) {
+  return getBetterInvEffectiveDisabledKeys({
+    user: game.user,
+    actor: actor ?? getCurrentActor(),
+    containerId: containerId ?? betterInvState.containerId
+  });
+}
+
+function isBetterInvSettingLocked(key, context = {}) {
+  return getBetterInvCurrentLockedSettingKeys(context).has(String(key ?? ""));
+}
+
+async function saveBetterInvGmRestrictionScope(scope, disabledKeys) {
+  if (!game.user?.isGM) throw new Error("Nur ein GM darf Spielerfunktionen sperren.");
+  const parsed = typeof scope === "string" ? parseBetterInvGmRestrictionScope(scope) : scope;
+  if (!parsed) throw new Error("Ungültiger GM-Regelbereich.");
+  const current = getBetterInvGmRestrictions();
+  const next = normalizeBetterInvGmRestrictions(foundry.utils.deepClone(current));
+  const normalizedKeys = normalizeBetterInvRestrictionKeyList(Array.from(disabledKeys ?? []));
+
+  if (parsed.type === "global") next.global = normalizedKeys;
+  else if (parsed.type === "user") {
+    if (normalizedKeys.length) next.users[parsed.userId] = normalizedKeys;
+    else delete next.users[parsed.userId];
+  } else if (parsed.type === "container") {
+    if (normalizedKeys.length) next.containers[parsed.key] = normalizedKeys;
+    else delete next.containers[parsed.key];
+  }
+
+  betterInvGmRulesWriteDepth += 1;
+  try {
+    await game.settings.set(MODULE_ID, BETTER_INV_GM_RESTRICTIONS_SETTING, next);
+  } finally {
+    betterInvGmRulesWriteDepth = Math.max(0, betterInvGmRulesWriteDepth - 1);
+  }
+  return next;
+}
+
+function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
+  actor = null,
+  containerId = null,
+  user = game.user,
+  ignoreGmRestrictions = false
+} = {}) {
+  const resolvedActor = actor ?? getCurrentActor();
+  const resolvedContainerId = containerId ?? betterInvState.containerId ?? null;
+  const locked = ignoreGmRestrictions
+    ? new Set()
+    : getBetterInvEffectiveDisabledKeys({ user, actor: resolvedActor, containerId: resolvedContainerId });
+  const allowed = key => settings?.[key] !== false && !locked.has(key);
+
+  const enabled = allowed("moduleEnabled");
+  const items = enabled && allowed("showItems");
+  const containers = enabled && allowed("showContainers");
+  const categories = items && allowed("showCategories");
+  const subcategories = categories && allowed("showSubcategories");
+  const currency = enabled && allowed("showCurrency");
+  const currencyCalculatorMaster = currency && allowed("showCurrencyCalculator");
+  const currencyAdd = currencyCalculatorMaster && allowed("showCurrencyAdd");
+  const currencyRemove = currencyCalculatorMaster && allowed("showCurrencyRemove");
+  const currencyRoundUp = currencyCalculatorMaster && allowed("showCurrencyRoundUp");
+  const currencyRoundDown = currencyCalculatorMaster && allowed("showCurrencyRoundDown");
+  const currencyTransfer = currencyCalculatorMaster && allowed("showCurrencyTransfer");
+  const currencyCalculator = currencyCalculatorMaster && (
+    currencyAdd || currencyRemove || currencyRoundUp || currencyRoundDown || currencyTransfer
+  );
+  const favorites = items && allowed("showFavorites");
+  const equipActions = items && allowed("showEquipActions");
+  const itemTransfer = items && allowed("showItemTransfer");
+  const itemDuplicate = items && allowed("showItemDuplicate");
+  const itemDelete = items && allowed("showItemDelete");
+  const itemActionsMenuMaster = items && allowed("showItemActionsMenu");
+  const itemActionsMenu = itemActionsMenuMaster && (
+    favorites || equipActions || itemTransfer || itemDuplicate || itemDelete
+  );
 
   return {
     enabled,
+    lockedSettings: locked,
     items,
     containers,
     categories,
     subcategories,
-    favorites: items && settings?.showFavorites !== false,
-    unknownItems: items && settings?.showUnknownItems !== false,
-    categoryWeights: categories && settings?.showCategoryWeights !== false,
-    itemValues: items && settings?.showItemValues !== false,
-    quantityControls: items && settings?.showQuantityControls !== false,
-    editButton: items && settings?.showEditButton !== false,
-    addItemButton: items && settings?.showAddItemButton !== false,
-    itemActionsMenu: items && settings?.showItemActionsMenu !== false,
-    itemTransfer: items && settings?.showItemTransfer !== false,
-    equipActions: items && settings?.showEquipActions !== false,
-    categoryDropdown: categories && settings?.showCategoryDropdown !== false,
-    containerCapacity: containers && settings?.showContainerCapacity !== false,
-    encumbrance: enabled && settings?.showEncumbrance !== false,
+    favorites,
+    unknownItems: items && allowed("showUnknownItems"),
+    categoryWeights: categories && allowed("showCategoryWeights"),
+    itemValues: items && allowed("showItemValues"),
+    quantityControls: items && allowed("showQuantityControls"),
+    itemOpen: items && allowed("showItemOpen"),
+    editButton: items && allowed("showEditButton"),
+    addItemButton: items && allowed("showAddItemButton"),
+    itemActionsMenu,
+    itemActionsMenuMaster,
+    itemTransfer,
+    itemDuplicate,
+    itemDelete,
+    equipActions,
+    categoryDropdown: categories && allowed("showCategoryDropdown"),
+    itemSorting: items && allowed("showItemSorting"),
+    categorySorting: categories && allowed("showCategorySorting"),
+    categoryManagement: categories && allowed("showCategoryManagement"),
+    containerCapacity: containers && allowed("showContainerCapacity"),
+    containerRename: containers && allowed("showContainerRename"),
+    containerLayerControls: containers && allowed("showContainerLayerControls"),
+    containerSorting: containers && allowed("showContainerSorting"),
+    itemMoveToContainer: items && containers && allowed("showItemMoveToContainer"),
+    encumbrance: enabled && allowed("showEncumbrance"),
     currency,
     currencyCalculator,
-    currencyTransfer: currencyCalculator && settings?.showCurrencyTransfer !== false,
-    search: enabled && settings?.showSearch !== false && (items || containers),
+    currencyAdd,
+    currencyRemove,
+    currencyRoundUp,
+    currencyRoundDown,
+    currencyTransfer,
+    search: enabled && allowed("showSearch") && (items || containers),
     needsInventoryCollection: items || containers,
-    needsItemDocumentRefresh: items || containers || (enabled && settings?.showEncumbrance !== false),
-    needsActorRefresh: currency || items || containers || (enabled && settings?.showEncumbrance !== false)
+    needsItemDocumentRefresh: items || containers || (enabled && allowed("showEncumbrance")),
+    needsActorRefresh: currency || items || containers || (enabled && allowed("showEncumbrance"))
   };
 }
 
@@ -2052,7 +2299,7 @@ function activateBetterInvDisabledShellListeners(windowEl, eventController) {
   makeBetterInvDraggable(windowEl);
 }
 
-async function renderBetterInvDisabledWindow() {
+async function renderBetterInvDisabledWindow({ gmLocked = isBetterInvSettingLocked("moduleEnabled") } = {}) {
   cancelScheduledBetterInvRefresh();
   betterInvRenderSequence += 1;
   closeBetterInvItemActionMenu();
@@ -2075,15 +2322,16 @@ async function renderBetterInvDisabledWindow() {
   clampBetterInvWindowToViewport(windowEl);
   disposeBetterInvWindowEventCycle(windowEl);
   windowEl.classList.add("betterinv-disabled-mode");
-  windowEl.innerHTML = betterInvDisabledShellHtml();
+  windowEl.innerHTML = betterInvDisabledShellHtml({ gmLocked });
   const eventController = beginBetterInvWindowEventCycle(windowEl);
   activateBetterInvDisabledShellListeners(windowEl, eventController);
 }
 
 async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   const initialUserSettings = getBetterInvUserSettings();
-  if (initialUserSettings.moduleEnabled === false) {
-    await renderBetterInvDisabledWindow();
+  const initialFeatures = getBetterInvFeaturePlan(initialUserSettings);
+  if (!initialFeatures.enabled) {
+    await renderBetterInvDisabledWindow({ gmLocked: initialFeatures.lockedSettings.has("moduleEnabled") });
     return;
   }
 
@@ -2120,7 +2368,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     closeBetterInvSettingsWindow();
     closeBetterInvSupportWindow();
     windowEl.classList.add("betterinv-disabled-mode");
-    windowEl.innerHTML = betterInvDisabledShellHtml();
+    windowEl.innerHTML = betterInvDisabledShellHtml({ gmLocked: features.lockedSettings.has("moduleEnabled") });
     const eventController = beginBetterInvWindowEventCycle(windowEl);
     activateBetterInvDisabledShellListeners(windowEl, eventController);
     performanceSample.mode = "disabled";
@@ -2242,12 +2490,14 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     ? (!activeContainer
       ? await renderContainerCards(actor, containers, {
           showCapacity: features.containerCapacity,
+          allowSorting: features.containerSorting,
           inventoryItems,
           renderCache
         })
       : renderContainerBreadcrumb(actor, activeContainer, {
           showCapacity: features.containerCapacity,
           showCount: features.items,
+          allowItemMove: features.itemMoveToContainer,
           inventoryItems,
           renderCache
         }))
@@ -2263,6 +2513,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
     {
       editable: canBetterInvUserModifyActor(actor) && !isBetterInvCurrencyTransactionPending(actor),
       showCalculator: features.currencyCalculator,
+      showAdd: features.currencyAdd,
+      showRemove: features.currencyRemove,
+      showRoundUp: features.currencyRoundUp,
+      showRoundDown: features.currencyRoundDown,
       showTransfer: features.currencyTransfer
     }
   ) : "";
@@ -2337,14 +2591,14 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
             ? subItems.map(item => itemRowHtml(item, categoryOptions, contextContainerId, { settings: userSettings, features, renderCache })).join("")
             : "";
           return `
-            <details class="betterinv-subcategory" open draggable="true" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
+            <details class="betterinv-subcategory" open draggable="${features.categorySorting ? "true" : "false"}" data-parent-category="${escapeAttr(section.id)}" data-category="${escapeAttr(subId)}" data-subcategory="${escapeAttr(sub)}">
               <summary>
-                <span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>
+                ${features.categorySorting ? `<span class="betterinv-sub-grip" title="Unterkategorie verschieben">☰</span>` : ""}
                 <span class="betterinv-sub-indent">↳</span>
                 <span class="betterinv-category-name" title="${escapeAttr(sub)}">${escapeHtml(sub)}</span>
                 ${features.categoryWeights ? betterInvCategoryWeightHtml(subItems, "Unterkategoriegewicht", renderCache) : ""}
                 <span class="betterinv-category-count" title="${escapeAttr(formatBetterInvNumber(subItems.length))} Gegenstände">${escapeHtml(formatBetterInvNumber(subItems.length))}</span>
-                <span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>
+                ${features.categoryManagement ? `<span class="betterinv-subcategory-settings" title="Unterkategorie bearbeiten">⚙</span>` : ""}
               </summary>
               <div class="betterinv-items betterinv-subitems">${subRows}</div>
             </details>`;
@@ -2352,14 +2606,14 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
       }
 
       sectionHtmlParts.push(`
-        <details class="betterinv-category" open draggable="true" data-category="${escapeAttr(section.id)}">
+        <details class="betterinv-category" open draggable="${features.categorySorting ? "true" : "false"}" data-category="${escapeAttr(section.id)}">
           <summary>
-            <span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>
+            ${features.categorySorting ? `<span class="betterinv-drag-grip" title="Gedrückt halten und Kategorie verschieben">☰</span>` : ""}
             <span class="betterinv-category-name" title="${escapeAttr(section.name)}">${escapeHtml(section.name)}</span>
             ${features.categoryWeights ? betterInvCategoryWeightHtml(categoryItems, "Kategoriegewicht", renderCache) : ""}
             <span class="betterinv-category-count" title="${escapeAttr(formatBetterInvNumber(directItems.length))} direkte Gegenstände">${escapeHtml(formatBetterInvNumber(directItems.length))}</span>
-            ${features.subcategories && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
-            <span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>
+            ${features.subcategories && features.categoryManagement && section.id !== "__unsorted" ? `<span class="betterinv-add-subcategory" title="Unterkategorie erstellen">+</span>` : ""}
+            ${features.categoryManagement ? `<span class="betterinv-category-settings" title="Kategorie bearbeiten">⚙</span>` : ""}
           </summary>
           <div class="betterinv-items">${rows}</div>
           ${subcategoryHtml}
@@ -2417,10 +2671,10 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
           <span class="betterinv-actor-meta">
             ${features.items ? `Inhalt · ${visibleItems.length} Gegenstände` : "Rucksack geöffnet"}
             ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-            <button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksacknamen ändern">✎</button>
+            ${features.containerRename ? `<button type="button" class="betterinv-active-container-rename" data-container-id="${activeContainer.id}" title="Rucksacknamen ändern">✎</button>` : ""}
           </span>` : `
           ${game.user.isGM ? `<button type="button" class="betterinv-change-actor" title="Anderen Spielercharakter öffnen">Spieler wechseln</button>` : ""}
-          ${features.containers ? `
+          ${features.containerLayerControls ? `
             <div class="betterinv-container-tools betterinv-container-tools-inline" aria-label="Rucksack-Layer einstellen">
               <span>Layer</span>
               <button type="button" class="betterinv-layer-minus" title="Layer entfernen">−</button>
@@ -2435,7 +2689,7 @@ async function performBetterInvWindowRender({ preserveScroll = true } = {}) {
   const addItemHtml = features.items && features.addItemButton
     ? `<button type="button" class="betterinv-add-item" title="Gegenstand hinzufügen: neu erstellen oder aus einem Kompendium übernehmen"><i class="fas fa-plus" aria-hidden="true"></i><span>Gegenstand</span></button>`
     : "";
-  const addCategoryHtml = features.categories
+  const addCategoryHtml = features.categoryManagement
     ? `<button type="button" class="betterinv-add-category">+ Kategorie</button>`
     : "";
   const toolbarClasses = [
@@ -2515,45 +2769,54 @@ function getBetterInvAllFeatureSettingKeys() {
   return Array.from(new Set(BETTER_INV_SETTINGS_GROUPS.flatMap(group => getBetterInvSettingsGroupKeys(group))));
 }
 
-function getBetterInvSettingsGroupState(group, userSettings) {
+function getBetterInvSettingsGroupState(group, userSettings, { lockedKeys = new Set() } = {}) {
   const keys = getBetterInvSettingsGroupKeys(group);
-  const enabledCount = keys.filter(key => userSettings?.[key] !== false).length;
+  const editableKeys = keys.filter(key => !lockedKeys.has(key));
+  const enabledCount = keys.filter(key => !lockedKeys.has(key) && userSettings?.[key] !== false).length;
   return {
     keys,
-    checked: keys.length > 0 && enabledCount === keys.length,
-    indeterminate: enabledCount > 0 && enabledCount < keys.length
+    editableKeys,
+    checked: editableKeys.length > 0 && enabledCount === editableKeys.length,
+    indeterminate: enabledCount > 0 && enabledCount < editableKeys.length,
+    disabled: editableKeys.length === 0
   };
 }
 
-function syncBetterInvSettingsControls(settingsWindow, userSettings = getBetterInvUserSettings()) {
+function syncBetterInvSettingsControls(settingsWindow, userSettings = getBetterInvUserSettings(), {
+  lockedKeys = getBetterInvCurrentLockedSettingKeys()
+} = {}) {
   if (!settingsWindow) return;
   settingsWindow.querySelectorAll(".betterinv-setting-toggle[data-setting-key]").forEach(input => {
     const key = String(input.dataset.settingKey ?? "");
     if (!key) return;
-    input.checked = userSettings[key] !== false;
+    const locked = lockedKeys.has(key);
+    input.checked = !locked && userSettings[key] !== false;
+    input.disabled = locked;
+    input.closest(".betterinv-settings-row")?.classList.toggle("betterinv-settings-row-gm-locked", locked);
   });
 
   settingsWindow.querySelectorAll(".betterinv-settings-group-toggle[data-setting-group]").forEach(input => {
     const groupId = String(input.dataset.settingGroup ?? "");
     const group = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === groupId);
     if (!group) return;
-    const state = getBetterInvSettingsGroupState(group, userSettings);
+    const state = getBetterInvSettingsGroupState(group, userSettings, { lockedKeys });
     input.checked = state.checked;
     input.indeterminate = state.indeterminate;
+    input.disabled = state.disabled;
     input.setAttribute("aria-checked", state.indeterminate ? "mixed" : String(state.checked));
   });
 }
 
-function betterInvSettingsGroupsHtml(userSettings) {
+function betterInvSettingsGroupsHtml(userSettings, { lockedKeys = new Set() } = {}) {
   return BETTER_INV_SETTINGS_GROUPS.map(group => {
-    const groupState = getBetterInvSettingsGroupState(group, userSettings);
+    const groupState = getBetterInvSettingsGroupState(group, userSettings, { lockedKeys });
     return `
       <section class="betterinv-settings-group" data-setting-group-section="${escapeAttr(group.id)}">
         <div class="betterinv-settings-group-header">
           <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
-          ${groupState.keys.length > 1 ? `<label class="betterinv-settings-group-master" title="Alle Einstellungen in ${escapeAttr(group.title)} gleichzeitig umschalten">
+          ${groupState.keys.length > 1 ? `<label class="betterinv-settings-group-master" title="Alle nicht vom GM gesperrten Einstellungen in ${escapeAttr(group.title)} gleichzeitig umschalten">
             <span>Alles</span>
-            <input type="checkbox" class="betterinv-settings-group-toggle" data-setting-group="${escapeAttr(group.id)}" ${groupState.checked ? "checked" : ""} aria-label="${escapeAttr(`${group.title} vollständig aktivieren oder deaktivieren`)}">
+            <input type="checkbox" class="betterinv-settings-group-toggle" data-setting-group="${escapeAttr(group.id)}" ${groupState.checked ? "checked" : ""} ${groupState.disabled ? "disabled" : ""} aria-label="${escapeAttr(`${group.title} vollständig aktivieren oder deaktivieren`)}">
           </label>` : ""}
         </div>
         ${group.settings.map(([key, label, description, options = {}]) => {
@@ -2567,17 +2830,146 @@ function betterInvSettingsGroupsHtml(userSettings) {
                 <input type="checkbox" disabled aria-label="${escapeAttr(`${label} – ${options.badge ?? "deaktiviert"}`)}">
               </label>`;
           }
+          const locked = lockedKeys.has(key);
           return `
-            <label class="betterinv-settings-row">
+            <label class="betterinv-settings-row${locked ? " betterinv-settings-row-gm-locked" : ""}">
               <span>
-                <strong>${escapeHtml(label)}</strong>
-                <small>${escapeHtml(description)}</small>
+                <strong>${escapeHtml(label)}${locked ? ` <em class="betterinv-settings-badge betterinv-settings-badge-lock"><i class="fas fa-lock" aria-hidden="true"></i> GM-Sperre</em>` : ""}</strong>
+                <small>${escapeHtml(locked ? `${description} Diese Funktion wurde vom GM gesperrt.` : description)}</small>
               </span>
-              <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${userSettings[key] !== false ? "checked" : ""}>
+              <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="${escapeAttr(key)}" ${!locked && userSettings[key] !== false ? "checked" : ""} ${locked ? "disabled" : ""}>
             </label>`;
         }).join("")}
       </section>`;
   }).join("");
+}
+
+function getBetterInvActorPlayerUsers(actor) {
+  const users = (game.users?.filter?.(user => !user.isGM) ?? []).filter(user => {
+    if (!actor) return false;
+    if (user.character?.id === actor.id) return true;
+    const level = actor.ownership?.[user.id] ?? actor.permission?.[user.id] ?? 0;
+    return level >= CONST.DOCUMENT_OWNERSHIP_LEVELS.OWNER;
+  });
+  return users.sort((left, right) => String(left.name ?? "").localeCompare(String(right.name ?? "")));
+}
+
+function getBetterInvDefaultGmRestrictionScope(actor, activeContainer = null) {
+  const current = parseBetterInvGmRestrictionScope(betterInvState.gmRestrictionScope);
+  if (current?.type === "user" && game.users?.get?.(current.userId) && !game.users.get(current.userId).isGM) {
+    return betterInvState.gmRestrictionScope;
+  }
+  if (current?.type === "container" && actor?.id === current.actorId && actor?.items?.get?.(current.containerId)) {
+    return betterInvState.gmRestrictionScope;
+  }
+  const owner = getBetterInvActorPlayerUsers(actor)[0];
+  if (owner) return `user:${owner.id}`;
+  if (activeContainer && actor) return `container:${actor.id}:${activeContainer.id}`;
+  return "global";
+}
+
+function getBetterInvGmRestrictionScopeOptions(actor, activeContainer = null) {
+  const options = [{ value: "global", label: "Alle Spieler" }];
+  const users = game.users?.filter?.(user => !user.isGM) ?? [];
+  for (const user of users.sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")))) {
+    const characterName = user.character?.name ? ` · ${user.character.name}` : "";
+    options.push({ value: `user:${user.id}`, label: `${user.name}${characterName}` });
+  }
+  if (actor && activeContainer) {
+    options.push({
+      value: `container:${actor.id}:${activeContainer.id}`,
+      label: `Aktueller Rucksack · ${getContainerAlias(actor, activeContainer)}`
+    });
+  }
+  return options;
+}
+
+function getBetterInvRestrictableKeysForScope(scope) {
+  const parsed = typeof scope === "string" ? parseBetterInvGmRestrictionScope(scope) : scope;
+  const all = new Set(getBetterInvAllRestrictableSettingKeys());
+  if (parsed?.type !== "container") return all;
+
+  // A backpack rule controls what may happen while that backpack is open. It
+  // intentionally cannot disable the complete module or remove the backpack
+  // system itself, which would make the rule impossible to undo from the UI.
+  const containerKeys = new Set([
+    "showCurrency", "showCurrencyCalculator", "showCurrencyAdd", "showCurrencyRemove", "showCurrencyRoundUp", "showCurrencyRoundDown", "showCurrencyTransfer",
+    "showItems", "showSearch", "showCategories", "showSubcategories", "showFavorites", "showUnknownItems", "showCategoryWeights", "showItemValues",
+    "showQuantityControls", "showItemOpen", "showEditButton", "showAddItemButton", "showItemActionsMenu", "showItemTransfer", "showItemDuplicate",
+    "showItemDelete", "showEquipActions", "showCategoryDropdown", "showItemSorting", "showCategorySorting", "showCategoryManagement",
+    "showContainerCapacity", "showContainerRename", "showItemMoveToContainer"
+  ]);
+  return new Set([...all].filter(key => containerKeys.has(key)));
+}
+
+function getBetterInvGmInheritedDisabledKeys(scope, rules = getBetterInvGmRestrictions()) {
+  const parsed = typeof scope === "string" ? parseBetterInvGmRestrictionScope(scope) : scope;
+  if (!parsed || parsed.type === "global") return new Set();
+  return new Set(rules.global ?? []);
+}
+
+function betterInvGmRulesGroupsHtml(scope, rules = getBetterInvGmRestrictions()) {
+  const parsed = parseBetterInvGmRestrictionScope(scope);
+  const exactDisabled = getBetterInvExactScopeDisabledKeys(parsed, rules);
+  const inheritedDisabled = getBetterInvGmInheritedDisabledKeys(parsed, rules);
+  const availableKeys = getBetterInvRestrictableKeysForScope(parsed);
+
+  const masterAvailable = availableKeys.has("moduleEnabled");
+  const masterInherited = inheritedDisabled.has("moduleEnabled");
+  const masterAllowed = masterAvailable && !masterInherited && !exactDisabled.has("moduleEnabled");
+  const masterRow = masterAvailable ? `
+    <label class="betterinv-settings-row betterinv-settings-master-row${masterInherited ? " betterinv-settings-row-gm-inherited" : ""}">
+      <span>
+        <strong>Axon’s Inventory aktiv${masterInherited ? ` <em class="betterinv-settings-badge betterinv-settings-badge-lock">Global gesperrt</em>` : ""}</strong>
+        <small>Schaltet das komplette Modul für diesen Regelbereich ab. Spieler können diese Sperre nicht selbst aufheben.</small>
+      </span>
+      <input type="checkbox" class="betterinv-gm-rule-toggle" data-setting-key="moduleEnabled" ${masterAllowed ? "checked" : ""} ${masterInherited ? "disabled" : ""}>
+    </label>` : "";
+
+  const groupsHtml = BETTER_INV_SETTINGS_GROUPS.map(group => {
+    const keys = getBetterInvSettingsGroupKeys(group).filter(key => availableKeys.has(key));
+    if (!keys.length) return "";
+    const editableKeys = keys.filter(key => !inheritedDisabled.has(key));
+    const allowedCount = editableKeys.filter(key => !exactDisabled.has(key)).length;
+    const checked = editableKeys.length > 0 && allowedCount === editableKeys.length;
+    const indeterminate = allowedCount > 0 && allowedCount < editableKeys.length;
+    return `
+      <section class="betterinv-settings-group betterinv-gm-rules-group" data-setting-group-section="${escapeAttr(group.id)}">
+        <div class="betterinv-settings-group-header">
+          <h3><i class="fas ${escapeAttr(group.icon ?? "fa-sliders-h")}" aria-hidden="true"></i>${escapeHtml(group.title)}</h3>
+          ${keys.length > 1 ? `<label class="betterinv-settings-group-master" title="Alle verfügbaren Spielerrechte in ${escapeAttr(group.title)} gleichzeitig erlauben oder sperren">
+            <span>Alles</span>
+            <input type="checkbox" class="betterinv-gm-rule-group-toggle" data-setting-group="${escapeAttr(group.id)}" ${checked ? "checked" : ""} ${editableKeys.length ? "" : "disabled"} data-indeterminate="${indeterminate ? "true" : "false"}">
+          </label>` : ""}
+        </div>
+        ${group.settings.map(([key, label, description, options = {}]) => {
+          if (options.disabled || !key || !availableKeys.has(key)) return "";
+          const inherited = inheritedDisabled.has(key);
+          const allowed = !inherited && !exactDisabled.has(key);
+          return `
+            <label class="betterinv-settings-row${inherited ? " betterinv-settings-row-gm-inherited" : ""}">
+              <span>
+                <strong>${escapeHtml(label)}${inherited ? ` <em class="betterinv-settings-badge betterinv-settings-badge-lock">Global gesperrt</em>` : ""}</strong>
+                <small>${escapeHtml(description)}</small>
+              </span>
+              <input type="checkbox" class="betterinv-gm-rule-toggle" data-setting-key="${escapeAttr(key)}" ${allowed ? "checked" : ""} ${inherited ? "disabled" : ""}>
+            </label>`;
+        }).join("")}
+      </section>`;
+  }).join("");
+
+  return `${masterRow}${groupsHtml}`;
+}
+
+function renderBetterInvGmRulesEditor(settingsWindow, scope) {
+  const editor = settingsWindow?.querySelector?.(".betterinv-gm-rules-editor");
+  if (!editor) return;
+  betterInvState.gmRestrictionScope = scope;
+  editor.innerHTML = betterInvGmRulesGroupsHtml(scope);
+  editor.querySelectorAll(".betterinv-gm-rule-group-toggle[data-indeterminate='true']").forEach(input => {
+    input.indeterminate = true;
+    input.setAttribute("aria-checked", "mixed");
+  });
 }
 
 function getBetterInvAverage(values) {
@@ -3104,27 +3496,60 @@ function openBetterInvSettingsWindow() {
   }
 
   const userSettings = getBetterInvUserSettings();
+  const actor = getCurrentActor();
+  const activeContainer = actor && betterInvState.containerId ? actor.items?.get?.(betterInvState.containerId) ?? null : null;
+  const lockedKeys = getBetterInvCurrentLockedSettingKeys({ actor, containerId: activeContainer?.id ?? null });
+  const masterLocked = lockedKeys.has("moduleEnabled");
+  const gmScope = game.user?.isGM ? getBetterInvDefaultGmRestrictionScope(actor, activeContainer) : "";
+  if (game.user?.isGM) betterInvState.gmRestrictionScope = gmScope;
+  const scopeOptions = game.user?.isGM ? getBetterInvGmRestrictionScopeOptions(actor, activeContainer) : [];
+
+  const gmRulesHtml = game.user?.isGM ? `
+    <section class="betterinv-gm-rules-panel">
+      <div class="betterinv-gm-rules-heading">
+        <div>
+          <strong><i class="fas fa-user-lock" aria-hidden="true"></i>GM-Spielerregeln</strong>
+          <small>Alles, was du hier ausschaltest, kann der betroffene Spieler nicht in seinen persönlichen Einstellungen wieder aktivieren.</small>
+        </div>
+        <span class="betterinv-gm-rules-status"><i class="fas fa-shield-alt" aria-hidden="true"></i>Weltregel</span>
+      </div>
+      <label class="betterinv-gm-scope-select">
+        <span>Regeln bearbeiten für</span>
+        <select class="betterinv-gm-rule-scope" aria-label="GM-Regelbereich auswählen">
+          ${scopeOptions.map(option => `<option value="${escapeAttr(option.value)}" ${option.value === gmScope ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="betterinv-gm-rules-bulk" role="group" aria-label="Alle Spielerrechte dieses Bereichs ändern">
+        <button type="button" data-gm-rules-bulk="allow"><i class="fas fa-unlock" aria-hidden="true"></i><span>Alles erlauben</span></button>
+        <button type="button" class="is-danger" data-gm-rules-bulk="deny"><i class="fas fa-lock" aria-hidden="true"></i><span>Alles sperren</span></button>
+      </div>
+      <div class="betterinv-gm-rules-editor">${betterInvGmRulesGroupsHtml(gmScope)}</div>
+      <p class="betterinv-gm-rules-note"><i class="fas fa-info-circle" aria-hidden="true"></i>Rucksackregeln gelten nur, während genau dieser Rucksack geöffnet ist. Globale Sperren gelten zusätzlich immer.</p>
+    </section>
+    <div class="betterinv-settings-section-divider"><span>Meine eigene Ansicht</span></div>` : "";
+
   const settingsWindow = document.createElement("section");
   settingsWindow.id = "betterinv-settings-window";
-  settingsWindow.className = "betterinv-settings-window";
+  settingsWindow.className = `betterinv-settings-window${game.user?.isGM ? " betterinv-settings-window-gm" : ""}`;
   settingsWindow.innerHTML = `
     <header class="betterinv-settings-window-header">
       <div>
         <strong>Inventar-Einstellungen</strong>
-        <small>Persönlich für deinen Foundry-Nutzer</small>
+        <small>${game.user?.isGM ? "Spielerfunktionen sperren und eigene Ansicht einstellen" : "Persönlich für deinen Foundry-Nutzer"}</small>
       </div>
       <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
     </header>
     <div class="betterinv-settings-window-scroll">
+      ${gmRulesHtml}
       <section class="betterinv-settings-master">
-        <label class="betterinv-settings-row betterinv-settings-master-row">
+        <label class="betterinv-settings-row betterinv-settings-master-row${masterLocked ? " betterinv-settings-row-gm-locked" : ""}">
           <span>
-            <strong>Axon’s Inventory aktiv</strong>
-            <small>Deaktiviert die Inventaransicht für deinen Nutzer. Beim Öffnen erscheint dann nur der Button zum Wiederaktivieren.</small>
+            <strong>Axon’s Inventory aktiv${masterLocked ? ` <em class="betterinv-settings-badge betterinv-settings-badge-lock"><i class="fas fa-lock" aria-hidden="true"></i> GM-Sperre</em>` : ""}</strong>
+            <small>${masterLocked ? "Der GM hat das komplette Modul für deinen Nutzer deaktiviert." : "Deaktiviert die Inventaransicht für deinen Nutzer. Beim Öffnen erscheint dann nur der Button zum Wiederaktivieren."}</small>
           </span>
-          <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="moduleEnabled" ${userSettings.moduleEnabled !== false ? "checked" : ""}>
+          <input type="checkbox" class="betterinv-setting-toggle" data-setting-key="moduleEnabled" ${!masterLocked && userSettings.moduleEnabled !== false ? "checked" : ""} ${masterLocked ? "disabled" : ""}>
         </label>
-        <div class="betterinv-settings-bulk-actions" role="group" aria-label="Alle Funktionshaken gleichzeitig setzen">
+        <div class="betterinv-settings-bulk-actions" role="group" aria-label="Alle persönlichen Funktionshaken gleichzeitig setzen">
           <button type="button" class="betterinv-settings-bulk-enable" data-settings-bulk="enable">
             <i class="fas fa-check-double" aria-hidden="true"></i><span>Alle Haken rein</span>
           </button>
@@ -3142,11 +3567,11 @@ function openBetterInvSettingsWindow() {
           <i class="fas fa-chart-line" aria-hidden="true"></i><span>Live-Messung öffnen</span>
         </button>
       </section>
-      ${betterInvSettingsGroupsHtml(userSettings)}
+      ${betterInvSettingsGroupsHtml(userSettings, { lockedKeys })}
     </div>
     <footer class="betterinv-settings-window-footer">
-      <i class="fas fa-user-check" aria-hidden="true"></i>
-      <span>Änderungen werden sofort gespeichert und direkt im Inventar sichtbar.</span>
+      <i class="fas ${game.user?.isGM ? "fa-user-shield" : "fa-user-check"}" aria-hidden="true"></i>
+      <span>${game.user?.isGM ? "GM-Sperren gelten sofort auf allen verbundenen Clients. Persönliche Einstellungen betreffen nur deinen eigenen Nutzer." : "Änderungen werden sofort gespeichert und direkt im Inventar sichtbar."}</span>
     </footer>`;
 
   const inventoryWindow = document.getElementById("betterinv-window");
@@ -3154,36 +3579,61 @@ function openBetterInvSettingsWindow() {
   positionBetterInvAuxiliaryWindow(settingsWindow, [inventoryWindow]);
   bringBetterInvFloatingWindowToFront(settingsWindow);
 
+  settingsWindow.querySelectorAll(".betterinv-gm-rule-group-toggle[data-indeterminate='true']").forEach(input => {
+    input.indeterminate = true;
+    input.setAttribute("aria-checked", "mixed");
+  });
   settingsWindow.querySelector(".betterinv-settings-close")?.addEventListener("click", closeBetterInvSettingsWindow);
 
+  const getLockedKeys = () => getBetterInvCurrentLockedSettingKeys({
+    actor: getCurrentActor(),
+    containerId: betterInvState.containerId ?? null
+  });
+
   const setSettingsBusy = busy => {
-    settingsWindow.querySelectorAll(".betterinv-setting-toggle, .betterinv-settings-group-toggle, [data-settings-bulk]").forEach(control => {
-      control.disabled = Boolean(busy);
-    });
     settingsWindow.classList.toggle("is-saving", Boolean(busy));
+    settingsWindow.querySelectorAll("input, select, button").forEach(control => {
+      if (control.classList.contains("betterinv-settings-close")) return;
+      if (busy) {
+        control.dataset.betterInvWasDisabled = control.disabled ? "1" : "0";
+        control.disabled = true;
+      } else {
+        if (!("betterInvWasDisabled" in control.dataset)) return;
+        const wasDisabled = control.dataset.betterInvWasDisabled === "1";
+        delete control.dataset.betterInvWasDisabled;
+        control.disabled = wasDisabled;
+      }
+    });
   };
 
   const applySettingsPatch = async patch => {
     const previousSettings = getBetterInvUserSettings();
+    const currentLocked = getLockedKeys();
+    const safePatch = Object.fromEntries(Object.entries(patch ?? {}).filter(([key]) => !currentLocked.has(key)));
+    if (!Object.keys(safePatch).length) {
+      ui.notifications.warn("Diese Funktion wurde vom GM gesperrt.");
+      syncBetterInvSettingsControls(settingsWindow, previousSettings, { lockedKeys: currentLocked });
+      return null;
+    }
+
     setSettingsBusy(true);
     try {
-      const savedSettings = await saveBetterInvUserSettings(patch);
+      const savedSettings = await saveBetterInvUserSettings(safePatch);
       if (!savedSettings.showSearch || (!savedSettings.showItems && !savedSettings.showContainers)) {
         betterInvState.search = "";
       }
       if (!savedSettings.showContainers) betterInvState.containerId = null;
       if (!savedSettings.showItemTransfer) clearBetterInvTokenDropFeedback();
 
-      syncBetterInvSettingsControls(settingsWindow, savedSettings);
-      if (savedSettings.moduleEnabled === false) {
-        closeBetterInvSettingsWindow();
-      }
+      const refreshedLocked = getLockedKeys();
+      syncBetterInvSettingsControls(settingsWindow, savedSettings, { lockedKeys: refreshedLocked });
+      if (savedSettings.moduleEnabled === false) closeBetterInvSettingsWindow();
       if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
       return savedSettings;
     } catch (error) {
       logBetterInvDiagnostic("error", "BI-SETTINGS-002", "Persönliche Einstellung konnte nicht gespeichert werden", error);
       ui.notifications.error("Deine persönliche Einstellung konnte nicht gespeichert werden.");
-      syncBetterInvSettingsControls(settingsWindow, previousSettings);
+      syncBetterInvSettingsControls(settingsWindow, previousSettings, { lockedKeys: currentLocked });
       return null;
     } finally {
       if (settingsWindow.isConnected) setSettingsBusy(false);
@@ -3204,7 +3654,7 @@ function openBetterInvSettingsWindow() {
     const groupId = String(input.dataset.settingGroup ?? "");
     const group = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === groupId);
     if (group) {
-      const groupState = getBetterInvSettingsGroupState(group, userSettings);
+      const groupState = getBetterInvSettingsGroupState(group, userSettings, { lockedKeys });
       input.indeterminate = groupState.indeterminate;
       input.setAttribute("aria-checked", groupState.indeterminate ? "mixed" : String(groupState.checked));
     }
@@ -3214,7 +3664,12 @@ function openBetterInvSettingsWindow() {
       if (!(checkbox instanceof HTMLInputElement)) return;
       const selectedGroup = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === String(checkbox.dataset.settingGroup ?? ""));
       if (!selectedGroup) return;
-      const patch = Object.fromEntries(getBetterInvSettingsGroupKeys(selectedGroup).map(key => [key, checkbox.checked]));
+      const currentLocked = getLockedKeys();
+      const patch = Object.fromEntries(
+        getBetterInvSettingsGroupKeys(selectedGroup)
+          .filter(key => !currentLocked.has(key))
+          .map(key => [key, checkbox.checked])
+      );
       await applySettingsPatch(patch);
     });
   });
@@ -3228,10 +3683,84 @@ function openBetterInvSettingsWindow() {
     button.addEventListener("click", async event => {
       event.preventDefault();
       const enable = String(event.currentTarget.dataset.settingsBulk ?? "") === "enable";
-      const patch = Object.fromEntries(getBetterInvAllFeatureSettingKeys().map(key => [key, enable]));
+      const currentLocked = getLockedKeys();
+      const patch = Object.fromEntries(
+        getBetterInvAllFeatureSettingKeys()
+          .filter(key => !currentLocked.has(key))
+          .map(key => [key, enable])
+      );
       await applySettingsPatch(patch);
     });
   });
+
+  if (game.user?.isGM) {
+    const scopeSelect = settingsWindow.querySelector(".betterinv-gm-rule-scope");
+    scopeSelect?.addEventListener("change", event => {
+      const scope = String(event.currentTarget.value ?? "global");
+      renderBetterInvGmRulesEditor(settingsWindow, scope);
+    });
+
+    const applyGmDisabledKeys = async (scope, nextDisabled) => {
+      setSettingsBusy(true);
+      try {
+        await saveBetterInvGmRestrictionScope(scope, nextDisabled);
+        renderBetterInvGmRulesEditor(settingsWindow, scope);
+        if (document.getElementById("betterinv-window")) await renderBetterInvWindow({ preserveScroll: true });
+      } catch (error) {
+        logBetterInvDiagnostic("error", "BI-GM-RULES-002", "GM-Spielerregel konnte nicht gespeichert werden", error);
+        ui.notifications.error(error?.message || "Die GM-Spielerregel konnte nicht gespeichert werden.");
+        renderBetterInvGmRulesEditor(settingsWindow, scope);
+      } finally {
+        if (settingsWindow.isConnected) setSettingsBusy(false);
+      }
+    };
+
+    settingsWindow.addEventListener("change", event => {
+      const checkbox = event.target instanceof HTMLInputElement ? event.target : null;
+      if (!checkbox || !checkbox.classList.contains("betterinv-gm-rule-toggle")) return;
+      const scope = String(scopeSelect?.value ?? betterInvState.gmRestrictionScope ?? "global");
+      const key = String(checkbox.dataset.settingKey ?? "");
+      if (!getBetterInvRestrictableKeysForScope(scope).has(key)) return;
+      const disabled = getBetterInvExactScopeDisabledKeys(scope);
+      if (checkbox.checked) disabled.delete(key);
+      else disabled.add(key);
+      void applyGmDisabledKeys(scope, disabled);
+    });
+
+    settingsWindow.addEventListener("change", event => {
+      const checkbox = event.target instanceof HTMLInputElement ? event.target : null;
+      if (!checkbox || !checkbox.classList.contains("betterinv-gm-rule-group-toggle")) return;
+      const scope = String(scopeSelect?.value ?? betterInvState.gmRestrictionScope ?? "global");
+      const group = BETTER_INV_SETTINGS_GROUPS.find(entry => entry.id === String(checkbox.dataset.settingGroup ?? ""));
+      if (!group) return;
+      const inherited = getBetterInvGmInheritedDisabledKeys(scope);
+      const available = getBetterInvRestrictableKeysForScope(scope);
+      const keys = getBetterInvSettingsGroupKeys(group).filter(key => available.has(key) && !inherited.has(key));
+      const disabled = getBetterInvExactScopeDisabledKeys(scope);
+      for (const key of keys) {
+        if (checkbox.checked) disabled.delete(key);
+        else disabled.add(key);
+      }
+      void applyGmDisabledKeys(scope, disabled);
+    });
+
+    settingsWindow.querySelectorAll("[data-gm-rules-bulk]").forEach(button => {
+      button.addEventListener("click", event => {
+        event.preventDefault();
+        const scope = String(scopeSelect?.value ?? betterInvState.gmRestrictionScope ?? "global");
+        const deny = String(event.currentTarget.dataset.gmRulesBulk ?? "") === "deny";
+        const inherited = getBetterInvGmInheritedDisabledKeys(scope);
+        const available = getBetterInvRestrictableKeysForScope(scope);
+        const disabled = getBetterInvExactScopeDisabledKeys(scope);
+        for (const key of available) {
+          if (inherited.has(key)) continue;
+          if (deny) disabled.add(key);
+          else disabled.delete(key);
+        }
+        void applyGmDisabledKeys(scope, disabled);
+      });
+    });
+  }
 
   makeBetterInvSettingsDraggable(settingsWindow);
   updateBetterInvSettingsButtonState();
@@ -3413,7 +3942,7 @@ function baseShellHtml(bodyHtml) {
     <div class="betterinv-resize-hint">↘</div>`;
 }
 
-function betterInvDisabledShellHtml() {
+function betterInvDisabledShellHtml({ gmLocked = false } = {}) {
   const diagnosticsOpen = Boolean(document.getElementById("betterinv-performance-window"));
   return `
     <header class="betterinv-header betterinv-disabled-header">
@@ -3424,11 +3953,13 @@ function betterInvDisabledShellHtml() {
       </div>
     </header>
     <div class="betterinv-body betterinv-disabled-body">
-      <i class="fas fa-power-off" aria-hidden="true"></i>
-      <strong>Axon’s Inventory ist deaktiviert.</strong>
-      <span>Operationalen Hooks, Inventarberechnungen und Gegenstands-Listener sind pausiert. Die Diagnose kann weiterhin die allgemeine Foundry-Auslastung und vorhandene Fehlerprotokolle anzeigen.</span>
+      <i class="fas ${gmLocked ? "fa-lock" : "fa-power-off"}" aria-hidden="true"></i>
+      <strong>${gmLocked ? "Axon’s Inventory wurde vom GM deaktiviert." : "Axon’s Inventory ist deaktiviert."}</strong>
+      <span>${gmLocked
+        ? "Diese Sperre ist eine Weltregel und kann von deinem Nutzer nicht wieder aktiviert werden."
+        : "Operationalen Hooks, Inventarberechnungen und Gegenstands-Listener sind pausiert. Die Diagnose kann weiterhin die allgemeine Foundry-Auslastung und vorhandene Fehlerprotokolle anzeigen."}</span>
       <div class="betterinv-disabled-actions">
-        <button type="button" class="betterinv-reactivate">Wieder aktivieren</button>
+        ${gmLocked ? "" : `<button type="button" class="betterinv-reactivate">Wieder aktivieren</button>`}
         <button type="button" class="betterinv-disabled-performance-open"><i class="fas fa-tachometer-alt" aria-hidden="true"></i>Diagnose öffnen</button>
       </div>
     </div>`;
@@ -3795,15 +4326,25 @@ function getBetterInvCurrencyDraft(actor) {
   ]));
 }
 
-function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, showCalculator = true, showTransfer = true } = {}) {
+function betterInvActorCurrencyHtml(currencies, draft = {}, {
+  editable = true,
+  showCalculator = true,
+  showAdd = true,
+  showRemove = true,
+  showRoundUp = true,
+  showRoundDown = true,
+  showTransfer = true
+} = {}) {
   if (!Array.isArray(currencies) || !currencies.length) return "";
   const totalCoins = currencies.reduce((sum, currency) => sum + (Number(currency.value) || 0), 0);
   const calculatorClass = showCalculator ? "" : " betterinv-currency-display-only";
+  const hasHeadingActions = showRoundUp || showRoundDown || showTransfer;
+  const hasBottomActions = showAdd || showRemove;
   return `
     <section class="betterinv-currency${calculatorClass}" aria-label="Währungen" title="Münzbestand: ${escapeAttr(formatBetterInvNumber(totalCoins))} Münzen">
-      <div class="betterinv-currency-heading ${showCalculator ? "betterinv-currency-heading-actions" : "betterinv-currency-heading-label"}">
-        ${showCalculator ? `
-          <button
+      <div class="betterinv-currency-heading ${hasHeadingActions ? "betterinv-currency-heading-actions" : "betterinv-currency-heading-label"}">
+        ${hasHeadingActions ? `
+          ${showRoundUp ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-exchange-up"
             title="Gewünschte Zielmünzen aus niedrigeren Münzarten bilden, zum Beispiel bei Silber 2: 20 CP werden zu 2 SP"
@@ -3811,8 +4352,8 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
           >
             <i class="fas fa-arrow-up" aria-hidden="true"></i>
             <span>Aufrunden</span>
-          </button>
-          <button
+          </button>` : ""}
+          ${showRoundDown ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-exchange-down"
             title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 2 SP in 20 CP"
@@ -3820,7 +4361,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
           >
             <i class="fas fa-arrow-down" aria-hidden="true"></i>
             <span>Abrunden</span>
-          </button>
+          </button>` : ""}
           ${showTransfer ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-transfer"
@@ -3857,9 +4398,9 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
                 >` : ""}
             </div>`).join("")}
         </div>
-        ${showCalculator ? `
+        ${showCalculator && hasBottomActions ? `
           <div class="betterinv-currency-actions-row">
-            <button
+            ${showAdd ? `<button
               type="button"
               class="betterinv-currency-action betterinv-currency-add"
               title="Eingegebene Münzen exakt in der jeweiligen Währung hinzufügen"
@@ -3867,8 +4408,8 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
             >
               <i class="fas fa-plus" aria-hidden="true"></i>
               <span>Hinzufügen</span>
-            </button>
-            <button
+            </button>` : ""}
+            ${showRemove ? `<button
               type="button"
               class="betterinv-currency-action betterinv-currency-remove"
               title="Eingegebenen Gesamtwert bezahlen; passende Münzen werden automatisch verrechnet und höhere Münzen bei Bedarf aufgebrochen"
@@ -3876,7 +4417,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, { editable = true, s
             >
               <i class="fas fa-minus" aria-hidden="true"></i>
               <span>Bezahlen / Entfernen</span>
-            </button>
+            </button>` : ""}
           </div>` : ""}
       </div>
     </section>`;
@@ -5199,7 +5740,7 @@ function betterInvActorEncumbranceHtml(encumbrance) {
     </section>`;
 }
 
-async function renderContainerCards(actor, containers, { showCapacity = true, inventoryItems = null, renderCache = null } = {}) {
+async function renderContainerCards(actor, containers, { showCapacity = true, allowSorting = true, inventoryItems = null, renderCache = null } = {}) {
   if (!containers.length) return `<p class="betterinv-hint">Keine Rucksäcke gefunden. Gegenstände im Hauptinventar werden unten angezeigt.</p>`;
   const savedLayerCount = await getContainerLayerCount(actor);
   const layerCount = savedLayerCount ?? Math.max(1, Math.ceil(containers.length / 4));
@@ -5239,7 +5780,7 @@ async function renderContainerCards(actor, containers, { showCapacity = true, in
               parentContainer ? `In: ${getContainerAlias(actor, parentContainer)}` : null
             ].filter(Boolean).join(" · ");
             return `
-              <div class="betterinv-container-card${parentContainer ? " betterinv-container-card-nested" : ""}" role="button" tabindex="0" draggable="true" data-container-id="${container.id}" title="${escapeAttr(`${alias} öffnen${parentContainer ? ` – liegt in ${getContainerAlias(actor, parentContainer)}` : ""}`)}">
+              <div class="betterinv-container-card${parentContainer ? " betterinv-container-card-nested" : ""}${allowSorting ? "" : " betterinv-container-card-static"}" role="button" tabindex="0" draggable="${allowSorting ? "true" : "false"}" data-container-id="${container.id}" title="${escapeAttr(`${alias} öffnen${parentContainer ? ` – liegt in ${getContainerAlias(actor, parentContainer)}` : ""}`)}">
                 <img src="${escapeAttr(container.img || "icons/svg/item-bag.svg")}" alt="">
                 <span>${escapeHtml(alias)}</span>
                 ${metadata ? `<small title="${escapeAttr(metadata)}">${escapeHtml(metadata)}</small>` : ""}
@@ -5251,7 +5792,7 @@ async function renderContainerCards(actor, containers, { showCapacity = true, in
     </div>`;
 }
 
-function renderContainerBreadcrumb(actor, container, { showCapacity = true, showCount = true, inventoryItems = null, renderCache = null } = {}) {
+function renderContainerBreadcrumb(actor, container, { showCapacity = true, showCount = true, allowItemMove = true, inventoryItems = null, renderCache = null } = {}) {
   const count = showCount ? getVisibleItems(actor, container, inventoryItems, renderCache).length : null;
   const capacity = showCapacity ? getBetterInvContainerCapacity(actor, container, inventoryItems, renderCache) : null;
   return `
@@ -5267,7 +5808,7 @@ function renderContainerBreadcrumb(actor, container, { showCapacity = true, show
         </div>
         ${showCapacity ? betterInvContainerCapacityHtml(capacity) : ""}
       </div>
-      <div class="betterinv-remove-from-container" title="Gegenstand hier ablegen, um ihn zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>
+      ${allowItemMove ? `<div class="betterinv-remove-from-container" title="Gegenstand hier ablegen, um ihn zurück ins Hauptinventar zu legen">↥ Aus Rucksack nehmen</div>` : ""}
     </div>`;
 }
 
@@ -7562,15 +8103,15 @@ function openBetterInvItemActionMenu(button, actor, item) {
   menu.className = "betterinv-item-actions-menu";
   menu.setAttribute("role", "menu");
   const userSettings = getBetterInvUserSettings();
-  const features = getBetterInvFeaturePlan(userSettings);
+  const features = getBetterInvFeaturePlan(userSettings, { actor, containerId: betterInvState.containerId });
   const equipped = features.equipActions ? getItemEquippedData(item) : { supported: false, value: false };
   const favorite = features.favorites ? isBetterInvFavorite(item) : false;
   menu.innerHTML = `
     ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
     ${features.itemTransfer ? `<button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen</span></button>` : ""}
-    <button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>
-    <button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>
+    ${features.itemDuplicate ? `<button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>` : ""}
+    ${features.itemDelete ? `<button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>` : ""}
   `;
   document.body.appendChild(menu);
 
@@ -7617,6 +8158,17 @@ function openBetterInvItemActionMenu(button, actor, item) {
 
     void (async () => {
       try {
+        const currentFeatures = getBetterInvFeaturePlan(getBetterInvUserSettings(), { actor, containerId: betterInvState.containerId });
+        const allowed = action === "equipped" ? currentFeatures.equipActions
+          : action === "favorite" ? currentFeatures.favorites
+            : action === "transfer" ? currentFeatures.itemTransfer
+              : action === "duplicate" ? currentFeatures.itemDuplicate
+                : action === "delete" ? currentFeatures.itemDelete
+                  : false;
+        if (!allowed) {
+          ui.notifications.warn("Diese Gegenstandsaktion wurde vom GM oder in deinen Einstellungen deaktiviert.");
+          return;
+        }
         if (action === "equipped") await toggleBetterInvItemEquipped(item);
         else if (action === "favorite") await toggleBetterInvFavorite(item);
         else if (action === "transfer") await transferBetterInvItem(actor, item);
@@ -7647,7 +8199,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
 
 function favoriteItemRowHtml(item, { settings = null, features = null, renderCache = null } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
-  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings, { actor: item?.parent, containerId: betterInvState.containerId });
   const img = item.img || "icons/svg/item-bag.svg";
   const quantity = featurePlan.quantityControls ? getItemQuantityData(item, renderCache).value : null;
   const equipped = getItemEquippedData(item, renderCache);
@@ -7657,7 +8209,7 @@ function favoriteItemRowHtml(item, { settings = null, features = null, renderCac
       <span class="betterinv-item-grip" title="Favorit – das Original bleibt in seiner Kategorie">★</span>
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>
+        ${featurePlan.itemOpen ? `<button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>` : `<span class="betterinv-item-name-static">${escapeHtml(item.name)}</span>`}
       </div>
       ${featurePlan.quantityControls && Number(quantity) > 1 ? `<span class="betterinv-favorite-quantity" title="Anzahl">×${escapeHtml(String(quantity))}</span>` : ""}
       ${featurePlan.itemActionsMenu ? `<button type="button" class="betterinv-item-actions-button" title="Weitere Gegenstandsaktionen" aria-label="Weitere Gegenstandsaktionen"><i class="fas fa-ellipsis-v"></i></button>` : ""}
@@ -7667,7 +8219,7 @@ function favoriteItemRowHtml(item, { settings = null, features = null, renderCac
 function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false, settings = null, features = null, renderCache = null } = {}) {
   if (favoriteView) return favoriteItemRowHtml(item, { settings, features, renderCache });
   const userSettings = settings ?? getBetterInvUserSettings();
-  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings, { actor: item?.parent, containerId });
   const img = item.img || "icons/svg/item-bag.svg";
   const qty = featurePlan.quantityControls ? getItemQuantityData(item, renderCache).value : null;
   const equipped = getItemEquippedData(item, renderCache);
@@ -7683,11 +8235,11 @@ function itemRowHtml(item, categoryOptions, containerId, { favoriteView = false,
   const priceHtml = featurePlan.itemValues ? betterInvItemPriceHtml(item, { unidentified, enabled: true, renderCache }) : "";
 
   return `
-    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="true">
-      <span class="betterinv-item-grip" title="Gedrückt halten und Gegenstand verschieben">☰</span>
+    <article class="betterinv-item ${equipped.supported && equipped.value ? "betterinv-item-equipped" : ""} ${unidentified ? "betterinv-item-unidentified" : ""}${featurePlan.itemSorting ? "" : " betterinv-item-static"}" data-item-id="${item.id}" data-category="${escapeAttr(current)}" draggable="${featurePlan.itemSorting ? "true" : "false"}">
+      ${featurePlan.itemSorting ? `<span class="betterinv-item-grip" title="Gedrückt halten und Gegenstand verschieben">☰</span>` : ""}
       <img src="${escapeAttr(img)}" alt="">
       <div class="betterinv-item-main">
-        <button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>
+        ${featurePlan.itemOpen ? `<button type="button" class="betterinv-open-item" title="${escapeAttr(item.name)} öffnen">${escapeHtml(item.name)}</button>` : `<span class="betterinv-item-name-static">${escapeHtml(item.name)}</span>`}
         <div class="betterinv-item-meta-row">
           <small>${escapeHtml(item.type)} · Gewicht: ${escapeHtml(String(weight))}${unidentified ? ` · <span class="betterinv-unidentified-label">Unbekannt</span>` : ""}${equipped.supported && equipped.value ? ` · <span class="betterinv-equipped-label">Ausgerüstet</span>` : ""}</small>
           ${priceHtml}
@@ -7794,13 +8346,14 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
       event.stopPropagation();
       betterInvState.actorId = gmActorButton.dataset.actorId;
       betterInvState.containerId = null;
+      betterInvState.gmRestrictionScope = "";
       betterInvState.search = "";
       renderBetterInvWindow({ preserveScroll: false });
       return;
     }
 
     const renameButton = findTarget(event, ".betterinv-active-container-rename, .betterinv-container-rename");
-    if (renameButton && featurePlan.containers) {
+    if (renameButton && featurePlan.containerRename) {
       event.preventDefault();
       event.stopPropagation();
       const container = actor?.items?.get(renameButton.dataset.containerId);
@@ -7840,13 +8393,13 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     if (currencyButton && featurePlan.currencyCalculator) {
       event.preventDefault();
       event.stopPropagation();
-      const config = currencyButton.matches(".betterinv-currency-add")
+      const config = currencyButton.matches(".betterinv-currency-add") && featurePlan.currencyAdd
         ? [addBetterInvCurrency, "Axon’s Inventory | Währung konnte nicht hinzugefügt werden", "Die Münzen konnten nicht hinzugefügt werden."]
-        : currencyButton.matches(".betterinv-currency-remove")
+        : currencyButton.matches(".betterinv-currency-remove") && featurePlan.currencyRemove
           ? [removeBetterInvCurrency, "Axon’s Inventory | Währung konnte nicht entfernt werden", "Die Münzen konnten nicht bezahlt oder entfernt werden."]
-          : currencyButton.matches(".betterinv-currency-exchange-down")
+          : currencyButton.matches(".betterinv-currency-exchange-down") && featurePlan.currencyRoundDown
             ? [exchangeBetterInvCurrencyDown, "Axon’s Inventory | Münzen konnten nicht abgerundet werden", "Die Münzen konnten nicht abgerundet werden."]
-            : currencyButton.matches(".betterinv-currency-exchange-up")
+            : currencyButton.matches(".betterinv-currency-exchange-up") && featurePlan.currencyRoundUp
               ? [exchangeBetterInvCurrencyUp, "Axon’s Inventory | Münzen konnten nicht aufgerundet werden", "Die Münzen konnten nicht aufgerundet werden."]
               : currencyButton.matches(".betterinv-currency-transfer") && featurePlan.currencyTransfer
                 ? [transferBetterInvCurrency, "Axon’s Inventory | Münzen konnten nicht übertragen werden", "Die Münzen konnten nicht übertragen werden."]
@@ -7874,16 +8427,19 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     event.stopPropagation();
 
     if (button.matches(".betterinv-edit-item")) {
+      if (!featurePlan.editButton) return;
       openItemSheet(item);
       return;
     }
 
     if (button.matches(".betterinv-item-actions-button")) {
+      if (!featurePlan.itemActionsMenu) return;
       openBetterInvItemActionMenu(button, actor, item);
       return;
     }
 
     if (button.matches(".betterinv-open-item")) {
+      if (!featurePlan.itemOpen) return;
       void useOrOpenItem(item, event).catch(error => {
         logBetterInvDiagnostic("error", "BI-ITEM-USE-001", "Gegenstand konnte nicht geöffnet oder benutzt werden", error);
         ui.notifications.error("Der Gegenstand konnte nicht geöffnet oder benutzt werden.");
@@ -8019,7 +8575,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
 
 function activateWindowListeners(windowEl, actor, activeContainer, { settings = null, features = null, inventoryItems = null, categoryOptions = [] } = {}) {
   const userSettings = settings ?? getBetterInvUserSettings();
-  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings);
+  const featurePlan = features ?? getBetterInvFeaturePlan(userSettings, { actor, containerId: activeContainer?.id ?? null });
   const eventController = beginBetterInvWindowEventCycle(windowEl);
   const listen = (target, type, listener, options = {}) => addBetterInvEventListener(target, type, listener, eventController, options);
 
@@ -8058,13 +8614,13 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
   makeBetterInvDraggable(windowEl);
   installBetterInvDelegatedWindowControls(windowEl, actor, activeContainer, featurePlan, categoryOptions, eventController);
 
-  windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
+  if (featurePlan.containerLayerControls) windowEl.querySelector(".betterinv-layer-plus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
     await setContainerLayerCount(actor, current + 1, { skipRefresh: true });
     // Keep all existing backpack layer assignments exactly where they are.
     scheduleBetterInvRefresh();
   });
-  windowEl.querySelector(".betterinv-layer-minus")?.addEventListener("click", async () => {
+  if (featurePlan.containerLayerControls) windowEl.querySelector(".betterinv-layer-minus")?.addEventListener("click", async () => {
     const current = await getContainerLayerCount(actor) ?? Math.max(1, Math.ceil(getContainerItems(actor, inventoryItems).length / 4));
     const next = Math.max(1, current - 1);
     const containers = await sortContainersBySavedOrder(actor, getContainerItems(actor, inventoryItems));
@@ -8084,6 +8640,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     event.stopPropagation();
     betterInvState.actorId = null;
     betterInvState.containerId = null;
+    betterInvState.gmRestrictionScope = "";
     betterInvState.search = "";
     renderBetterInvWindow({ preserveScroll: false });
   });
@@ -8095,8 +8652,8 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     renderBetterInvWindow();
   });
 
-  if (featurePlan.containers) enableContainerDragSorting(windowEl, actor, activeContainer);
-  if (featurePlan.items && featurePlan.containers) enableItemToContainerDrop(windowEl, actor, activeContainer);
+  if (featurePlan.containerSorting) enableContainerDragSorting(windowEl, actor, activeContainer);
+  if (featurePlan.itemMoveToContainer) enableItemToContainerDrop(windowEl, actor, activeContainer);
 
 
 
@@ -8104,7 +8661,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     event.preventDefault();
     event.stopPropagation();
     const button = event.currentTarget;
-    if (!actor || button.disabled) return;
+    if (!actor || button.disabled || !featurePlan.addItemButton) return;
     button.disabled = true;
     try {
       await createBetterInvItem(actor, activeContainer);
@@ -8120,6 +8677,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
   });
 
   windowEl.querySelector(".betterinv-add-category")?.addEventListener("click", async () => {
+    if (!featurePlan.categoryManagement) return;
     const name = await promptCategoryName();
     if (!name) return;
     const categories = await getCategories(actor, activeContainer?.id ?? null);
@@ -8137,6 +8695,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     button.addEventListener("click", async event => {
       event.preventDefault();
       event.stopPropagation();
+      if (!featurePlan.categoryManagement) return;
       const section = event.currentTarget.closest(".betterinv-category");
       const parentCategory = section?.dataset?.category;
       if (!parentCategory || parentCategory === "__unsorted") return;
@@ -8172,6 +8731,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     button.addEventListener("click", async event => {
       event.preventDefault();
       event.stopPropagation();
+      if (!featurePlan.categoryManagement) return;
       const section = event.currentTarget.closest(".betterinv-subcategory");
       const parentCategory = section?.dataset?.parentCategory;
       const currentName = section?.dataset?.subcategory;
@@ -8212,6 +8772,7 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     button.addEventListener("click", async event => {
       event.preventDefault();
       event.stopPropagation();
+      if (!featurePlan.categoryManagement) return;
       const section = event.currentTarget.closest(".betterinv-category");
       const category = section?.dataset?.category;
       if (!category) return;
@@ -8249,10 +8810,10 @@ function activateWindowListeners(windowEl, actor, activeContainer, { settings = 
     });
   });
 
-  if (featurePlan.subcategories) enableSubcategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
-  if (featurePlan.categories) enableCategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
-  if (featurePlan.items) enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
-  if (featurePlan.items || featurePlan.containers) enableBetterInvExternalItemDrops(windowEl, actor, activeContainer);
+  if (featurePlan.subcategories && featurePlan.categorySorting) enableSubcategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.categories && featurePlan.categorySorting) enableCategoryDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.items && featurePlan.itemSorting) enableItemDragSorting(windowEl, actor, activeContainer?.id ?? null);
+  if (featurePlan.addItemButton) enableBetterInvExternalItemDrops(windowEl, actor, activeContainer);
 
 
 

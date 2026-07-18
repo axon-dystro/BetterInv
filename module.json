@@ -1,8 +1,8 @@
 {
   "id": "betterinv",
   "title": "Axon’s Inventory",
-  "description": "Ein modernes D&D-5e-Inventar für Foundry VTT mit Kategorien, Rucksäcken, Währungen, Kompendium-Import, Drag-and-drop, Handel und frei konfigurierbarer Oberfläche.",
-  "version": "1.0.1",
+  "description": "Ein modernes D&D-5e-Inventar für Foundry VTT mit Kategorien, Rucksäcken, Währungen, Handel und granularen GM-Sperren pro Spieler oder Rucksack.",
+  "version": "1.1.0",
   "compatibility": {
     "minimum": "14",
     "verified": "14"
@@ -29,7 +29,7 @@
   ],
   "url": "https://github.com/axon-dystro/BetterInv",
   "manifest": "https://github.com/axon-dystro/BetterInv/releases/latest/download/module.json",
-  "download": "https://github.com/axon-dystro/BetterInv/releases/download/v1.0.1/betterinv.zip",
+  "download": "https://github.com/axon-dystro/BetterInv/releases/download/v1.1.0/betterinv.zip",
   "readme": "https://github.com/axon-dystro/BetterInv/blob/main/README.md",
   "bugs": "https://github.com/axon-dystro/BetterInv/issues",
   "changelog": "https://github.com/axon-dystro/BetterInv/blob/main/CHANGELOG.md",

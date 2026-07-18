@@ -50,6 +50,9 @@
 - **Pro Nutzer gespeichert:** Jeder Spieler kann seine eigene Ansicht festlegen.
 - **Alles einzeln abschaltbar:** Geld, Gegenstände, Kategorien, Rucksäcke, Suche, Preise, Mengensteuerung, Handel und weitere Funktionen.
 - **Gruppenschalter:** Ganze Bereiche oder alle Haken gleichzeitig aktivieren beziehungsweise deaktivieren.
+- **GM-Spielerregeln:** Der GM kann Funktionen global für alle Spieler, pro Nutzer oder für den aktuell geöffneten Rucksack sperren.
+- **Nicht umgehbar über die Modul-Einstellungen:** Gesperrte Schalter werden beim Spieler deaktiviert und können dort nicht wieder eingeschaltet werden.
+- **Feingranulare Aktionen:** Hinzufügen, Bezahlen, Aufrunden, Abrunden, Geldhandel, Gegenstandshandel, Duplizieren, Löschen, Öffnen, Bearbeiten und Sortieren sind getrennt steuerbar.
 - **Ruhemodus:** Das Modul vollständig pausieren; nur Diagnose und Reaktivierung bleiben verfügbar.
 - **Performance-Optimierung:** Gefilterte Hooks, gebündelte Render-Vorgänge, reduzierte Listener, kleineres DOM und kontrolliertes Caching.
 - **Live-Diagnose:** Renderzeiten, DOM-Größe, Hauptthread-Verzögerung und lokale Fehlercodes anzeigen und als Issue-Bericht exportieren.
