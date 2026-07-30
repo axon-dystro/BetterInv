@@ -7151,3 +7151,671 @@ button.betterinv-category-picker:focus-visible {
     grid-template-columns: 38px minmax(0, 1fr) !important;
   }
 }
+
+/* Phase 10.2: transfer route and ground-loot controls */
+.betterinv-transfer-route-window .window-content {
+  background: linear-gradient(180deg, #181715, #0f0f0e);
+  color: #e8e1d0;
+}
+
+.betterinv-transfer-route-dialog {
+  display: grid;
+  gap: 14px;
+  padding: 6px;
+}
+
+.betterinv-transfer-route-dialog > p {
+  margin: 0;
+  color: #b9b09c;
+  font-size: 12px;
+  text-align: center;
+}
+
+.betterinv-transfer-route-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.betterinv-transfer-route-options button {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  grid-template-rows: auto auto;
+  align-items: center;
+  min-height: 82px;
+  padding: 12px;
+  border: 1px solid #62583f;
+  border-radius: 7px;
+  background: linear-gradient(160deg, #2a2720, #171613);
+  color: #eee5cf;
+  text-align: left;
+}
+
+.betterinv-transfer-route-options button:hover {
+  border-color: #b59650;
+  box-shadow: 0 0 0 1px rgba(200, 168, 90, .16), 0 8px 20px rgba(0, 0, 0, .25);
+  color: #fff4d4;
+}
+
+.betterinv-transfer-route-options button > i {
+  grid-row: 1 / span 2;
+  justify-self: center;
+  color: #c8a85a;
+  font-size: 20px;
+}
+
+.betterinv-transfer-route-options button > strong {
+  font-size: 13px;
+}
+
+.betterinv-transfer-route-options button > small {
+  color: #9f9786;
+  font-size: 10px;
+}
+
+@media (max-width: 520px) {
+  .betterinv-transfer-route-options {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phase 10.3: clickable ground loot on every canvas layer. */
+.betterinv-ground-loot-dialog .window-content,
+.betterinv-ground-loot-dialog .dialog-content {
+  padding: 0 !important;
+  background: #101014 !important;
+}
+
+.betterinv-ground-loot-card {
+  padding: 14px;
+  display: grid;
+  gap: 11px;
+  background: linear-gradient(180deg, #1b1b20, #101014);
+}
+
+.betterinv-ground-loot-dialog .betterinv-confirm-transfer-route {
+  margin: 0;
+}
+
+.betterinv-ground-loot-dialog .betterinv-confirm-transfer-entity.is-disabled {
+  opacity: .72;
+}
+
+.betterinv-ground-loot-empty-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 42px;
+  border: 1px solid rgba(200,168,90,.24);
+  border-radius: 4px;
+  background: #09090c;
+  color: #9d927a;
+  font-size: 17px;
+}
+
+.betterinv-ground-loot-note {
+  margin: 0;
+  padding: 9px 10px;
+  border-left: 2px solid rgba(200,168,90,.48);
+  border-radius: 0 4px 4px 0;
+  background: rgba(200,168,90,.055);
+  color: #afa58f;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.betterinv-ground-loot-dialog .dialog-button[data-button="delete"] {
+  border-color: rgba(194,82,76,.62) !important;
+  background: linear-gradient(180deg, rgba(91,40,38,.98), rgba(43,22,22,.98)) !important;
+  color: #ffc2b9 !important;
+}
+
+.betterinv-ground-loot-dialog .dialog-button[data-button="confirm"] {
+  border-color: rgba(200,168,90,.54) !important;
+  background: linear-gradient(180deg, rgba(78,65,34,.98), rgba(39,32,18,.98)) !important;
+  color: #f0d994 !important;
+}
+
+/* Phase 10.4: GM editor for interactive ground objects. */
+.betterinv-ground-editor-dialog .window-content,
+.betterinv-ground-editor-dialog .dialog-content {
+  padding: 0 !important;
+  background: #101014 !important;
+}
+
+.betterinv-ground-editor {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  color: #e6deca;
+  background: linear-gradient(180deg, #1b1b20, #101014);
+}
+
+.betterinv-ground-editor-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(200,168,90,.22);
+  border-radius: 6px;
+  background: rgba(255,255,255,.025);
+}
+
+.betterinv-ground-editor-section h3 {
+  margin: 0 0 2px;
+  color: #c8a85a;
+  font-size: 11px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.betterinv-ground-editor-section h3 i {
+  width: 17px;
+  text-align: center;
+}
+
+.betterinv-ground-editor-section label:not(.betterinv-ground-editor-check):not(.betterinv-ground-editor-range) {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(150px, 1fr);
+  align-items: center;
+  gap: 10px;
+  color: #bdb39f;
+  font-size: 11px;
+}
+
+.betterinv-ground-editor select,
+.betterinv-ground-editor input[type="number"] {
+  min-height: 30px;
+  border: 1px solid #514a39;
+  border-radius: 4px;
+  background: #0c0c0f;
+  color: #eee6d4;
+}
+
+.betterinv-ground-editor-range {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  color: #948b79;
+  font-size: 9px;
+}
+
+.betterinv-ground-editor-range input[type="range"] {
+  width: 100%;
+  accent-color: #c8a85a;
+}
+
+.betterinv-ground-editor-scale {
+  color: #a9a08f;
+  font-size: 10px;
+  text-align: center;
+}
+
+.betterinv-ground-editor-scale strong {
+  color: #f0d994;
+}
+
+.betterinv-ground-editor-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #c2b8a5;
+  font-size: 11px;
+}
+
+.betterinv-ground-editor-check input {
+  margin: 0;
+}
+
+.betterinv-ground-editor-note {
+  margin: 0;
+  padding: 9px 10px;
+  border-left: 2px solid rgba(200,168,90,.48);
+  background: rgba(200,168,90,.055);
+  color: #aaa18f;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.betterinv-ground-loot-dialog .dialog-button[data-button="settings"] {
+  border-color: rgba(103,131,183,.58) !important;
+  background: linear-gradient(180deg, rgba(47,61,91,.98), rgba(23,29,45,.98)) !important;
+  color: #c9dcff !important;
+}
+
+/* Phase 10.5: reliable rectangular hit areas and the ground-effect editor. */
+.betterinv-ground-loot-dialog .dialog-button[data-button="activate"] {
+  border-color: rgba(126, 99, 184, .64) !important;
+  background: linear-gradient(180deg, rgba(66, 49, 104, .98), rgba(31, 24, 51, .98)) !important;
+  color: #decfff !important;
+}
+
+.betterinv-ground-editor-effects {
+  gap: 7px;
+}
+
+.betterinv-ground-editor-effects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.betterinv-ground-editor-effects-head > div {
+  min-width: 0;
+}
+
+.betterinv-ground-editor-effects-head h3 {
+  margin: 0;
+}
+
+.betterinv-ground-editor-effects-head small {
+  display: block;
+  margin-top: 4px;
+  color: #9f9580;
+  font-size: 10px;
+}
+
+.betterinv-ground-editor-effects-head button,
+.betterinv-ground-effect-actions-title button,
+.betterinv-ground-effects-intro > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid rgba(200, 168, 90, .5);
+  border-radius: 4px;
+  background: linear-gradient(180deg, #332d20, #1c1912);
+  color: #edd694;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.betterinv-ground-editor-effects-head button:hover,
+.betterinv-ground-effect-actions-title button:hover,
+.betterinv-ground-effects-intro > button:hover {
+  border-color: #c8a85a;
+  color: #fff1bf;
+  box-shadow: 0 0 0 1px rgba(200, 168, 90, .12);
+}
+
+.betterinv-ground-editor-effects > p {
+  margin: 0;
+  color: #a9a08d;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.betterinv-ground-effects-dialog .window-content,
+.betterinv-ground-effects-dialog .dialog-content {
+  padding: 0 !important;
+  overflow: hidden !important;
+  background: #0d0d10 !important;
+}
+
+.betterinv-ground-effects-dialog .dialog-content {
+  height: 100%;
+}
+
+.betterinv-ground-effects-editor {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  height: 100%;
+  min-height: 0;
+  padding: 13px;
+  color: #e9e0ca;
+  background: linear-gradient(180deg, #1a1a20, #0e0e12);
+}
+
+.betterinv-ground-effects-intro {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px;
+  border: 1px solid rgba(200, 168, 90, .28);
+  border-radius: 6px;
+  background: linear-gradient(145deg, rgba(200, 168, 90, .08), rgba(255, 255, 255, .02));
+}
+
+.betterinv-ground-effects-intro > div {
+  min-width: 0;
+}
+
+.betterinv-ground-effects-intro strong {
+  color: #f0d994;
+  font-size: 13px;
+}
+
+.betterinv-ground-effects-intro p {
+  margin: 4px 0 0;
+  color: #ada38f;
+  font-size: 10px;
+  line-height: 1.42;
+}
+
+.betterinv-ground-effect-rules {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding-right: 4px;
+  overflow: auto;
+}
+
+.betterinv-ground-effects-empty,
+.betterinv-ground-actions-empty {
+  margin: 0;
+  padding: 16px;
+  border: 1px dashed rgba(200, 168, 90, .25);
+  border-radius: 5px;
+  color: #8f8777;
+  font-size: 11px;
+  text-align: center;
+}
+
+.betterinv-ground-effect-rule {
+  display: grid;
+  gap: 10px;
+  padding: 11px;
+  border: 1px solid rgba(200, 168, 90, .3);
+  border-radius: 7px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .035), rgba(0, 0, 0, .18));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .32);
+}
+
+.betterinv-ground-effect-rule > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 9px;
+}
+
+.betterinv-ground-effect-rule > header input[type="text"] {
+  min-width: 0;
+  height: 31px;
+  border: 1px solid #5a5039;
+  border-radius: 4px;
+  background: #0d0d10;
+  color: #f0e6cf;
+  font-weight: 700;
+}
+
+.betterinv-ground-effect-enabled,
+.betterinv-ground-effect-checkline {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  align-items: center !important;
+  gap: 7px !important;
+  color: #c8bfae !important;
+  font-size: 10px !important;
+}
+
+.betterinv-ground-effect-enabled input,
+.betterinv-ground-effect-checkline input {
+  margin: 0;
+}
+
+.betterinv-ground-effect-rule > header button,
+.betterinv-ground-effect-action-head button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(173, 76, 67, .5);
+  border-radius: 4px;
+  background: rgba(83, 34, 31, .55);
+  color: #e9a8a1;
+}
+
+.betterinv-ground-effect-grid,
+.betterinv-ground-effect-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.betterinv-ground-effect-rule label,
+.betterinv-ground-effect-action label {
+  display: grid;
+  gap: 4px;
+  color: #b8ae9c;
+  font-size: 10px;
+}
+
+.betterinv-ground-effect-rule select,
+.betterinv-ground-effect-rule input[type="text"],
+.betterinv-ground-effect-rule input[type="number"],
+.betterinv-ground-effect-rule textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid #504837;
+  border-radius: 4px;
+  background: #0c0c0f;
+  color: #e9e0cd;
+}
+
+.betterinv-ground-effect-rule textarea {
+  min-height: 48px;
+  padding: 7px;
+  resize: vertical;
+}
+
+.betterinv-ground-effect-rule fieldset {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 9px;
+  border: 1px solid rgba(200, 168, 90, .18);
+  border-radius: 5px;
+}
+
+.betterinv-ground-effect-rule legend {
+  padding: 0 5px;
+  color: #c8a85a;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.betterinv-ground-effect-actions-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.betterinv-ground-effect-actions-title legend {
+  margin: 0;
+}
+
+.betterinv-ground-effect-actions-title button {
+  min-height: 27px;
+  padding: 4px 8px;
+}
+
+.betterinv-ground-effect-actions [data-effect-actions] {
+  display: grid;
+  gap: 8px;
+}
+
+.betterinv-ground-effect-action {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid rgba(126, 108, 72, .45);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, .2);
+}
+
+.betterinv-ground-effect-action-head {
+  display: grid;
+  grid-template-columns: minmax(120px, .7fr) minmax(170px, 1.3fr) 30px;
+  gap: 8px;
+  align-items: center;
+}
+
+.betterinv-ground-effects-help {
+  padding: 8px 10px;
+  border-left: 2px solid rgba(200, 168, 90, .48);
+  background: rgba(200, 168, 90, .055);
+  color: #a99f8c;
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+.betterinv-ground-effects-help strong {
+  color: #d7c18a;
+}
+
+@media (max-width: 700px) {
+  .betterinv-ground-effects-intro,
+  .betterinv-ground-editor-effects-head,
+  .betterinv-ground-effect-actions-title {
+    display: grid;
+  }
+
+  .betterinv-ground-effects-intro > button,
+  .betterinv-ground-editor-effects-head button,
+  .betterinv-ground-effect-actions-title button {
+    width: 100%;
+  }
+
+  .betterinv-ground-effect-grid,
+  .betterinv-ground-effect-action-grid,
+  .betterinv-ground-effect-action-head {
+    grid-template-columns: 1fr;
+  }
+
+  .betterinv-ground-effect-action-head button {
+    width: 100%;
+  }
+}
+
+
+/* v1.4.1: reliable visibility preview controls. */
+.betterinv-ground-visibility-preview {
+  display: grid;
+  grid-template-columns: minmax(170px, auto) 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.betterinv-ground-visibility-preview button {
+  min-height: 34px;
+  border: 1px solid rgba(194, 151, 54, 0.55);
+  border-radius: 5px;
+  background: rgba(31, 28, 20, 0.9);
+  color: #f2d783;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.betterinv-ground-visibility-preview button:hover,
+.betterinv-ground-visibility-preview button.is-active {
+  border-color: #e0b84f;
+  box-shadow: 0 0 0 1px rgba(224, 184, 79, 0.22), 0 0 12px rgba(224, 184, 79, 0.18);
+}
+
+.betterinv-ground-visibility-preview small {
+  color: rgba(235, 226, 198, 0.74);
+  line-height: 1.35;
+}
+
+@media (max-width: 620px) {
+  .betterinv-ground-visibility-preview {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* v1.4.2: symmetric proximity timing and explicit feet-based range. */
+.betterinv-ground-visibility-timing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid rgba(200, 168, 90, .14);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, .16);
+}
+
+.betterinv-ground-visibility-timing-grid > label {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-items: start !important;
+  gap: 4px !important;
+  margin: 0;
+}
+
+.betterinv-ground-visibility-timing-grid > label > input {
+  width: 100%;
+}
+
+.betterinv-ground-visibility-hint {
+  display: block;
+  margin-top: -1px;
+  color: rgba(222, 211, 184, .64);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+@media (max-width: 620px) {
+  .betterinv-ground-visibility-timing-grid {
+    grid-template-columns: 1fr;
+    padding: 7px;
+  }
+}
+
+
+/* v1.4.3: denomination-specific floor currency preview. */
+.betterinv-ground-currency-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+
+.betterinv-ground-currency-preview-row > img {
+  width: 68px;
+  height: 68px;
+  flex: 0 0 68px;
+  padding: 4px;
+  object-fit: contain;
+  border: 1px solid rgba(200, 168, 90, .34);
+  border-radius: 7px;
+  background:
+    radial-gradient(circle at 50% 43%, rgba(200, 168, 90, .10), transparent 62%),
+    rgba(8, 8, 11, .78);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .025), 0 4px 12px rgba(0, 0, 0, .24);
+}
+
+.betterinv-ground-currency-preview-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.betterinv-ground-currency-preview-row strong {
+  overflow: hidden;
+  color: #eee3c9;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.betterinv-ground-currency-preview-row small {
+  color: #9f9582;
+  font-size: 9px;
+  line-height: 1.4;
+}

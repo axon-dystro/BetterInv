@@ -2,7 +2,7 @@
 
 Ein modernes, frei konfigurierbares D&D-5e-Inventar für Foundry VTT.
 
-Axon’s Inventory ergänzt Kategorien und Unterkategorien, Rucksackkapazitäten, Währungsverwaltung, Kompendium-Import, Drag-and-drop, Gegenstands- und Geldhandel, persönliche Einstellungen, granulare GM-Sperren, Ruhemodus und eine lokale Performance-Diagnose.
+Axon’s Inventory ergänzt Kategorien und Unterkategorien, Rucksackkapazitäten, Währungsverwaltung, Kompendium-Import, Drag-and-drop, Gegenstands- und Geldhandel, persönliche Einstellungen, granulare GM-Sperren, verschiebbare und skalierbare Bodenobjekte, Reichweiten-Sichtbarkeit, Ruhemodus und eine lokale Performance-Diagnose.
 
 Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODULE_DESCRIPTION.md).
 
@@ -17,6 +17,8 @@ Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODUL
 - Alternativ: Rucksack-Symbol in Foundrys Oberfläche
 - Einstellungen: Zahnrad im Inventar-Header
 - GM-Spielerregeln: Im Einstellungsfenster global, pro Spieler oder im geöffneten Rucksack
+- Bodenbeute: Gegenstand auf freie Karte ziehen; das vollständige Tile-Rechteck reagiert auf Klick und Ziehen, auch über transparenten Bildstellen. GMs können Größe, Sichtbarkeit, Aufheben, Spieler-Verschieben, Spieler-Aktivierung sowie Trigger und Effekt-Aktionen konfigurieren
+- Bodenobjekt-Trefferflächen: standardmäßig `Shift + H`, frei in Foundrys Tastenbelegung konfigurierbar
 - Support und Diagnose: Symbole im Inventar-Header
 
 ## Support und freiwillige Unterstützung

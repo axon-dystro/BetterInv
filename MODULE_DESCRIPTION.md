@@ -1,6 +1,6 @@
 # Axon’s Inventory – Kurzbeschreibung
 
-**Axon’s Inventory** ersetzt die unübersichtliche Standard-Inventaransicht von D&D 5e durch ein frei konfigurierbares Inventar mit Kategorien, Rucksäcken, Währungen, Kompendium-Import und direktem Handel zwischen Spielercharakteren.
+**Axon’s Inventory** ersetzt die unübersichtliche Standard-Inventaransicht von D&D 5e durch ein frei konfigurierbares Inventar mit Kategorien, Rucksäcken, Währungen, Kompendium-Import und direktem Handel zwischen Spielercharakteren und sichtbarer Bodenbeute auf der Karte.
 
 ## Inventar und Gegenstände
 
@@ -44,6 +44,8 @@
 - **Externes Drag-and-drop:** Gegenstände aus Foundrys Seitenleiste direkt in das Inventar, eine Kategorie oder einen Rucksack ziehen.
 - **Gegenstände übertragen:** Ganze Stapel oder Teilmengen über das Drei-Punkte-Menü an andere Charaktere geben.
 - **Token-Übergabe:** Gegenstand auf einen Spieler-Token ziehen und die Übergabe bestätigen.
+- **Bodenbeute:** Gegenstände aus Axon’s Inventory oder einem Foundry-Charakterbogen auf freie Kartenfläche ziehen; das Item-Bild bleibt dort sichtbar und kann von berechtigten Spielern aufgehoben werden.
+- **Münzhaufen:** Beim Geldhandel statt eines Spielers den Boden wählen und die eingegebenen Münzen als sichtbaren Haufen ablegen.
 
 ## Einstellungen und Leistung
 
@@ -52,7 +54,7 @@
 - **Gruppenschalter:** Ganze Bereiche oder alle Haken gleichzeitig aktivieren beziehungsweise deaktivieren.
 - **GM-Spielerregeln:** Der GM kann Funktionen global für alle Spieler, pro Nutzer oder für den aktuell geöffneten Rucksack sperren.
 - **Nicht umgehbar über die Modul-Einstellungen:** Gesperrte Schalter werden beim Spieler deaktiviert und können dort nicht wieder eingeschaltet werden.
-- **Feingranulare Aktionen:** Hinzufügen, Bezahlen, Aufrunden, Abrunden, Geldhandel, Gegenstandshandel, Duplizieren, Löschen, Öffnen, Bearbeiten und Sortieren sind getrennt steuerbar.
+- **Feingranulare Aktionen:** Hinzufügen, Bezahlen, Aufrunden, Abrunden, Geldhandel, Gegenstandshandel, Gegenstand fallen lassen, Boden-Gegenstand aufheben, Geld fallen lassen, Münzhaufen aufheben, Duplizieren, Löschen, Öffnen, Bearbeiten und Sortieren sind getrennt steuerbar.
 - **Ruhemodus:** Das Modul vollständig pausieren; nur Diagnose und Reaktivierung bleiben verfügbar.
 - **Performance-Optimierung:** Gefilterte Hooks, gebündelte Render-Vorgänge, reduzierte Listener, kleineres DOM und kontrolliertes Caching.
 - **Live-Diagnose:** Renderzeiten, DOM-Größe, Hauptthread-Verzögerung und lokale Fehlercodes anzeigen und als Issue-Bericht exportieren.
@@ -66,3 +68,7 @@
 
 - **Foundry VTT:** Version 14
 - **Spielsystem:** D&D 5e 5.3.3
+
+## Bodenobjekte
+
+Gegenstände und Währungen können sichtbar auf Szenen abgelegt werden. Das vollständige rechteckige Tile ist die gemeinsame Trefferfläche für Klick, Aufheben und Ziehen, einschließlich transparenter Bildstellen. GMs können die Objekte verschieben, von 0,01× bis 100× skalieren, für Spieler verbergen oder nur innerhalb einer Reichweite mit optionaler Sichtlinienprüfung anzeigen. Aufheben, Spieler-Verschieben und Spieler-Aktivierung sind pro Objekt steuerbar. Ein integrierter Effekt-Editor unterstützt mehrere Trigger, optionale Würfe, Erfolgs-/Fehlschlag-Zweige, Abklingzeiten sowie Aktionen wie Schaden, Heilung, Active Effects, Licht, Sound, Makros und das Aktivieren weiterer Bodenobjekte.
