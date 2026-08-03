@@ -17,7 +17,12 @@ Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODUL
 - Alternativ: Rucksack-Symbol in Foundrys Oberfläche
 - Einstellungen: Zahnrad im Inventar-Header
 - GM-Spielerregeln: Im Einstellungsfenster global, pro Spieler oder im geöffneten Rucksack
-- Bodenbeute: Gegenstand auf freie Karte ziehen; das vollständige Tile-Rechteck reagiert auf Klick und Ziehen, auch über transparenten Bildstellen. GMs können Größe, Sichtbarkeit, Aufheben, Spieler-Verschieben, Spieler-Aktivierung sowie Trigger und Effekt-Aktionen konfigurieren
+- Bodenbeute: Gegenstand auf freie Karte ziehen; das vollständige Tile-Rechteck reagiert auf Klick und Ziehen, auch über transparenten Bildstellen. GMs konfigurieren Größe in Grid-Stufen, Sichtweite in Grid-Ringen, Aufheben, Spieler-Verschieben, Spieler-Aktivierung sowie Trigger und Effekt-Aktionen.
+- Dauerhafte Bodenprofile: Im Drei-Punkte-Menü eines Items kann der GM Regeln schon im Inventar speichern. Das Profil bleibt beim Fallenlassen, Aufheben und erneuten Fallenlassen am Gegenstand.
+- Einfache Effekte: Rettungswürfe, Schadenstypen und Foundry-Zustände wie Blind, Unsichtbar, Liegend oder Bewusstlos werden über Dropdowns gewählt. Eigenes Active-Effect-JSON bleibt als Expertenoption verfügbar.
+- Variantenwürfe: Über ein Dropdown wird `1d2` bis `1d20` gewählt. Für jedes mögliche Ergebnis erscheint eine eigene aufklappbare Variante mit optionalem Wurf und beliebig vielen Aktionen; ausgeführt wird nur das tatsächlich gewürfelte Ergebnis.
+- Eigene Währungen: Der GM kann Name, Kürzel und den Umrechnungsfaktor zur jeweils nächstkleineren der fünf Währungen ändern. Rechner sowie Auf- und Abrunden verwenden diese Weltkurse sofort.
+- Fenster: Einstellungen bleiben als unabhängiges Hilfsfenster offen und merken sich Position und Größe. Bodenprofil- und Effektfenster sind verschiebbar, frei skalierbar, kompakt und scrollbar.
 - Bodenobjekt-Trefferflächen: standardmäßig `Shift + H`, frei in Foundrys Tastenbelegung konfigurierbar
 - Support und Diagnose: Symbole im Inventar-Header
 

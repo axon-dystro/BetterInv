@@ -1,0 +1,8 @@
+{
+  "name": "axons-inventory",
+  "private": true,
+  "version": "1.6.0",
+  "scripts": {
+    "test": "node tests/static-audit.mjs"
+  }
+}

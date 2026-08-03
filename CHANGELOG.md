@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.6.0
+
+- Freies Formelfeld des Stärke-/Variantenwurfs durch ein Würfeldropdown für `1d2`, `1d4`, `1d6`, `1d8`, `1d10`, `1d12` und `1d20` ersetzt.
+- Für jedes mögliche Würfelergebnis wird automatisch eine einzeln aufklappbare Variante mit eigenem optionalen Wurf und eigenen Aktionen erzeugt.
+- Die Laufzeit führt nach dem Stärke-Wurf nur die tatsächlich gewürfelte Variante aus; ihr eigener Rettungswurf steuert Erfolg-/Fehlschlag-Aktionen.
+- Bestehende exakte Stärkeaktionen aus 1.5.0 werden beim Laden automatisch in die entsprechende Variante übernommen.
+- Effektregeln lassen sich vollständig ein- und ausklappen; Varianten sind standardmäßig kompakt und der Regelbereich bleibt unabhängig von der Anzahl scrollbar.
+- Effekt- und Bodenprofil-Dialoge starten deutlich kompakter und lassen sich horizontal wie vertikal verschieben und skalieren.
+- Das Inventar-Einstellungsfenster bleibt als angeheftetes Hilfsfenster geöffnet und merkt sich Größe und Position lokal.
+- GM-Währungseinstellungen um einen Faktor zur jeweils nächstkleineren Währung erweitert.
+- Münzwert, Aufrunden, Abrunden, Rechner, Handel und Bodenmünzen verwenden die konfigurierbare fünfstufige Währungskette.
+- Bestehende Welten erhalten ohne Migrationseingriff die Standardfaktoren 10 / 2 / 5 / 10.
+- Statische Tests um frei konfigurierbare Münzkurse, tatsächliche Auf-/Abrundungsrechnung, Variantenanzahl und variantenspezifische Würfe/Aktionen erweitert.
+
+## 1.5.0
+
+- Dauerhafte Bodenprofile an Inventar-Items ergänzt; Regeln bleiben beim Fallenlassen, Aufheben und erneuten Fallenlassen erhalten.
+- GM-Aktion „Bodenprofil & Effekte“ im Drei-Punkte-Menü eines Items ergänzt.
+- Neuer automatischer Trigger „Beim Fallenlassen auf die Karte“.
+- Trigger- und Aktionsradien rasten auf die Grid-Distanz der Szene ein.
+- Radius 0 bezeichnet das eigene Grid-Kästchen; jeder weitere Schritt erweitert die Fläche um einen vollständigen Ring einschließlich Diagonalen.
+- Sichtweite im Bodenobjekt-Editor als Grid-Slider umgesetzt; neue Objekte berücksichtigen standardmäßig Foundry-Sicht und Wände.
+- Objektgröße von der logarithmischen Prozentskalierung auf feste Stufen von ⅛ bis 10 Grid-Kästchen umgestellt.
+- Sichtbare Grid-Flächen pro Regel ergänzt.
+- Foundry-Zustände wie Blind, Unsichtbar, Liegend und Bewusstlos als Dropdown ohne JSON ergänzt.
+- Schadenstyp-Dropdown sowie gridbasierte Flächenwirkung für Schaden, Heilung und Zustände ergänzt.
+- Eigenes Active-Effect-JSON bleibt getrennt als Expertenaktion verfügbar.
+- Optionaler Stärke-/Variantenwurf (zum Beispiel `1d4`) mit gespeichertem Ergebnis und Aktionsfiltern „von/bis“ ergänzt.
+- Licht und Dunkelheit bleiben mit dem Bodenobjekt verknüpft; Radius, Dauer und optionale Farbe sind konfigurierbar.
+- Namen und Kürzel der fünf Währungsslots können vom GM als Welt-Einstellung geändert werden, ohne Umrechnungswerte oder Actor-Datenpfade zu verändern.
+- Drei leere, nicht im Manifest geladene Entwicklungs-Platzhalter unter `scripts/` entfernt.
+- Statischer Test für Syntax, Manifest, Währungsnamen, persistente Bodenprofile, Grid-Rundung, Drop-Trigger und Zustandsaktionen ergänzt.
+
 ## 1.4.3
 
 - Neues sauberes Münzhaufen-Symbol statt des fehlerhaft wirkenden alten SVG-Symbols.

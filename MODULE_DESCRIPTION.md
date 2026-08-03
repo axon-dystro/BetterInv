@@ -30,7 +30,7 @@
 
 ## Geld und Währungen
 
-- **Alle D&D-Währungen:** Platin, Gold, Elektrum, Silber und Kupfer.
+- **Fünf frei benennbare Währungsslots:** Standardmäßig Platin, Gold, Elektrum, Silber und Kupfer; Name, Kürzel und Faktor zur jeweils nächstkleineren Währung kann der GM für die Welt ändern.
 - **Hinzufügen:** Münzen exakt in der eingegebenen Währung hinzufügen.
 - **Bezahlen / Entfernen:** Gesamtwert bezahlen; höhere Münzen werden automatisch aufgebrochen und Rückgeld sinnvoll ausgegeben.
 - **Aufrunden:** Gewünschte höhere Münzen eingeben; das Modul bezahlt sie automatisch aus niedrigeren Münzen.
@@ -71,4 +71,6 @@
 
 ## Bodenobjekte
 
-Gegenstände und Währungen können sichtbar auf Szenen abgelegt werden. Das vollständige rechteckige Tile ist die gemeinsame Trefferfläche für Klick, Aufheben und Ziehen, einschließlich transparenter Bildstellen. GMs können die Objekte verschieben, von 0,01× bis 100× skalieren, für Spieler verbergen oder nur innerhalb einer Reichweite mit optionaler Sichtlinienprüfung anzeigen. Aufheben, Spieler-Verschieben und Spieler-Aktivierung sind pro Objekt steuerbar. Ein integrierter Effekt-Editor unterstützt mehrere Trigger, optionale Würfe, Erfolgs-/Fehlschlag-Zweige, Abklingzeiten sowie Aktionen wie Schaden, Heilung, Active Effects, Licht, Sound, Makros und das Aktivieren weiterer Bodenobjekte.
+Gegenstände und Währungen können sichtbar auf Szenen abgelegt werden. Das vollständige Tile ist die gemeinsame Trefferfläche für Klick, Aufheben und Ziehen, einschließlich transparenter Bildstellen. Größe und Sichtweite verwenden feste Grid-Stufen: Reichweite 0 bezeichnet nur das eigene Kästchen, jeder weitere Schritt einen vollständigen Ring einschließlich Diagonalen. Foundry-Sicht und Wände können berücksichtigt werden.
+
+Der GM kann ein dauerhaftes Bodenprofil direkt am Item speichern. Es bleibt beim Weg Item → Boden → Item erhalten. Regeln reagieren auf Fallenlassen, Anklicken, Aufheben, Berühren/Betreten, Verlassen, Annähern, Stehenbleiben oder manuelles Aktivieren. Rettungswürfe, Schadenstypen und Foundry-Zustände werden über Dropdowns gewählt; eigenes Active-Effect-JSON ist nur noch eine Expertenoption. Für einen optionalen Stärke-/Variantenwurf wird `1d2` bis `1d20` gewählt; jedes mögliche Ergebnis besitzt eine aufklappbare Variante mit eigenem optionalen Wurf und eigenen Aktionen. Sichtbare Grid-Flächen, verankertes Licht oder Dunkelheit, Schaden, Heilung, Zustände, Sound, Makros und verkettete Bodenobjekte werden unterstützt.

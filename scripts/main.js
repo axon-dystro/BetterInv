@@ -35,6 +35,15 @@ const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
 const BETTER_INV_USER_SETTINGS_VERSION = 6;
 const BETTER_INV_GM_RESTRICTIONS_SETTING = "gmRestrictions";
 const BETTER_INV_GM_RESTRICTIONS_VERSION = 1;
+const BETTER_INV_CURRENCY_LABELS_SETTING = "currencyLabels";
+const BETTER_INV_GROUND_PROFILE_FLAG = "groundProfile";
+const BETTER_INV_DEFAULT_CURRENCY_LABELS = Object.freeze({
+  pp: Object.freeze({ name: "Platin", abbreviation: "PP", factorToNext: 10 }),
+  gp: Object.freeze({ name: "Gold", abbreviation: "GP", factorToNext: 2 }),
+  ep: Object.freeze({ name: "Elektrum", abbreviation: "EP", factorToNext: 5 }),
+  sp: Object.freeze({ name: "Silber", abbreviation: "SP", factorToNext: 10 }),
+  cp: Object.freeze({ name: "Kupfer", abbreviation: "CP", factorToNext: null })
+});
 const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   version: BETTER_INV_USER_SETTINGS_VERSION,
   moduleEnabled: true,
@@ -92,7 +101,7 @@ const BETTER_INV_SETTINGS_GROUPS = [
     title: "Geld",
     icon: "fa-coins",
     settings: [
-      ["showCurrency", "Geldanzeige", "Zeigt Platin, Gold, Elektrum, Silber und Kupfer."],
+      ["showCurrency", "Geldanzeige", "Zeigt die fünf Währungsslots mit den vom GM festgelegten Namen."],
       ["showCurrencyCalculator", "Geldrechner / Eingabefelder", "Zeigt die Eingabefelder für Geldaktionen."],
       ["showCurrencyAdd", "Geld hinzufügen", "Erlaubt eingegebene Münzen hinzuzufügen."],
       ["showCurrencyRemove", "Bezahlen / entfernen", "Erlaubt Geld nach Gesamtwert zu bezahlen oder zu entfernen."],
@@ -193,6 +202,7 @@ const betterInvPendingDialogElements = new Set();
 let betterInvFloatingZIndex = 20030;
 let betterInvViewportFrame = null;
 let betterInvViewportGuardInstalled = false;
+const BETTER_INV_FLOATING_LAYOUT_STORAGE_PREFIX = `${MODULE_ID}.floating-layout`;
 
 // Phase 7.8: derived actor data can safely survive several UI-only renders.
 // The cache is deliberately small and is invalidated by Actor/Item hooks so it
@@ -334,6 +344,7 @@ let betterInvState = {
 const betterInvCurrencyTransactions = new Set();
 let betterInvSettingsWriteDepth = 0;
 let betterInvGmRulesWriteDepth = 0;
+let betterInvCurrencyLabelsWriteDepth = 0;
 
 Hooks.once("init", () => {
   registerBetterInvHotkey();
@@ -378,10 +389,22 @@ Hooks.on("updateUser", (user, changes, options) => {
 });
 
 Hooks.on("updateSetting", (setting, changes, options, userId) => {
-  if (String(setting?.key ?? "") !== `${MODULE_ID}.${BETTER_INV_GM_RESTRICTIONS_SETTING}`) return;
+  const settingKey = String(setting?.key ?? "");
+  const gmRestrictionsChanged = settingKey === `${MODULE_ID}.${BETTER_INV_GM_RESTRICTIONS_SETTING}`;
+  const currencyLabelsChanged = settingKey === `${MODULE_ID}.${BETTER_INV_CURRENCY_LABELS_SETTING}`;
+  if (!gmRestrictionsChanged && !currencyLabelsChanged) return;
   closeBetterInvItemActionMenu();
   closeBetterInvCategoryMenu();
   syncBetterInvRuntimeState(getBetterInvUserSettings());
+
+  if (currencyLabelsChanged) {
+    if (isBetterInvWindowOpen()) renderBetterInvWindow({ preserveScroll: true });
+    const settingsWindow = document.getElementById("betterinv-settings-window");
+    if (settingsWindow && betterInvCurrencyLabelsWriteDepth === 0) {
+      syncBetterInvCurrencySettingsInputs(settingsWindow, getBetterInvCurrencyLabels());
+    }
+    return;
+  }
 
   const localGmWrite = game.user?.isGM && String(userId ?? "") === String(game.user?.id ?? "");
   if (betterInvGmRulesWriteDepth === 0 && !localGmWrite) {
@@ -614,6 +637,15 @@ function registerBetterInvSettings() {
     type: Object,
     default: foundry.utils.deepClone(DEFAULT_BETTER_INV_GM_RESTRICTIONS)
   });
+
+  game.settings.register(MODULE_ID, BETTER_INV_CURRENCY_LABELS_SETTING, {
+    name: "Eigene Währungsnamen",
+    hint: "Vom GM festgelegte Namen und Kürzel für die fünf D&D-Währungsslots.",
+    scope: "world",
+    config: false,
+    type: Object,
+    default: foundry.utils.deepClone(BETTER_INV_DEFAULT_CURRENCY_LABELS)
+  });
 }
 
 function normalizeBetterInvUserSettings(raw = {}) {
@@ -807,9 +839,10 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
   const itemShareAction = itemTransfer || itemGroundDrop;
   const itemDuplicate = items && allowed("showItemDuplicate");
   const itemDelete = items && allowed("showItemDelete");
+  const itemGroundConfigure = items && user?.isGM === true;
   const itemActionsMenuMaster = items && allowed("showItemActionsMenu");
   const itemActionsMenu = itemActionsMenuMaster && (
-    favorites || equipActions || itemShareAction || itemDuplicate || itemDelete
+    favorites || equipActions || itemShareAction || itemDuplicate || itemDelete || itemGroundConfigure
   );
 
   return {
@@ -835,6 +868,7 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
     itemShareAction,
     itemDuplicate,
     itemDelete,
+    itemGroundConfigure,
     equipActions,
     categoryDropdown: categories && allowed("showCategoryDropdown"),
     itemSorting: items && allowed("showItemSorting"),
@@ -1021,6 +1055,58 @@ function clampBetterInvWindowToViewport(windowEl, { margin = 10 } = {}) {
   windowEl.style.top = `${Math.round(Math.max(margin, Math.min(maxTop, currentTop)))}px`;
   windowEl.style.right = "auto";
   windowEl.style.bottom = "auto";
+}
+
+function getBetterInvFloatingLayoutStorageKey(windowEl) {
+  const windowId = String(windowEl?.id ?? "").trim();
+  if (!windowId) return "";
+  const userId = String(game.user?.id ?? "anonymous");
+  return `${BETTER_INV_FLOATING_LAYOUT_STORAGE_PREFIX}.${userId}.${windowId}`;
+}
+
+function saveBetterInvFloatingWindowLayout(windowEl) {
+  if (!(windowEl instanceof HTMLElement) || !windowEl.isConnected) return;
+  const storageKey = getBetterInvFloatingLayoutStorageKey(windowEl);
+  if (!storageKey) return;
+  const rect = windowEl.getBoundingClientRect();
+  const layout = {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height)
+  };
+  try { globalThis.localStorage?.setItem?.(storageKey, JSON.stringify(layout)); }
+  catch (_error) {}
+}
+
+function restoreBetterInvFloatingWindowLayout(windowEl) {
+  if (!(windowEl instanceof HTMLElement)) return false;
+  const storageKey = getBetterInvFloatingLayoutStorageKey(windowEl);
+  if (!storageKey) return false;
+  let layout = null;
+  try { layout = JSON.parse(globalThis.localStorage?.getItem?.(storageKey) ?? "null"); }
+  catch (_error) { return false; }
+  if (!layout || typeof layout !== "object") return false;
+  const width = Number(layout.width);
+  const height = Number(layout.height);
+  const left = Number(layout.left);
+  const top = Number(layout.top);
+  if (![width, height, left, top].every(Number.isFinite)) return false;
+  windowEl.style.width = `${Math.max(320, Math.min(window.innerWidth - 20, width))}px`;
+  windowEl.style.height = `${Math.max(360, Math.min(window.innerHeight - 20, height))}px`;
+  windowEl.style.left = `${left}px`;
+  windowEl.style.top = `${top}px`;
+  windowEl.style.right = "auto";
+  windowEl.style.bottom = "auto";
+  clampBetterInvWindowToViewport(windowEl);
+  return true;
+}
+
+function observeBetterInvFloatingWindowLayout(windowEl) {
+  if (!(windowEl instanceof HTMLElement) || windowEl._betterInvResizeObserver || typeof ResizeObserver !== "function") return;
+  const observer = new ResizeObserver(() => saveBetterInvFloatingWindowLayout(windowEl));
+  observer.observe(windowEl);
+  windowEl._betterInvResizeObserver = observer;
 }
 
 function betterInvRectOverlapArea(a, b) {
@@ -2878,7 +2964,9 @@ function updateBetterInvSettingsButtonState() {
 
 function closeBetterInvSettingsWindow() {
   const settingsWindow = document.getElementById("betterinv-settings-window");
+  if (settingsWindow) saveBetterInvFloatingWindowLayout(settingsWindow);
   settingsWindow?._betterInvDragController?.abort?.();
+  settingsWindow?._betterInvResizeObserver?.disconnect?.();
   settingsWindow?.remove();
   updateBetterInvSettingsButtonState();
 }
@@ -3628,6 +3716,7 @@ function openBetterInvSettingsWindow() {
   const gmScope = game.user?.isGM ? getBetterInvDefaultGmRestrictionScope(actor, activeContainer) : "";
   if (game.user?.isGM) betterInvState.gmRestrictionScope = gmScope;
   const scopeOptions = game.user?.isGM ? getBetterInvGmRestrictionScopeOptions(actor, activeContainer) : [];
+  const currencyLabels = game.user?.isGM ? getBetterInvCurrencyLabels() : null;
 
   const gmRulesHtml = game.user?.isGM ? `
     <section class="betterinv-gm-rules-panel">
@@ -3650,8 +3739,33 @@ function openBetterInvSettingsWindow() {
       </div>
       <div class="betterinv-gm-rules-editor">${betterInvGmRulesGroupsHtml(gmScope)}</div>
       <p class="betterinv-gm-rules-note"><i class="fas fa-info-circle" aria-hidden="true"></i>Rucksackregeln gelten nur, während genau dieser Rucksack geöffnet ist. Globale Sperren gelten zusätzlich immer.</p>
-    </section>
-    <div class="betterinv-settings-section-divider"><span>Meine eigene Ansicht</span></div>` : "";
+    </section>` : "";
+  const gmCurrencyLabelsHtml = game.user?.isGM ? `
+    <section class="betterinv-gm-currency-labels">
+      <div class="betterinv-gm-rules-heading">
+        <div>
+          <strong><i class="fas fa-coins" aria-hidden="true"></i>Währungen der Welt</strong>
+          <small>Name, Kürzel und der Faktor zur jeweils nächstkleineren Währung gelten für alle Anzeigen, Rechner und Münzwechsel.</small>
+        </div>
+        <button type="button" data-currency-labels-reset title="Standardnamen und Standardkurse wiederherstellen"><i class="fas fa-rotate-left"></i> Standard</button>
+      </div>
+      <div class="betterinv-gm-currency-label-grid">
+        ${getBetterInvCurrencies().map((currency, index, currencies) => `
+          <div class="betterinv-gm-currency-label-row" data-currency-label-key="${escapeAttr(currency.key)}">
+            <span class="betterinv-gm-currency-slot">${escapeHtml(currency.key.toUpperCase())}</span>
+            <label>Name
+              <input type="text" data-currency-label-name maxlength="28" value="${escapeAttr(currencyLabels[currency.key].name)}">
+            </label>
+            <label>Kürzel
+              <input type="text" data-currency-label-abbreviation maxlength="8" value="${escapeAttr(currencyLabels[currency.key].abbreviation)}">
+            </label>
+            ${currencies[index + 1] ? `<label class="betterinv-gm-currency-factor">Faktor zu <span data-currency-next-abbreviation>${escapeHtml(currencies[index + 1].abbreviation)}</span>
+              <input type="number" data-currency-label-factor min="1" max="1000" step="1" value="${escapeAttr(currencyLabels[currency.key].factorToNext)}">
+            </label>` : `<span class="betterinv-gm-currency-base"><i class="fas fa-equals" aria-hidden="true"></i> Basiswert</span>`}
+          </div>`).join("")}
+      </div>
+      <button type="button" class="betterinv-gm-currency-save" data-currency-labels-save><i class="fas fa-floppy-disk"></i> Währungen und Kurse speichern</button>
+    </section>` : "";
 
   const settingsWindow = document.createElement("section");
   settingsWindow.id = "betterinv-settings-window";
@@ -3662,10 +3776,15 @@ function openBetterInvSettingsWindow() {
         <strong>Inventar-Einstellungen</strong>
         <small>${game.user?.isGM ? "Spielerfunktionen sperren und eigene Ansicht einstellen" : "Persönlich für deinen Foundry-Nutzer"}</small>
       </div>
-      <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
+      <div class="betterinv-settings-window-actions">
+        <span class="betterinv-settings-pinned" title="Dieses Fenster bleibt offen, lässt sich verschieben und merkt sich Position und Größe."><i class="fas fa-thumbtack" aria-hidden="true"></i></span>
+        <button type="button" class="betterinv-settings-close" title="Einstellungen schließen" aria-label="Einstellungen schließen">×</button>
+      </div>
     </header>
     <div class="betterinv-settings-window-scroll">
       ${gmRulesHtml}
+      ${gmCurrencyLabelsHtml}
+      ${game.user?.isGM ? '<div class="betterinv-settings-section-divider"><span>Meine eigene Ansicht</span></div>' : ""}
       <section class="betterinv-settings-master">
         <label class="betterinv-settings-row betterinv-settings-master-row${masterLocked ? " betterinv-settings-row-gm-locked" : ""}">
           <span>
@@ -3701,8 +3820,11 @@ function openBetterInvSettingsWindow() {
 
   const inventoryWindow = document.getElementById("betterinv-window");
   document.body.appendChild(settingsWindow);
-  positionBetterInvAuxiliaryWindow(settingsWindow, [inventoryWindow]);
+  if (!restoreBetterInvFloatingWindowLayout(settingsWindow)) {
+    positionBetterInvAuxiliaryWindow(settingsWindow, [inventoryWindow]);
+  }
   bringBetterInvFloatingWindowToFront(settingsWindow);
+  observeBetterInvFloatingWindowLayout(settingsWindow);
 
   settingsWindow.querySelectorAll(".betterinv-gm-rule-group-toggle[data-indeterminate='true']").forEach(input => {
     input.indeterminate = true;
@@ -3884,6 +4006,53 @@ function openBetterInvSettingsWindow() {
         }
         void applyGmDisabledKeys(scope, disabled);
       });
+    });
+
+    const readCurrencyLabels = () => Object.fromEntries(
+      Array.from(settingsWindow.querySelectorAll("[data-currency-label-key]")).map(row => {
+        const key = String(row.dataset.currencyLabelKey ?? "");
+        return [key, {
+          name: row.querySelector("[data-currency-label-name]")?.value ?? "",
+          abbreviation: row.querySelector("[data-currency-label-abbreviation]")?.value ?? "",
+          factorToNext: row.querySelector("[data-currency-label-factor]")?.value ?? null
+        }];
+      })
+    );
+    settingsWindow.querySelector("[data-currency-labels-save]")?.addEventListener("click", event => {
+      event.preventDefault();
+      void (async () => {
+        setSettingsBusy(true);
+        try {
+          betterInvCurrencyLabelsWriteDepth += 1;
+          try {
+            await game.settings.set(MODULE_ID, BETTER_INV_CURRENCY_LABELS_SETTING, normalizeBetterInvCurrencyLabels(readCurrencyLabels()));
+          } finally {
+            betterInvCurrencyLabelsWriteDepth = Math.max(0, betterInvCurrencyLabelsWriteDepth - 1);
+          }
+          syncBetterInvCurrencySettingsInputs(settingsWindow, getBetterInvCurrencyLabels());
+          ui.notifications.info("Währungsnamen und Umrechnungskurse gespeichert.");
+        } catch (error) {
+          logBetterInvDiagnostic("error", "BI-CURRENCY-LABELS-001", "Währungen konnten nicht gespeichert werden", error);
+          ui.notifications.error(error?.message || "Die Währungen und Kurse konnten nicht gespeichert werden.");
+        } finally {
+          if (settingsWindow.isConnected) setSettingsBusy(false);
+        }
+      })();
+    });
+    settingsWindow.querySelector("[data-currency-labels-reset]")?.addEventListener("click", event => {
+      event.preventDefault();
+      for (const row of Array.from(settingsWindow.querySelectorAll("[data-currency-label-key]"))) {
+        const key = String(row.dataset.currencyLabelKey ?? "");
+        const defaults = BETTER_INV_DEFAULT_CURRENCY_LABELS[key];
+        if (!defaults) continue;
+        const nameInput = row.querySelector("[data-currency-label-name]");
+        const abbreviationInput = row.querySelector("[data-currency-label-abbreviation]");
+        const factorInput = row.querySelector("[data-currency-label-factor]");
+        if (nameInput) nameInput.value = defaults.name;
+        if (abbreviationInput) abbreviationInput.value = defaults.abbreviation;
+        if (factorInput) factorInput.value = String(defaults.factorToNext);
+      }
+      syncBetterInvCurrencySettingsInputs(settingsWindow, readCurrencyLabels());
     });
   }
 
@@ -4232,6 +4401,10 @@ function getBetterInvCurrencyConfig() {
 function getBetterInvCurrencyLabel(denomination) {
   const code = String(denomination ?? "").trim();
   if (!code) return "";
+  const custom = getBetterInvCurrencies().find(currency =>
+    currency.key === code.toLowerCase() || currency.aliases.includes(code.toLowerCase())
+  );
+  if (custom) return custom.abbreviation;
   const config = getBetterInvCurrencyConfig();
   const entry = config?.[code] ?? config?.[code.toLowerCase()] ?? config?.[code.toUpperCase()];
   const raw = entry && typeof entry === "object"
@@ -4341,30 +4514,95 @@ function betterInvItemPriceHtml(item, { unidentified = false, enabled = betterIn
     </span>`;
 }
 
-const BETTER_INV_CURRENCIES = [
-  { key: "pp", aliases: ["pp", "platinum", "platin"], name: "Platin", abbreviation: "PP", copperValue: 1000 },
-  { key: "gp", aliases: ["gp", "gold"], name: "Gold", abbreviation: "GP", copperValue: 100 },
-  { key: "ep", aliases: ["ep", "electrum", "elektrum"], name: "Elektrum", abbreviation: "EP", copperValue: 50 },
-  { key: "sp", aliases: ["sp", "silver", "silber"], name: "Silber", abbreviation: "SP", copperValue: 10 },
-  { key: "cp", aliases: ["cp", "copper", "kupfer"], name: "Kupfer", abbreviation: "CP", copperValue: 1 }
-];
+const BETTER_INV_BASE_CURRENCIES = Object.freeze([
+  Object.freeze({ key: "pp", aliases: ["pp", "platinum", "platin"] }),
+  Object.freeze({ key: "gp", aliases: ["gp", "gold"] }),
+  Object.freeze({ key: "ep", aliases: ["ep", "electrum", "elektrum"] }),
+  Object.freeze({ key: "sp", aliases: ["sp", "silver", "silber"] }),
+  Object.freeze({ key: "cp", aliases: ["cp", "copper", "kupfer"] })
+]);
 
-// The practical D&D coin ladder deliberately converts gold directly to silver.
-// Electrum remains independently exchangeable to silver, so the common
-// conversion 1 GP -> 10 SP does not unexpectedly produce 2 EP.
+function normalizeBetterInvCurrencyLabels(raw = {}) {
+  const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+  return Object.fromEntries(BETTER_INV_BASE_CURRENCIES.map(currency => {
+    const defaults = BETTER_INV_DEFAULT_CURRENCY_LABELS[currency.key];
+    const entry = source[currency.key] && typeof source[currency.key] === "object"
+      ? source[currency.key]
+      : {};
+    const name = sanitizePlainText(entry.name, { max: 28 }) || defaults.name;
+    const abbreviation = sanitizePlainText(entry.abbreviation, { max: 8 }) || defaults.abbreviation;
+    const requestedFactor = Math.trunc(Number(entry.factorToNext));
+    const factorToNext = defaults.factorToNext == null
+      ? null
+      : (Number.isSafeInteger(requestedFactor) && requestedFactor >= 1 && requestedFactor <= 1000
+          ? requestedFactor
+          : defaults.factorToNext);
+    return [currency.key, { name, abbreviation, factorToNext }];
+  }));
+}
+
+function getBetterInvCurrencyLabels() {
+  try {
+    return normalizeBetterInvCurrencyLabels(game.settings?.get?.(MODULE_ID, BETTER_INV_CURRENCY_LABELS_SETTING));
+  } catch (_error) {
+    return normalizeBetterInvCurrencyLabels(BETTER_INV_DEFAULT_CURRENCY_LABELS);
+  }
+}
+
+function getBetterInvCurrencies() {
+  const labels = getBetterInvCurrencyLabels();
+  const currencies = BETTER_INV_BASE_CURRENCIES.map(currency => ({
+    ...currency,
+    ...labels[currency.key]
+  }));
+  for (let index = currencies.length - 1; index >= 0; index -= 1) {
+    if (index === currencies.length - 1) {
+      currencies[index].copperValue = 1;
+      continue;
+    }
+    const copperValue = currencies[index + 1].copperValue * currencies[index].factorToNext;
+    if (!Number.isSafeInteger(copperValue) || copperValue <= 0) {
+      throw new Error(`Der Umrechnungskurs für ${currencies[index].name} ist zu groß.`);
+    }
+    currencies[index].copperValue = copperValue;
+  }
+  return currencies;
+}
+
+function syncBetterInvCurrencySettingsInputs(settingsWindow, rawLabels = getBetterInvCurrencyLabels()) {
+  if (!(settingsWindow instanceof HTMLElement)) return;
+  const labels = normalizeBetterInvCurrencyLabels(rawLabels);
+  const currencies = BETTER_INV_BASE_CURRENCIES.map(currency => ({
+    ...currency,
+    ...labels[currency.key]
+  }));
+  for (const [index, currency] of currencies.entries()) {
+    const row = settingsWindow.querySelector(`[data-currency-label-key="${CSS.escape(currency.key)}"]`);
+    if (!row) continue;
+    const nameInput = row.querySelector("[data-currency-label-name]");
+    const abbreviationInput = row.querySelector("[data-currency-label-abbreviation]");
+    const factorInput = row.querySelector("[data-currency-label-factor]");
+    const nextAbbreviation = row.querySelector("[data-currency-next-abbreviation]");
+    if (nameInput) nameInput.value = labels[currency.key].name;
+    if (abbreviationInput) abbreviationInput.value = labels[currency.key].abbreviation;
+    if (factorInput) factorInput.value = String(labels[currency.key].factorToNext);
+    if (nextAbbreviation) nextAbbreviation.textContent = currencies[index + 1]?.abbreviation ?? "";
+  }
+}
+
+// Every slot converts to its direct neighbour. The configurable factor stored
+// on the source slot determines the value of that one step.
 const BETTER_INV_CURRENCY_DOWN_TARGETS = {
   pp: "gp",
-  gp: "sp",
+  gp: "ep",
   ep: "sp",
   sp: "cp"
 };
 
-// Upward exchange mirrors the practical downward ladder. Silver goes directly
-// to gold, while electrum can still be exchanged independently at 2 EP -> 1 GP.
 const BETTER_INV_CURRENCY_UP_TARGETS = {
   gp: "pp",
   ep: "gp",
-  sp: "gp",
+  sp: "ep",
   cp: "sp"
 };
 
@@ -4384,7 +4622,7 @@ function getBetterInvActorCurrencySourceInfo(actor) {
 
   const hasKnownCurrency = source => {
     const keys = new Set(Object.keys(source ?? {}).map(key => String(key).toLowerCase()));
-    return BETTER_INV_CURRENCIES.some(currency => currency.aliases.some(alias => keys.has(alias)));
+    return getBetterInvCurrencies().some(currency => currency.aliases.some(alias => keys.has(alias)));
   };
 
   const detected = candidates.find(entry => hasKnownCurrency(entry.source));
@@ -4423,7 +4661,7 @@ function getBetterInvCurrencyAmount(source, aliases) {
 function getBetterInvActorCurrency(actor) {
   const source = getBetterInvActorCurrencySource(actor);
   if (!source) return null;
-  return BETTER_INV_CURRENCIES.map(currency => ({
+  return getBetterInvCurrencies().map(currency => ({
     ...currency,
     value: getBetterInvCurrencyAmount(source, currency.aliases)
   }));
@@ -4445,7 +4683,7 @@ function getBetterInvCurrencyDraft(actor) {
   const draft = betterInvState.currencyDraft && typeof betterInvState.currencyDraft === "object"
     ? betterInvState.currencyDraft
     : {};
-  return Object.fromEntries(BETTER_INV_CURRENCIES.map(currency => [
+  return Object.fromEntries(getBetterInvCurrencies().map(currency => [
     currency.key,
     normalizeBetterInvCurrencyDraftValue(draft[currency.key], { allowBlank: true })
   ]));
@@ -4472,7 +4710,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, {
           ${showRoundUp ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-exchange-up"
-            title="Gewünschte Zielmünzen aus niedrigeren Münzarten bilden, zum Beispiel bei Silber 2: 20 CP werden zu 2 SP"
+            title="Gewünschte Zielmünzen aus niedrigeren Münzarten nach den vom GM eingestellten Weltkursen bilden"
             ${editable ? "" : "disabled"}
           >
             <i class="fas fa-arrow-up" aria-hidden="true"></i>
@@ -4481,7 +4719,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, {
           ${showRoundDown ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-exchange-down"
-            title="Eingegebene Münzen jeweils eine Stufe nach unten wechseln, zum Beispiel 2 SP in 20 CP"
+            title="Eingegebene Münzen jeweils eine Stufe nach unten nach dem eingestellten Weltkurs wechseln"
             ${editable ? "" : "disabled"}
           >
             <i class="fas fa-arrow-down" aria-hidden="true"></i>
@@ -4587,7 +4825,7 @@ function getBetterInvCurrencyWallet(actor) {
   if (!actor) throw new Error("Der Charakter konnte nicht gelesen werden.");
 
   const seenPaths = new Set();
-  return BETTER_INV_CURRENCIES.map(currency => {
+  return getBetterInvCurrencies().map(currency => {
     const storage = getBetterInvCurrencyStorage(actor, currency);
     if (!storage?.updatePath) {
       throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
@@ -4733,7 +4971,7 @@ function getBetterInvCurrencyAdditionDraft() {
   const draft = betterInvState.currencyDraft && typeof betterInvState.currencyDraft === "object"
     ? betterInvState.currencyDraft
     : {};
-  return BETTER_INV_CURRENCIES.map(currency => {
+  return getBetterInvCurrencies().map(currency => {
     const normalized = normalizeBetterInvCurrencyDraftValue(draft[currency.key], { allowBlank: true });
     const amount = normalized ? Number(normalized) : 0;
     return { ...currency, amount: Number.isSafeInteger(amount) && amount > 0 ? amount : 0 };
@@ -4931,10 +5169,10 @@ function getBetterInvCurrencyTotalInCopper(currencies, amountProperty = "value")
 
 function formatBetterInvCopperTotal(totalCopper) {
   let remaining = Math.max(0, Math.trunc(Number(totalCopper) || 0));
-  if (!remaining) return "0 CP";
+  if (!remaining) return `0 ${getBetterInvCurrencies().at(-1)?.abbreviation ?? "CP"}`;
 
   const parts = [];
-  for (const currency of BETTER_INV_CURRENCIES) {
+  for (const currency of getBetterInvCurrencies()) {
     const copperValue = Number(currency.copperValue) || 1;
     const amount = Math.floor(remaining / copperValue);
     if (!amount) continue;
@@ -5029,7 +5267,7 @@ function addBetterInvCurrencyChange(balances, totalCopper) {
   }
 
   const change = [];
-  for (const currency of BETTER_INV_CURRENCIES) {
+  for (const currency of getBetterInvCurrencies()) {
     if (remaining < currency.copperValue) continue;
     const amount = Math.floor(remaining / currency.copperValue);
     if (!amount) continue;
@@ -5075,7 +5313,7 @@ function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
   // First pay with existing coins without exceeding the requested value. The
   // entered denominations describe the price; the purse may settle that value
   // with any equivalent combination of coins.
-  for (const currency of BETTER_INV_CURRENCIES) {
+  for (const currency of getBetterInvCurrencies()) {
     const balance = balances.get(currency.key);
     if (!balance?.value || remaining < currency.copperValue) continue;
     const amount = Math.min(balance.value, Math.floor(remaining / currency.copperValue));
@@ -5090,7 +5328,7 @@ function calculateBetterInvCurrencyPayment(wallet, requestedCopper) {
     // No exact combination was available. Break the smallest remaining coin
     // which is worth more than the outstanding amount. The difference is then
     // returned greedily from the highest possible denomination down to copper.
-    const sourceCurrency = [...BETTER_INV_CURRENCIES]
+    const sourceCurrency = [...getBetterInvCurrencies()]
       .reverse()
       .find(currency => currency.copperValue > remaining && (balances.get(currency.key)?.value ?? 0) > 0);
 
@@ -5141,9 +5379,9 @@ function calculateBetterInvCurrencyDownExchange(wallet, exchanges) {
       throw new Error("Der Wechselbetrag ist ungültig.");
     }
 
-    const source = BETTER_INV_CURRENCIES.find(currency => currency.key === exchange.key);
+    const source = getBetterInvCurrencies().find(currency => currency.key === exchange.key);
     const targetKey = source ? BETTER_INV_CURRENCY_DOWN_TARGETS[source.key] : null;
-    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === targetKey);
+    const target = getBetterInvCurrencies().find(currency => currency.key === targetKey);
     if (!source || !target) {
       throw new Error(`${source?.name ?? "Diese Währung"} kann nicht weiter nach unten gewechselt werden.`);
     }
@@ -5162,7 +5400,7 @@ function calculateBetterInvCurrencyDownExchange(wallet, exchanges) {
 
     const rate = source.copperValue / target.copperValue;
     const receivedAmount = amount * rate;
-    if (!Number.isSafeInteger(rate) || rate <= 1 || !Number.isSafeInteger(receivedAmount)) {
+    if (!Number.isSafeInteger(rate) || rate < 1 || !Number.isSafeInteger(receivedAmount)) {
       throw new Error(`Für ${source.name} wurde kein gültiger Wechselkurs gefunden.`);
     }
     conversions.push({ source, target, amount, receivedAmount, rate });
@@ -5274,9 +5512,9 @@ function calculateBetterInvCurrencyUpExchangeLegacySourceMode(wallet, exchanges)
       throw new Error("Der Wechselbetrag ist ungültig.");
     }
 
-    const source = BETTER_INV_CURRENCIES.find(currency => currency.key === exchange.key);
+    const source = getBetterInvCurrencies().find(currency => currency.key === exchange.key);
     const targetKey = source ? BETTER_INV_CURRENCY_UP_TARGETS[source.key] : null;
-    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === targetKey);
+    const target = getBetterInvCurrencies().find(currency => currency.key === targetKey);
     if (!source || !target) {
       throw new Error(`${source?.name ?? "Diese Währung"} kann nicht weiter nach oben gewechselt werden.`);
     }
@@ -5350,7 +5588,7 @@ async function exchangeBetterInvCurrencyUpLegacySourceMode(actor) {
     return false;
   }
 
-  const wallet = BETTER_INV_CURRENCIES.map(currency => {
+  const wallet = getBetterInvCurrencies().map(currency => {
     const storage = getBetterInvCurrencyStorage(actor, currency);
     if (!storage?.updatePath) {
       throw new Error(`Kein Speicherpfad für ${currency.key} gefunden.`);
@@ -5359,8 +5597,8 @@ async function exchangeBetterInvCurrencyUpLegacySourceMode(actor) {
   });
 
   for (const exchange of exchanges) {
-    const source = BETTER_INV_CURRENCIES.find(currency => currency.key === exchange.key);
-    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === BETTER_INV_CURRENCY_UP_TARGETS[exchange.key]);
+    const source = getBetterInvCurrencies().find(currency => currency.key === exchange.key);
+    const target = getBetterInvCurrencies().find(currency => currency.key === BETTER_INV_CURRENCY_UP_TARGETS[exchange.key]);
     const current = wallet.find(currency => currency.key === exchange.key)?.value ?? 0;
     if (!Number.isSafeInteger(current) || current < exchange.amount) {
       ui.notifications.warn(
@@ -5423,12 +5661,12 @@ function calculateBetterInvCurrencyUpExchange(wallet, requests) {
 
   const normalizedRequests = Array.from(requests ?? []).map(request => {
     const amount = Math.max(0, Math.trunc(Number(request?.amount) || 0));
-    const target = BETTER_INV_CURRENCIES.find(currency => currency.key === request?.key);
+    const target = getBetterInvCurrencies().find(currency => currency.key === request?.key);
     if (!target || !Number.isSafeInteger(amount) || amount <= 0) {
       throw new Error("Der gewünschte Aufrundungsbetrag ist ungültig.");
     }
     if (target.key === "cp") {
-      throw new Error("Kupfer kann nicht aus einer niedrigeren Münzart aufgerundet werden.");
+      throw new Error(`${target.name} kann nicht aus einer niedrigeren Münzart aufgerundet werden.`);
     }
     return { ...request, amount, target };
   }).sort((a, b) => b.target.copperValue - a.target.copperValue);
@@ -5440,8 +5678,9 @@ function calculateBetterInvCurrencyUpExchange(wallet, requests) {
   // continue down the ladder. Example: 2 GP use EP first, then SP, then CP.
   for (const request of normalizedRequests) {
     const target = request.target;
-    const targetIndex = BETTER_INV_CURRENCIES.findIndex(currency => currency.key === target.key);
-    const lowerCurrencies = BETTER_INV_CURRENCIES.slice(targetIndex + 1);
+    const currencies = getBetterInvCurrencies();
+    const targetIndex = currencies.findIndex(currency => currency.key === target.key);
+    const lowerCurrencies = currencies.slice(targetIndex + 1);
     const requiredCopper = request.amount * target.copperValue;
     if (!Number.isSafeInteger(requiredCopper) || requiredCopper <= 0) {
       throw new Error(`Der Gegenwert für ${target.name} ist zu groß.`);
@@ -5533,7 +5772,8 @@ async function exchangeBetterInvCurrencyUp(actor) {
 
   const copperRequest = requests.find(request => request.key === "cp");
   if (copperRequest) {
-    ui.notifications.warn("Kupfer kann nicht aus einer niedrigeren Münzart aufgerundet werden.");
+    const copper = getBetterInvCurrencies().find(currency => currency.key === "cp");
+    ui.notifications.warn(`${copper?.name ?? "Kupfer"} kann nicht aus einer niedrigeren Münzart aufgerundet werden.`);
     return false;
   }
 
@@ -6368,7 +6608,11 @@ function prepareBetterInvTransferredItemData(item, quantity) {
   delete data._stats;
 
   data.flags = data.flags && typeof data.flags === "object" ? data.flags : {};
+  const persistentGroundProfile = foundry.utils.deepClone(data.flags?.[MODULE_ID]?.[BETTER_INV_GROUND_PROFILE_FLAG] ?? null);
   delete data.flags[MODULE_ID];
+  if (persistentGroundProfile && typeof persistentGroundProfile === "object") {
+    data.flags[MODULE_ID] = { [BETTER_INV_GROUND_PROFILE_FLAG]: persistentGroundProfile };
+  }
 
   // Categories from Axon’s Inventory and the source actor's container id are local
   // organization data. The receiving actor always gets the item unsorted at root.
@@ -7408,8 +7652,8 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
 const BETTER_INV_GROUND_FLAG = "groundLoot";
 const BETTER_INV_GROUND_PICKUP_CLAIMS_FLAG = "groundPickupClaims";
 const BETTER_INV_GROUND_SOCKET = `module.${MODULE_ID}`;
-const BETTER_INV_GROUND_SCALE_MIN = 0.01;
-const BETTER_INV_GROUND_SCALE_MAX = 100;
+const BETTER_INV_GROUND_SIZE_STEPS = Object.freeze([0.125, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8, 10]);
+const BETTER_INV_GROUND_DEFAULT_SIZE = 0.5;
 const BETTER_INV_GROUND_SOCKET_TIMEOUT_MS = 15000;
 const BETTER_INV_GROUND_CURRENCY_IMAGES = Object.freeze({
   pp: `modules/${MODULE_ID}/assets/ground-coins-pp.png`,
@@ -7419,6 +7663,84 @@ const BETTER_INV_GROUND_CURRENCY_IMAGES = Object.freeze({
   cp: `modules/${MODULE_ID}/assets/ground-coins-cp.png`,
   mixed: `modules/${MODULE_ID}/assets/ground-coins-mixed.png`
 });
+
+function getBetterInvItemGroundProfile(itemOrData) {
+  if (!itemOrData) return null;
+  try {
+    const raw = itemOrData.getFlag?.(MODULE_ID, BETTER_INV_GROUND_PROFILE_FLAG)
+      ?? foundry.utils.getProperty(itemOrData, `flags.${MODULE_ID}.${BETTER_INV_GROUND_PROFILE_FLAG}`);
+    return raw && typeof raw === "object" && !Array.isArray(raw)
+      ? foundry.utils.deepClone(raw)
+      : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function getBetterInvNormalizedItemGroundProfile(item, scene = canvas?.scene) {
+  const stored = getBetterInvItemGroundProfile(item) ?? {};
+  const gridStepFeet = getBetterInvGroundGridStepFeet(scene);
+  const display = stored.display && typeof stored.display === "object" ? stored.display : {};
+  const interaction = stored.interaction && typeof stored.interaction === "object" ? stored.interaction : {};
+  const permissions = stored.permissions && typeof stored.permissions === "object" ? stored.permissions : {};
+  const effects = stored.effects && typeof stored.effects === "object" ? stored.effects : {};
+  const storedVisibilityFeet = Number(display.visibilityDistanceFeet);
+  return {
+    version: 1,
+    display: {
+      sizeGridUnits: Math.max(0.125, Number(display.sizeGridUnits) || BETTER_INV_GROUND_DEFAULT_SIZE),
+      visibilityMode: ["always", "proximity", "hidden"].includes(String(display.visibilityMode))
+        ? String(display.visibilityMode)
+        : "always",
+      visibilityDistanceFeet: Number.isFinite(storedVisibilityFeet) ? Math.max(0, storedVisibilityFeet) : gridStepFeet,
+      visibilityEnterDelay: Math.max(0, Number(display.visibilityEnterDelay) || 0),
+      visibilityExitDelay: Math.max(0, Number(display.visibilityExitDelay) || 0),
+      visibilityFadeDuration: Math.max(0, Number.isFinite(Number(display.visibilityFadeDuration))
+        ? Number(display.visibilityFadeDuration)
+        : 0.18),
+      requireLineOfSight: display.requireLineOfSight !== false
+    },
+    interaction: {
+      pickupEnabled: interaction.pickupEnabled !== false
+    },
+    permissions: {
+      playerMove: permissions.playerMove === true,
+      playerActivate: permissions.playerActivate !== false
+    },
+    effects: {
+      ...foundry.utils.deepClone(effects),
+      rules: Array.isArray(effects.rules) ? foundry.utils.deepClone(effects.rules) : []
+    }
+  };
+}
+
+function buildBetterInvGroundProfile(loot = {}) {
+  const effects = foundry.utils.deepClone(loot.effects ?? {});
+  delete effects.runtime;
+  delete effects.lastPower;
+  return {
+    version: 1,
+    display: foundry.utils.deepClone(loot.display ?? {}),
+    interaction: foundry.utils.deepClone(loot.interaction ?? {}),
+    permissions: foundry.utils.deepClone(loot.permissions ?? {}),
+    effects: {
+      ...effects,
+      rules: Array.isArray(effects.rules) ? effects.rules : []
+    }
+  };
+}
+
+function syncBetterInvGroundProfileIntoLoot(loot) {
+  if (!loot || loot.kind !== "item" || !loot.itemData || typeof loot.itemData !== "object") return loot;
+  loot.itemData.flags = loot.itemData.flags && typeof loot.itemData.flags === "object"
+    ? loot.itemData.flags
+    : {};
+  loot.itemData.flags[MODULE_ID] = loot.itemData.flags[MODULE_ID] && typeof loot.itemData.flags[MODULE_ID] === "object"
+    ? loot.itemData.flags[MODULE_ID]
+    : {};
+  loot.itemData.flags[MODULE_ID][BETTER_INV_GROUND_PROFILE_FLAG] = buildBetterInvGroundProfile(loot);
+  return loot;
+}
 
 function getBetterInvGroundCurrencyImage(transfers = []) {
   const keys = Array.from(new Set(Array.from(transfers ?? [])
@@ -7562,7 +7884,7 @@ function getBetterInvGroundFeaturePlanFor(user, actor, containerId = null) {
 
 function normalizeBetterInvGroundTransfers(transfers) {
   const source = Array.from(transfers ?? []);
-  return BETTER_INV_CURRENCIES.map(currency => {
+  return getBetterInvCurrencies().map(currency => {
     const raw = source.find(entry => String(entry?.key ?? "") === currency.key);
     const amount = Math.max(0, Math.trunc(Number(raw?.amount) || 0));
     return { ...currency, amount: Number.isSafeInteger(amount) ? amount : 0 };
@@ -7571,7 +7893,11 @@ function normalizeBetterInvGroundTransfers(transfers) {
 
 function buildBetterInvGroundTileData(scene, { x, y, name, image, loot }) {
   const gridSize = Math.max(50, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
-  const size = Math.max(52, Math.round(gridSize * 0.64));
+  const requestedGridUnits = Number(loot?.display?.sizeGridUnits);
+  const sizeGridUnits = Number.isFinite(requestedGridUnits) && requestedGridUnits > 0
+    ? requestedGridUnits
+    : BETTER_INV_GROUND_DEFAULT_SIZE;
+  const size = Math.max(1, Math.round(gridSize * sizeGridUnits));
   const pointX = Number.isFinite(Number(x)) ? Number(x) : 0;
   const pointY = Number.isFinite(Number(y)) ? Number(y) : 0;
   const normalizedLoot = foundry.utils.deepClone(loot ?? {});
@@ -7579,13 +7905,14 @@ function buildBetterInvGroundTileData(scene, { x, y, name, image, loot }) {
     baseWidth: size,
     baseHeight: size,
     scale: 1,
+    sizeGridUnits,
     visibilityMode: "always",
     visibilityDistance: Math.max(1, Number(scene?.grid?.distance ?? 5) || 5),
     visibilityDistanceFeet: convertBetterInvSceneDistanceToFeet(Math.max(1, Number(scene?.grid?.distance ?? 5) || 5), scene),
     visibilityEnterDelay: 0,
     visibilityExitDelay: 0,
     visibilityFadeDuration: 0.18,
-    requireLineOfSight: false,
+    requireLineOfSight: true,
     ...(normalizedLoot.display ?? {})
   };
   normalizedLoot.interaction = {
@@ -7613,8 +7940,8 @@ function buildBetterInvGroundTileData(scene, { x, y, name, image, loot }) {
     flags: {
       [MODULE_ID]: {
         [BETTER_INV_GROUND_FLAG]: {
-          version: 2,
-          ...normalizedLoot
+          ...normalizedLoot,
+          version: Math.max(3, Number(normalizedLoot.version) || 0)
         }
       }
     }
@@ -7697,12 +8024,14 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     if (containedItems.length) throw new Error(`${sourceItem.name} enthält noch Gegenstände. Leere den Rucksack vor dem Ablegen.`);
 
     const itemData = prepareBetterInvTransferredItemData(sourceItem, quantity);
+    const groundProfile = getBetterInvItemGroundProfile(sourceItem) ?? {};
     const tileData = buildBetterInvGroundTileData(scene, {
       x: payload.x,
       y: payload.y,
       name: `${quantity} × ${sourceItem.name}`,
       image: sourceItem.img,
       loot: {
+        ...groundProfile,
         kind: "item",
         name: sourceItem.name,
         image: sourceItem.img || "icons/svg/item-bag.svg",
@@ -7721,6 +8050,17 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     } catch (error) {
       try { await tile.delete({ betterInventoryGroundRollback: true }); } catch (_rollbackError) {}
       throw error;
+    }
+    if (globalThis.AxonsInventoryGround?.hasTrigger?.(tile, "drop")) {
+      try {
+        await globalThis.AxonsInventoryGround.runTrigger(tile, "drop", {
+          actor: sourceActor,
+          forceLocal: true
+        });
+      } catch (error) {
+        logBetterInvDiagnostic("error", "BI-GROUND-DROP-EFFECT-001", "Fallenlassen-Effekt konnte nicht ausgeführt werden", error);
+        ui.notifications.error(error?.message || "Der Gegenstand liegt auf dem Boden, aber sein Fallenlassen-Effekt ist fehlgeschlagen.");
+      }
     }
     return { tileId: tile.id, name: sourceItem.name, quantity };
   }
@@ -8296,19 +8636,37 @@ function convertBetterInvSceneDistanceToFeet(value, scene = canvas?.scene) {
   return amount;
 }
 
+function getBetterInvGroundGridStepFeet(scene = canvas?.scene) {
+  return Math.max(0.0001, convertBetterInvSceneDistanceToFeet(
+    Math.max(0.0001, Number(scene?.grid?.distance ?? 5) || 5),
+    scene
+  ));
+}
+
+function snapBetterInvGroundFeetToGrid(value, scene = canvas?.scene) {
+  const step = getBetterInvGroundGridStepFeet(scene);
+  const amount = Math.max(0, Number(value) || 0);
+  return Math.round(amount / step) * step;
+}
+
 function getBetterInvGroundDisplayConfig(tileOrDocument) {
   const document = tileOrDocument?.document ?? tileOrDocument;
   const loot = getBetterInvGroundLoot(document) ?? {};
   const width = Math.max(1, Number(document?.width ?? 1) || 1);
   const height = Math.max(1, Number(document?.height ?? 1) || 1);
+  const scene = document?.parent ?? canvas?.scene;
+  const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
   const storedScale = Number(loot?.display?.scale);
-  const scale = Math.min(BETTER_INV_GROUND_SCALE_MAX, Math.max(BETTER_INV_GROUND_SCALE_MIN, Number.isFinite(storedScale) && storedScale > 0 ? storedScale : 1));
+  const scale = Number.isFinite(storedScale) && storedScale > 0 ? storedScale : 1;
   const baseWidth = Math.max(1, Number(loot?.display?.baseWidth) || width / scale);
   const baseHeight = Math.max(1, Number(loot?.display?.baseHeight) || height / scale);
+  const storedGridUnits = Number(loot?.display?.sizeGridUnits);
+  const sizeGridUnits = Number.isFinite(storedGridUnits) && storedGridUnits > 0
+    ? storedGridUnits
+    : Math.max(0.125, ((width + height) / 2) / gridSize);
   const visibilityMode = ["always", "proximity", "hidden"].includes(String(loot?.display?.visibilityMode))
     ? String(loot.display.visibilityMode)
     : "always";
-  const scene = document?.parent ?? canvas?.scene;
   const gridDistance = Math.max(1, Number(scene?.grid?.distance ?? 5) || 5);
   const rawLegacyDistance = Number(loot?.display?.visibilityDistance);
   const legacyDistance = Number.isFinite(rawLegacyDistance) ? Math.max(0, rawLegacyDistance) : gridDistance;
@@ -8320,6 +8678,7 @@ function getBetterInvGroundDisplayConfig(tileOrDocument) {
     baseWidth,
     baseHeight,
     scale,
+    sizeGridUnits,
     visibilityMode,
     visibilityDistanceFeet,
     // Kept as an alias for older code and already stored world data.
@@ -8329,7 +8688,7 @@ function getBetterInvGroundDisplayConfig(tileOrDocument) {
     visibilityFadeDuration: Math.max(0, Number.isFinite(Number(loot?.display?.visibilityFadeDuration))
       ? Number(loot.display.visibilityFadeDuration)
       : 0.18),
-    requireLineOfSight: loot?.display?.requireLineOfSight === true,
+    requireLineOfSight: loot?.display?.requireLineOfSight !== false,
     pickupEnabled: loot?.interaction?.pickupEnabled !== false,
     playerMove: loot?.permissions?.playerMove === true,
     playerActivate: loot?.permissions?.playerActivate !== false
@@ -8411,23 +8770,29 @@ function computeBetterInvGroundTileDesiredVisibility(tileOrDocument, { forcePlay
   const previewAsPlayer = forcePlayerPerspective || betterInvGroundGmPreviewTileIds.has(String(document.id ?? ""));
   if (game.user?.isGM && !previewAsPlayer) return true;
   if (config.visibilityMode === "hidden") return false;
-  if (config.visibilityMode === "always") return true;
 
   const center = getBetterInvGroundTileVisualCenter(tileOrDocument);
   const scene = document.parent ?? canvas?.scene;
   const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
-  const gridDistanceFeet = convertBetterInvSceneDistanceToFeet(
-    Math.max(0.0001, Number(scene?.grid?.distance ?? 5) || 5),
-    scene
-  );
+  if (config.requireLineOfSight && !testBetterInvGroundLineOfSight(center)) return false;
+  if (config.visibilityMode === "always") return true;
+
+  const gridDistanceFeet = getBetterInvGroundGridStepFeet(scene);
+  const sceneX = Number(canvas?.dimensions?.sceneX ?? 0) || 0;
+  const sceneY = Number(canvas?.dimensions?.sceneY ?? 0) || 0;
+  const tileColumn = Math.floor((center.x - sceneX) / gridSize);
+  const tileRow = Math.floor((center.y - sceneY) / gridSize);
   const withinRange = getBetterInvGroundOwnedTokens().some(token => {
     const tokenCenter = getBetterInvGroundTokenVisualCenter(token);
-    const distanceFeet = Math.hypot(center.x - tokenCenter.x, center.y - tokenCenter.y) / gridSize * gridDistanceFeet;
+    const tokenColumn = Math.floor((tokenCenter.x - sceneX) / gridSize);
+    const tokenRow = Math.floor((tokenCenter.y - sceneY) / gridSize);
+    const distanceFeet = Math.max(
+      Math.abs(tokenColumn - tileColumn),
+      Math.abs(tokenRow - tileRow)
+    ) * gridDistanceFeet;
     return distanceFeet <= config.visibilityDistanceFeet;
   });
-  if (!withinRange) return false;
-  if (config.requireLineOfSight && !testBetterInvGroundLineOfSight(center)) return false;
-  return true;
+  return withinRange;
 }
 
 function isBetterInvGroundTileLocallyVisible(tileOrDocument, { forcePlayerPerspective = false } = {}) {
@@ -8551,30 +8916,43 @@ function scheduleBetterInvGroundVisibilityRefresh() {
   betterInvGroundVisibilityFrame = raf(runBetterInvGroundVisibilityFrame);
 }
 
-function betterInvGroundScaleToSlider(scale) {
-  const normalized = Math.min(BETTER_INV_GROUND_SCALE_MAX, Math.max(BETTER_INV_GROUND_SCALE_MIN, Number(scale) || 1));
-  return Math.round(Math.log10(normalized) * 50);
+function getBetterInvNearestGroundSizeIndex(sizeGridUnits) {
+  const requested = Math.max(0.125, Number(sizeGridUnits) || BETTER_INV_GROUND_DEFAULT_SIZE);
+  let bestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < BETTER_INV_GROUND_SIZE_STEPS.length; index += 1) {
+    const distance = Math.abs(BETTER_INV_GROUND_SIZE_STEPS[index] - requested);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = index;
+    }
+  }
+  return bestIndex;
 }
 
-function betterInvGroundSliderToScale(value) {
-  return Math.min(BETTER_INV_GROUND_SCALE_MAX, Math.max(BETTER_INV_GROUND_SCALE_MIN, Math.pow(10, Number(value) / 50)));
+function betterInvGroundSizeIndexToUnits(value) {
+  const index = Math.max(0, Math.min(BETTER_INV_GROUND_SIZE_STEPS.length - 1, Math.round(Number(value) || 0)));
+  return BETTER_INV_GROUND_SIZE_STEPS[index];
 }
 
 async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
   if (!game.user?.isGM) throw new Error("Nur ein GM kann Bodenobjekte konfigurieren.");
   const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tileDocument) ?? {});
   const current = getBetterInvGroundDisplayConfig(tileDocument);
-  const scale = Math.min(BETTER_INV_GROUND_SCALE_MAX, Math.max(BETTER_INV_GROUND_SCALE_MIN, Number(values.scale) || current.scale));
-  const width = Math.max(1, current.baseWidth * scale);
-  const height = Math.max(1, current.baseHeight * scale);
+  const scene = tileDocument.parent ?? canvas?.scene;
+  const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
+  const sizeGridUnits = Math.max(0.125, Number(values.sizeGridUnits) || current.sizeGridUnits);
+  const width = Math.max(1, gridSize * sizeGridUnits);
+  const height = Math.max(1, gridSize * sizeGridUnits);
   const centerX = Number(tileDocument.x ?? 0) + Number(tileDocument.width ?? 0) / 2;
   const centerY = Number(tileDocument.y ?? 0) + Number(tileDocument.height ?? 0) / 2;
   loot.version = Math.max(2, Number(loot.version) || 0);
   loot.display = {
     ...(loot.display ?? {}),
-    baseWidth: current.baseWidth,
-    baseHeight: current.baseHeight,
-    scale,
+    baseWidth: gridSize,
+    baseHeight: gridSize,
+    scale: sizeGridUnits,
+    sizeGridUnits,
     visibilityMode: ["always", "proximity", "hidden"].includes(values.visibilityMode) ? values.visibilityMode : "always",
     visibilityDistance: Math.max(0, Number(values.visibilityDistanceFeet) || 0),
     visibilityDistanceFeet: Math.max(0, Number(values.visibilityDistanceFeet) || 0),
@@ -8592,6 +8970,7 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
     playerMove: values.playerMove === true,
     playerActivate: values.playerActivate !== false
   };
+  syncBetterInvGroundProfileIntoLoot(loot);
   await tileDocument.update({
     x: centerX - width / 2,
     y: centerY - height / 2,
@@ -8602,12 +8981,184 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
   scheduleBetterInvGroundVisibilityRefresh();
 }
 
+async function openBetterInvItemGroundProfileEditor(item) {
+  if (!game.user?.isGM || !item) return false;
+  const scene = canvas?.scene ?? game.scenes?.active ?? null;
+  const profile = getBetterInvNormalizedItemGroundProfile(item, scene);
+  const sizeIndex = getBetterInvNearestGroundSizeIndex(profile.display.sizeGridUnits);
+  const gridStepFeet = getBetterInvGroundGridStepFeet(scene);
+  const visibilityMaxFeet = Math.max(120, gridStepFeet * 24);
+  const visibilityFeet = snapBetterInvGroundFeetToGrid(profile.display.visibilityDistanceFeet, scene);
+
+  return await new Promise(resolve => {
+    let settled = false;
+    const done = value => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    let dialog;
+    const bindEditor = html => {
+      const rawElement = html?.[0] ?? html;
+      const element = decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-standard-dialog", "betterinv-ground-editor-dialog", "betterinv-item-ground-profile-dialog"]
+      }) ?? rawElement;
+      if (!element || element.dataset.betterInvItemGroundProfileBound === "true") return;
+      element.dataset.betterInvItemGroundProfileBound = "true";
+
+      const sizeSlider = element.querySelector('[name="sizeGridIndex"]');
+      const sizeLabel = element.querySelector("[data-ground-size-label]");
+      const visibilitySlider = element.querySelector('[name="visibilityDistanceFeet"]');
+      const visibilityLabel = element.querySelector("[data-ground-visibility-distance-label]");
+      const effectCount = element.querySelector("[data-ground-effect-count]");
+      const updateLabels = () => {
+        if (sizeLabel) {
+          const units = betterInvGroundSizeIndexToUnits(sizeSlider?.value ?? sizeIndex);
+          sizeLabel.textContent = `${units.toLocaleString("de-DE", { maximumFractionDigits: 3 })} Grid`;
+        }
+        if (visibilityLabel) {
+          const feet = snapBetterInvGroundFeetToGrid(visibilitySlider?.value ?? visibilityFeet, scene);
+          visibilityLabel.textContent = feet <= 0
+            ? "nur eigenes Kästchen"
+            : `${feet.toLocaleString("de-DE", { maximumFractionDigits: 2 })} Fuß`;
+        }
+      };
+      const updateEffectCount = () => {
+        const current = getBetterInvNormalizedItemGroundProfile(item, scene);
+        const rules = Array.from(current.effects?.rules ?? []);
+        if (effectCount) effectCount.textContent = `${rules.filter(rule => rule?.enabled !== false).length} aktiv · ${rules.length} insgesamt`;
+      };
+      sizeSlider?.addEventListener("input", updateLabels);
+      visibilitySlider?.addEventListener("input", updateLabels);
+      element.querySelector("[data-ground-open-effects]")?.addEventListener("click", event => {
+        event.preventDefault();
+        event.stopPropagation();
+        const openEditor = globalThis.AxonsInventoryGround?.openItemProfileEditor;
+        if (typeof openEditor !== "function") {
+          ui.notifications.error("Der Effekt-Editor ist noch nicht geladen.");
+          return;
+        }
+        void Promise.resolve(openEditor(item)).then(updateEffectCount);
+      });
+      updateLabels();
+      updateEffectCount();
+    };
+
+    dialog = new Dialog({
+      title: `Bodenprofil: ${item.name}`,
+      content: `
+        <form class="betterinv-ground-editor" autocomplete="off">
+          <section class="betterinv-ground-editor-section">
+            <h3><i class="fas fa-link"></i> Am Gegenstand gespeichert</h3>
+            <p>Dieses Profil reist mit dem Item mit. Nach Aufheben und erneutem Fallenlassen gelten dieselben Größe-, Sicht-, Licht- und Effektregeln weiter.</p>
+          </section>
+          <section class="betterinv-ground-editor-section">
+            <h3><i class="fas fa-up-right-and-down-left-from-center"></i> Größe auf dem Grid</h3>
+            <label class="betterinv-ground-editor-range">
+              <span>⅛ Grid</span>
+              <input type="range" name="sizeGridIndex" min="0" max="${BETTER_INV_GROUND_SIZE_STEPS.length - 1}" step="1" value="${sizeIndex}">
+              <span>10 Grid</span>
+            </label>
+            <div class="betterinv-ground-editor-scale">Aktuell: <strong data-ground-size-label></strong></div>
+          </section>
+          <section class="betterinv-ground-editor-section">
+            <h3><i class="fas fa-eye"></i> Sichtbarkeit nach dem Fallenlassen</h3>
+            <label>Sichtbar für Spieler
+              <select name="visibilityMode">
+                <option value="always" ${profile.display.visibilityMode === "always" ? "selected" : ""}>Immer innerhalb der Foundry-Sicht</option>
+                <option value="proximity" ${profile.display.visibilityMode === "proximity" ? "selected" : ""}>Nur in Grid-Reichweite</option>
+                <option value="hidden" ${profile.display.visibilityMode === "hidden" ? "selected" : ""}>Komplett verborgen</option>
+              </select>
+            </label>
+            <label class="betterinv-ground-editor-range">Sichtweite
+              <input type="range" name="visibilityDistanceFeet" min="0" max="${visibilityMaxFeet}" step="${gridStepFeet}" value="${visibilityFeet}">
+              <strong data-ground-visibility-distance-label></strong>
+            </label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="requireLineOfSight" ${profile.display.requireLineOfSight ? "checked" : ""}> Foundry-Sicht und Wände berücksichtigen</label>
+          </section>
+          <section class="betterinv-ground-editor-section">
+            <h3><i class="fas fa-hand"></i> Interaktion</h3>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="pickupEnabled" ${profile.interaction.pickupEnabled ? "checked" : ""}> Kann aufgehoben werden</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerMove" ${profile.permissions.playerMove ? "checked" : ""}> Spieler dürfen das Objekt verschieben</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerActivate" ${profile.permissions.playerActivate ? "checked" : ""}> Spieler dürfen „Aktivieren“ auslösen</label>
+          </section>
+          <section class="betterinv-ground-editor-section betterinv-ground-editor-effects">
+            <div class="betterinv-ground-editor-effects-head">
+              <div>
+                <h3><i class="fas fa-wand-magic-sparkles"></i> Trigger und Effekte</h3>
+                <small data-ground-effect-count></small>
+              </div>
+              <button type="button" data-ground-open-effects><i class="fas fa-sliders"></i> Effekte bearbeiten</button>
+            </div>
+          </section>
+        </form>`,
+      buttons: {
+        save: {
+          icon: '<i class="fas fa-floppy-disk"></i>',
+          label: "Bodenprofil speichern",
+          callback: html => {
+            const root = html?.[0] ?? html;
+            const form = root?.querySelector?.("form.betterinv-ground-editor") ?? root;
+            const current = getBetterInvNormalizedItemGroundProfile(item, scene);
+            const next = {
+              ...current,
+              display: {
+                ...current.display,
+                sizeGridUnits: betterInvGroundSizeIndexToUnits(form?.querySelector?.('[name="sizeGridIndex"]')?.value ?? sizeIndex),
+                visibilityMode: String(form?.querySelector?.('[name="visibilityMode"]')?.value ?? "always"),
+                visibilityDistanceFeet: snapBetterInvGroundFeetToGrid(form?.querySelector?.('[name="visibilityDistanceFeet"]')?.value ?? visibilityFeet, scene),
+                requireLineOfSight: Boolean(form?.querySelector?.('[name="requireLineOfSight"]')?.checked)
+              },
+              interaction: {
+                ...current.interaction,
+                pickupEnabled: Boolean(form?.querySelector?.('[name="pickupEnabled"]')?.checked)
+              },
+              permissions: {
+                ...current.permissions,
+                playerMove: Boolean(form?.querySelector?.('[name="playerMove"]')?.checked),
+                playerActivate: Boolean(form?.querySelector?.('[name="playerActivate"]')?.checked)
+              }
+            };
+            void item.setFlag(MODULE_ID, BETTER_INV_GROUND_PROFILE_FLAG, next)
+              .then(() => {
+                ui.notifications.info("Bodenprofil am Gegenstand gespeichert.");
+                done(true);
+              })
+              .catch(error => {
+                ui.notifications.error(error?.message || "Das Bodenprofil konnte nicht gespeichert werden.");
+                done(false);
+              });
+          }
+        },
+        cancel: {
+          icon: '<i class="fas fa-xmark"></i>',
+          label: "Abbrechen",
+          callback: () => done(false)
+        }
+      },
+      default: "save",
+      render: bindEditor,
+      close: () => done(false)
+    }, {
+      width: Math.min(560, Math.max(380, (Number(globalThis.innerWidth) || 1000) - 48)),
+      height: Math.min(620, Math.max(400, (Number(globalThis.innerHeight) || 820) - 120)),
+      resizable: true,
+      classes: ["betterinv-standard-dialog", "betterinv-ground-editor-dialog", "betterinv-item-ground-profile-dialog"]
+    });
+    dialog.render(true);
+  });
+}
+
 async function openBetterInvGroundObjectEditor(tileDocument) {
   if (!game.user?.isGM) return;
   const loot = getBetterInvGroundLoot(tileDocument);
   if (!loot) return;
   const config = getBetterInvGroundDisplayConfig(tileDocument);
-  const sliderValue = betterInvGroundScaleToSlider(config.scale);
+  const sizeSliderValue = getBetterInvNearestGroundSizeIndex(config.sizeGridUnits);
+  const scene = tileDocument.parent ?? canvas?.scene;
+  const gridStepFeet = getBetterInvGroundGridStepFeet(scene);
+  const visibilityMaxFeet = Math.max(120, gridStepFeet * 24);
+  const visibilitySliderValue = snapBetterInvGroundFeetToGrid(config.visibilityDistanceFeet, scene);
   const sceneUnit = "Fuß";
   const isCurrency = loot.kind === "currency";
   const currencySummary = isCurrency
@@ -8631,15 +9182,26 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
       if (!element || element.dataset.betterInvGroundEditorBound === "true") return;
       element.dataset.betterInvGroundEditorBound = "true";
 
-      const slider = element.querySelector?.('[name="scaleSlider"]');
-      const label = element.querySelector?.('[data-ground-scale-label]');
-      const updateLabel = () => {
-        if (!slider || !label) return;
-        const value = betterInvGroundSliderToScale(slider.value);
-        label.textContent = `${value.toLocaleString("de-DE", { maximumFractionDigits: 2 })}×`;
+      const sizeSlider = element.querySelector?.('[name="sizeGridIndex"]');
+      const sizeLabel = element.querySelector?.('[data-ground-size-label]');
+      const visibilitySlider = element.querySelector?.('[name="visibilityDistanceFeet"]');
+      const visibilityLabel = element.querySelector?.('[data-ground-visibility-distance-label]');
+      const updateSizeLabel = () => {
+        if (!sizeSlider || !sizeLabel) return;
+        const value = betterInvGroundSizeIndexToUnits(sizeSlider.value);
+        sizeLabel.textContent = `${value.toLocaleString("de-DE", { maximumFractionDigits: 3 })} Grid`;
       };
-      slider?.addEventListener?.("input", updateLabel);
-      updateLabel();
+      const updateVisibilityLabel = () => {
+        if (!visibilitySlider || !visibilityLabel) return;
+        const value = snapBetterInvGroundFeetToGrid(visibilitySlider.value, scene);
+        visibilityLabel.textContent = value <= 0
+          ? "nur eigenes Kästchen"
+          : `${value.toLocaleString("de-DE", { maximumFractionDigits: 2 })} Fuß`;
+      };
+      sizeSlider?.addEventListener?.("input", updateSizeLabel);
+      visibilitySlider?.addEventListener?.("input", updateVisibilityLabel);
+      updateSizeLabel();
+      updateVisibilityLabel();
 
       const previewButton = element.querySelector?.("[data-ground-visibility-preview]");
       const previewStatus = element.querySelector?.("[data-ground-visibility-preview-status]");
@@ -8679,11 +9241,12 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
           <section class="betterinv-ground-editor-section">
             <h3><i class="fas fa-up-right-and-down-left-from-center"></i> Größe</h3>
             <label class="betterinv-ground-editor-range">
-              <span>0,01×</span>
-              <input type="range" name="scaleSlider" min="-100" max="100" step="1" value="${sliderValue}">
-              <span>100×</span>
+              <span>⅛ Grid</span>
+              <input type="range" name="sizeGridIndex" min="0" max="${BETTER_INV_GROUND_SIZE_STEPS.length - 1}" step="1" value="${sizeSliderValue}">
+              <span>10 Grid</span>
             </label>
-            <div class="betterinv-ground-editor-scale">Aktuell: <strong data-ground-scale-label>${config.scale.toLocaleString("de-DE", { maximumFractionDigits: 2 })}×</strong></div>
+            <div class="betterinv-ground-editor-scale">Aktuell: <strong data-ground-size-label>${config.sizeGridUnits.toLocaleString("de-DE", { maximumFractionDigits: 3 })} Grid</strong></div>
+            <small class="betterinv-ground-visibility-hint">Die Stufen folgen dem Kartenraster: ⅛, ¼, ½, ¾, 1, 1½, 2, 3, 4, 6, 8 oder 10 Kästchen.</small>
           </section>
           ${isCurrency ? `
           <section class="betterinv-ground-editor-section betterinv-ground-currency-preview">
@@ -8705,8 +9268,9 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
                 <option value="hidden" ${config.visibilityMode === "hidden" ? "selected" : ""}>Komplett verborgen</option>
               </select>
             </label>
-            <label>Reichweite (${escapeHtml(sceneUnit)})
-              <input type="number" name="visibilityDistanceFeet" min="0" step="1" value="${config.visibilityDistanceFeet}">
+            <label class="betterinv-ground-editor-range">Sichtweite
+              <input type="range" name="visibilityDistanceFeet" min="0" max="${visibilityMaxFeet}" step="${gridStepFeet}" value="${visibilitySliderValue}">
+              <strong data-ground-visibility-distance-label>${visibilitySliderValue} ${escapeHtml(sceneUnit)}</strong>
             </label>
             <div class="betterinv-ground-visibility-timing-grid">
               <label>Einblend-Verzögerung (Sek.)
@@ -8719,8 +9283,8 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
                 <input type="number" name="visibilityFadeDuration" min="0" step="0.05" value="${config.visibilityFadeDuration}">
               </label>
             </div>
-            <small class="betterinv-ground-visibility-hint">Ein- und Ausblenden verwenden dieselbe Reichweitengrenze. Standardmäßig gibt es keine Verzögerung; nur der kurze weiche Übergang bleibt aktiv.</small>
-            <label class="betterinv-ground-editor-check"><input type="checkbox" name="requireLineOfSight" ${config.requireLineOfSight ? "checked" : ""}> Zusätzlich Foundry-Sichtlinie berücksichtigen</label>
+            <small class="betterinv-ground-visibility-hint">0 bedeutet nur das Kästchen des Bodenobjekts. Jeder weitere Schritt erweitert den Bereich um genau einen Grid-Ring, einschließlich diagonaler Kästchen.</small>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="requireLineOfSight" ${config.requireLineOfSight ? "checked" : ""}> Foundry-Sicht und Wände berücksichtigen</label>
             <div class="betterinv-ground-visibility-preview">
               <button type="button" data-ground-visibility-preview><i class="fas fa-user-eye"></i> Spielersicht testen</button>
               <small data-ground-visibility-preview-status>Als GM siehst du Bodenobjekte normalerweise immer.</small>
@@ -8751,11 +9315,14 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
           callback: html => {
             const root = html?.[0] ?? html;
             const form = root?.querySelector?.("form.betterinv-ground-editor") ?? root;
-            const slider = Number(form?.querySelector?.('[name="scaleSlider"]')?.value ?? sliderValue);
+            const sizeIndex = Number(form?.querySelector?.('[name="sizeGridIndex"]')?.value ?? sizeSliderValue);
             const values = {
-              scale: betterInvGroundSliderToScale(slider),
+              sizeGridUnits: betterInvGroundSizeIndexToUnits(sizeIndex),
               visibilityMode: String(form?.querySelector?.('[name="visibilityMode"]')?.value ?? "always"),
-              visibilityDistanceFeet: Number(form?.querySelector?.('[name="visibilityDistanceFeet"]')?.value ?? config.visibilityDistanceFeet),
+              visibilityDistanceFeet: snapBetterInvGroundFeetToGrid(
+                Number(form?.querySelector?.('[name="visibilityDistanceFeet"]')?.value ?? config.visibilityDistanceFeet),
+                scene
+              ),
               visibilityEnterDelay: Number(form?.querySelector?.('[name="visibilityEnterDelay"]')?.value ?? config.visibilityEnterDelay),
               visibilityExitDelay: Number(form?.querySelector?.('[name="visibilityExitDelay"]')?.value ?? config.visibilityExitDelay),
               visibilityFadeDuration: Number(form?.querySelector?.('[name="visibilityFadeDuration"]')?.value ?? config.visibilityFadeDuration),
@@ -8783,7 +9350,9 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
         done(false);
       }
     }, {
-      width: 560,
+      width: Math.min(560, Math.max(380, (Number(globalThis.innerWidth) || 1000) - 48)),
+      height: Math.min(620, Math.max(400, (Number(globalThis.innerHeight) || 820) - 120)),
+      resizable: true,
       classes: ["betterinv-standard-dialog", "betterinv-ground-editor-dialog"]
     });
     dialog.render(true);
@@ -9980,6 +10549,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
     ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
     ${features.itemShareAction ? `<button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen / fallen lassen</span></button>` : ""}
+    ${features.itemGroundConfigure ? `<button type="button" class="betterinv-item-action-ground-profile" role="menuitem"><i class="fas fa-wand-magic-sparkles"></i><span>Bodenprofil & Effekte</span></button>` : ""}
     ${features.itemDuplicate ? `<button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>` : ""}
     ${features.itemDelete ? `<button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>` : ""}
   `;
@@ -10020,9 +10590,10 @@ function openBetterInvItemActionMenu(button, actor, item) {
     const action = actionButton.classList.contains("betterinv-item-action-equipped") ? "equipped"
       : actionButton.classList.contains("betterinv-item-action-favorite") ? "favorite"
         : actionButton.classList.contains("betterinv-item-action-transfer") ? "transfer"
-          : actionButton.classList.contains("betterinv-item-action-duplicate") ? "duplicate"
-            : actionButton.classList.contains("betterinv-item-action-delete") ? "delete"
-              : null;
+          : actionButton.classList.contains("betterinv-item-action-ground-profile") ? "groundProfile"
+            : actionButton.classList.contains("betterinv-item-action-duplicate") ? "duplicate"
+              : actionButton.classList.contains("betterinv-item-action-delete") ? "delete"
+                : null;
     if (!action) return;
     close();
 
@@ -10032,9 +10603,10 @@ function openBetterInvItemActionMenu(button, actor, item) {
         const allowed = action === "equipped" ? currentFeatures.equipActions
           : action === "favorite" ? currentFeatures.favorites
             : action === "transfer" ? currentFeatures.itemShareAction
-              : action === "duplicate" ? currentFeatures.itemDuplicate
-                : action === "delete" ? currentFeatures.itemDelete
-                  : false;
+              : action === "groundProfile" ? currentFeatures.itemGroundConfigure
+                : action === "duplicate" ? currentFeatures.itemDuplicate
+                  : action === "delete" ? currentFeatures.itemDelete
+                    : false;
         if (!allowed) {
           ui.notifications.warn("Diese Gegenstandsaktion wurde vom GM oder in deinen Einstellungen deaktiviert.");
           return;
@@ -10042,6 +10614,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
         if (action === "equipped") await toggleBetterInvItemEquipped(item);
         else if (action === "favorite") await toggleBetterInvFavorite(item);
         else if (action === "transfer") await transferBetterInvItem(actor, item);
+        else if (action === "groundProfile") await openBetterInvItemGroundProfileEditor(item);
         else if (action === "duplicate") await duplicateBetterInvItem(actor, item);
         else if (action === "delete") await deleteBetterInvItem(item);
       } catch (error) {
@@ -10049,6 +10622,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
           equipped: ["Ausrüstungsstatus konnte nicht geändert werden", "Der Ausrüstungsstatus konnte nicht geändert werden."],
           favorite: ["Favoritenstatus konnte nicht geändert werden", "Der Favoritenstatus konnte nicht geändert werden."],
           transfer: ["Gegenstand konnte nicht übertragen werden", error?.message || "Der Gegenstand konnte nicht übertragen werden."],
+          groundProfile: ["Bodenprofil konnte nicht bearbeitet werden", error?.message || "Das Bodenprofil konnte nicht bearbeitet werden."],
           duplicate: ["Gegenstand konnte nicht dupliziert werden", "Der Gegenstand konnte nicht dupliziert werden."],
           delete: ["Gegenstand konnte nicht gelöscht werden", "Der Gegenstand konnte nicht gelöscht werden."]
         };
@@ -10399,7 +10973,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     if (!field || !featurePlan.currencyCalculator) return;
     event.stopPropagation();
     const key = String(field.dataset.currencyKey ?? "");
-    if (!BETTER_INV_CURRENCIES.some(currency => currency.key === key)) return;
+    if (!getBetterInvCurrencies().some(currency => currency.key === key)) return;
     const next = normalizeBetterInvCurrencyDraftValue(field.value, { allowBlank: true });
     if (field.value !== next) field.value = next;
     betterInvState.currencyDraft[key] = next;
@@ -11189,6 +11763,7 @@ function makeBetterInvSettingsDraggable(windowEl) {
     };
     const finish = () => {
       clampBetterInvWindowToViewport(windowEl);
+      saveBetterInvFloatingWindowLayout(windowEl);
       dragController.abort();
       if (windowEl._betterInvDragController === dragController) windowEl._betterInvDragController = null;
     };

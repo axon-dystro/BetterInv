@@ -5,11 +5,12 @@
 
   const API_NAME = "AxonsInventoryGround";
   const RULE_TRIGGERS = Object.freeze({
+    drop: "Beim Fallenlassen auf die Karte",
     click: "Beim Anklicken",
     pickup: "Beim Aufheben",
-    enter: "Beim Betreten",
+    enter: "Beim Berühren / Betreten des Bereichs",
     leave: "Beim Verlassen",
-    proximity: "Beim Annähern innerhalb einer Reichweite",
+    proximity: "Beim Annähern in den Grid-Bereich",
     stay: "Wenn ein Token darauf stehen bleibt",
     activate: "Beim Aktivieren durch einen Spieler"
   });
@@ -17,7 +18,8 @@
     chat: "Chatnachricht anzeigen",
     damage: "Schaden würfeln",
     heal: "Heilung würfeln",
-    activeEffect: "Active Effect anwenden",
+    condition: "Foundry-Zustand anwenden",
+    activeEffect: "Eigener Active Effect (Experten-JSON)",
     hide: "Objekt unsichtbar machen",
     show: "Objekt sichtbar machen",
     delete: "Objekt löschen",
@@ -28,6 +30,22 @@
     sound: "Sound abspielen",
     activateOther: "Andere Bodenobjekte aktivieren",
     macro: "Makro ausführen"
+  });
+  const DAMAGE_TYPES = Object.freeze({
+    none: "Ohne Schadenstyp",
+    acid: "Säure",
+    bludgeoning: "Wucht",
+    cold: "Kälte",
+    fire: "Feuer",
+    force: "Energie",
+    lightning: "Blitz",
+    necrotic: "Nekrotisch",
+    piercing: "Stich",
+    poison: "Gift",
+    psychic: "Psychisch",
+    radiant: "Gleißend",
+    slashing: "Hieb",
+    thunder: "Schall"
   });
   const CHECK_TYPES = Object.freeze({
     none: "Kein Wurf",
@@ -67,6 +85,16 @@
     always: "Immer",
     success: "Bei Erfolg",
     failure: "Bei Fehlschlag"
+  });
+  const POWER_DICE = Object.freeze({
+    "": "Keine Stärkevarianten",
+    "1d2": "1d2 – 2 Varianten",
+    "1d4": "1d4 – 4 Varianten",
+    "1d6": "1d6 – 6 Varianten",
+    "1d8": "1d8 – 8 Varianten",
+    "1d10": "1d10 – 10 Varianten",
+    "1d12": "1d12 – 12 Varianten",
+    "1d20": "1d20 – 20 Varianten"
   });
 
   let interactionController = null;
@@ -380,6 +408,41 @@
     return false;
   }
 
+  function tokenOverlapsGridArea(tokenDocument, tileOrDocument, radiusFeet = 0) {
+    return convexPolygonsOverlap(getTokenVisualPolygon(tokenDocument), getGridAreaPolygon(tileOrDocument, radiusFeet));
+  }
+
+  function tokenSweptOverlapsGridArea(tokenDocument, tileOrDocument, radiusFeet, fromCenter, toCenter = getTokenCenter(tokenDocument)) {
+    if (Math.max(0, Number(radiusFeet) || 0) <= 0) {
+      return tokenSweptOverlapsTile(tokenDocument, tileOrDocument, fromCenter, toCenter);
+    }
+    if (!fromCenter || !toCenter) return false;
+    const dx = Number(toCenter.x) - Number(fromCenter.x);
+    const dy = Number(toCenter.y) - Number(fromCenter.y);
+    const distance = Math.hypot(dx, dy);
+    if (!Number.isFinite(distance) || distance < 0.25) return false;
+    const tokenPolygon = getTokenVisualPolygon(tokenDocument);
+    const areaPolygon = getGridAreaPolygon(tileOrDocument, radiusFeet);
+    if (tokenPolygon.length < 3 || areaPolygon.length < 3) return false;
+    const { size } = getSceneGridMetrics(tileOrDocument);
+    const steps = Math.min(250, Math.max(2, Math.ceil(distance / Math.max(4, size / 4))));
+    for (let index = 0; index <= steps; index += 1) {
+      const t = index / steps;
+      const sampleCenter = {
+        x: Number(fromCenter.x) + dx * t,
+        y: Number(fromCenter.y) + dy * t
+      };
+      const offsetX = sampleCenter.x - Number(toCenter.x);
+      const offsetY = sampleCenter.y - Number(toCenter.y);
+      const samplePolygon = tokenPolygon.map(point => ({
+        x: Number(point.x) + offsetX,
+        y: Number(point.y) + offsetY
+      }));
+      if (convexPolygonsOverlap(samplePolygon, areaPolygon)) return true;
+    }
+    return false;
+  }
+
   function findTileAtPoint(x, y) {
     const pointX = Number(x);
     const pointY = Number(y);
@@ -673,6 +736,78 @@
     } catch (_error) {}
   }
 
+  function getSceneGridMetrics(tileOrDocument = null) {
+    const document = getTileDocument(tileOrDocument);
+    const scene = document?.parent ?? canvas?.scene;
+    const size = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
+    let distanceFeet = Math.max(0.0001, Number(scene?.grid?.distance ?? 5) || 5);
+    try {
+      if (typeof getBetterInvGroundGridStepFeet === "function") distanceFeet = getBetterInvGroundGridStepFeet(scene);
+    } catch (_error) {}
+    return {
+      scene,
+      size,
+      distanceFeet,
+      originX: Number(canvas?.dimensions?.sceneX ?? 0) || 0,
+      originY: Number(canvas?.dimensions?.sceneY ?? 0) || 0
+    };
+  }
+
+  function getPolygonBounds(points = []) {
+    const valid = Array.from(points ?? []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+    if (!valid.length) return null;
+    return {
+      minX: Math.min(...valid.map(point => Number(point.x))),
+      minY: Math.min(...valid.map(point => Number(point.y))),
+      maxX: Math.max(...valid.map(point => Number(point.x))),
+      maxY: Math.max(...valid.map(point => Number(point.y)))
+    };
+  }
+
+  function getGridAreaPolygon(tileOrDocument, radiusFeet = 0) {
+    const bounds = getPolygonBounds(getTileVisualPolygon(tileOrDocument));
+    if (!bounds) return [];
+    const { size, distanceFeet, originX, originY } = getSceneGridMetrics(tileOrDocument);
+    const rings = Math.max(0, Math.ceil((Math.max(0, Number(radiusFeet) || 0) / distanceFeet) - 0.000001));
+    const minColumn = Math.floor((bounds.minX - originX) / size) - rings;
+    const minRow = Math.floor((bounds.minY - originY) / size) - rings;
+    const maxColumn = Math.ceil((bounds.maxX - originX) / size) + rings;
+    const maxRow = Math.ceil((bounds.maxY - originY) / size) + rings;
+    const left = originX + minColumn * size;
+    const top = originY + minRow * size;
+    const right = originX + maxColumn * size;
+    const bottom = originY + maxRow * size;
+    return [
+      { x: left, y: top },
+      { x: right, y: top },
+      { x: right, y: bottom },
+      { x: left, y: bottom }
+    ];
+  }
+
+  function drawFilledPolygon(graphics, points, color, fillAlpha = 0.1, lineAlpha = 0.85, width = 2) {
+    if (!graphics || points.length < 3) return;
+    const scale = getStageScale();
+    const lineWidth = Math.max(0.5, width / scale);
+    const flat = points.flatMap(point => [point.x, point.y]);
+    try {
+      if (typeof graphics.poly === "function" && typeof graphics.fill === "function") {
+        graphics.poly(flat, true)
+          .fill({ color, alpha: fillAlpha })
+          .stroke({ color, alpha: lineAlpha, width: lineWidth });
+        return;
+      }
+    } catch (_error) {}
+    try {
+      graphics.beginFill(color, fillAlpha);
+      graphics.lineStyle(lineWidth, color, lineAlpha);
+      graphics.drawPolygon(flat);
+      graphics.endFill();
+    } catch (_error) {
+      drawPolygon(graphics, points, color, lineAlpha, width);
+    }
+  }
+
   function drawHitAreas() {
     const graphics = ensureDebugGraphics();
     if (!graphics) return;
@@ -686,6 +821,17 @@
       const document = getTileDocument(tile);
       const id = String(document?.id ?? "");
       const selected = id && id === selectedTileId;
+      const visibleRules = getRules(document).filter(rule => rule.enabled && rule.showArea);
+      for (const rule of visibleRules) {
+        const hasCheck = rule.check.type !== "none"
+          || rule.variants.some(variant => variant.check.type !== "none");
+        const color = rule.trigger === "drop" || rule.trigger === "activate"
+          ? 0xff8a32
+          : hasCheck
+            ? 0xff5d7a
+            : 0x42d9ff;
+        drawFilledPolygon(graphics, getGridAreaPolygon(tile, rule.radius), color, 0.08, 0.78, 2);
+      }
       if (!hitAreaDebugEnabled && !selected) continue;
       drawPolygon(graphics, getTilePolygon(tile), selected ? 0xffcc55 : 0x42d9ff, selected ? 1 : 0.8, selected ? 3 : 2);
     }
@@ -698,18 +844,34 @@
     return true;
   }
 
+  function snapFeetToSceneGrid(value) {
+    const step = Math.max(0.0001, Number(getSceneGridMetrics()?.distanceFeet) || 5);
+    const amount = Math.max(0, Number(value) || 0);
+    return Math.round(amount / step) * step;
+  }
+
   function normalizeAction(raw = {}) {
     const source = raw && typeof raw === "object" ? raw : {};
     const type = Object.hasOwn(ACTION_TYPES, source.type) ? source.type : "chat";
     const outcome = Object.hasOwn(OUTCOMES, source.outcome) ? source.outcome : "always";
+    const rawPowerMin = source.powerMin === "" || source.powerMin === null || source.powerMin === undefined
+      ? null
+      : Number(source.powerMin);
+    const rawPowerMax = source.powerMax === "" || source.powerMax === null || source.powerMax === undefined
+      ? null
+      : Number(source.powerMax);
     return {
       id: String(source.id || randomId()),
       type,
       outcome,
       value: String(source.value ?? ""),
       secondary: String(source.secondary ?? ""),
+      damageType: Object.hasOwn(DAMAGE_TYPES, source.damageType) ? source.damageType : "none",
+      conditionId: String(source.conditionId ?? ""),
       duration: Math.max(0, Number(source.duration) || 0),
-      radius: Math.max(0, Number(source.radius) || 0)
+      radius: snapFeetToSceneGrid(source.radius),
+      powerMin: Number.isFinite(rawPowerMin) ? rawPowerMin : null,
+      powerMax: Number.isFinite(rawPowerMax) ? rawPowerMax : null
     };
   }
 
@@ -730,10 +892,40 @@
     return getDefaultCheckKey(type);
   }
 
+  function normalizeCheck(raw = {}) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const type = Object.hasOwn(CHECK_TYPES, source.type) ? source.type : "none";
+    return {
+      type,
+      key: normalizeCheckKey(type, source.key),
+      dc: Math.max(0, Number(source.dc) || 10),
+      blockOnFail: source.blockOnFail === true
+    };
+  }
+
+  function getPowerDieSides(formula) {
+    const match = /^1d(2|4|6|8|10|12|20)$/i.exec(String(formula ?? "").trim());
+    return match ? Number(match[1]) : 0;
+  }
+
+  function normalizeVariant(raw = {}, fallbackValue = 1) {
+    const source = raw && typeof raw === "object" ? raw : {};
+    const value = Math.max(1, Math.trunc(Number(source.value) || fallbackValue));
+    const actions = Array.isArray(source.actions) ? source.actions : [];
+    return {
+      value,
+      check: normalizeCheck(source.check),
+      actions: actions.map(action => ({
+        ...normalizeAction(action),
+        powerMin: null,
+        powerMax: null
+      }))
+    };
+  }
+
   function normalizeRule(raw = {}) {
     const source = raw && typeof raw === "object" ? raw : {};
     const trigger = Object.hasOwn(RULE_TRIGGERS, source.trigger) ? source.trigger : "activate";
-    const checkType = Object.hasOwn(CHECK_TYPES, source?.check?.type) ? source.check.type : "none";
 
     let rawActions = [];
     if (Array.isArray(source.actions)) rawActions = source.actions;
@@ -747,27 +939,57 @@
     if (!rawActions.length && source.action) {
       rawActions = [{ ...source.action, outcome: Object.hasOwn(OUTCOMES, source.outcome) ? source.outcome : "always" }];
     }
+    const powerFormula = String(source.powerFormula ?? "").trim().toLowerCase();
+    const powerSides = getPowerDieSides(powerFormula);
+    const normalizedActions = rawActions.map(normalizeAction);
+    const rawVariants = Array.isArray(source.variants) ? source.variants : [];
+    const sourceVariants = rawVariants.map((variant, index) => normalizeVariant(variant, index + 1));
+    const variantsByValue = new Map(sourceVariants.map(variant => [variant.value, variant]));
+    const variants = powerSides
+      ? Array.from({ length: powerSides }, (_, index) => {
+          const value = index + 1;
+          return variantsByValue.get(value) ?? normalizeVariant({ value }, value);
+        })
+      : sourceVariants;
+    const baseActions = [];
+    for (const action of normalizedActions) {
+      const exactPower = Number.isInteger(action.powerMin)
+        && action.powerMin === action.powerMax
+        && action.powerMin >= 1
+        && action.powerMin <= powerSides
+        ? action.powerMin
+        : 0;
+      if (!exactPower) {
+        baseActions.push(action);
+        continue;
+      }
+      const variant = variants.find(entry => entry.value === exactPower);
+      if (variant && !variant.actions.some(entry => entry.id === action.id)) {
+        variant.actions.push({ ...action, powerMin: null, powerMax: null });
+      }
+    }
 
     return {
       id: String(source.id || randomId()),
       name: String(source.name || "Neuer Effekt"),
       enabled: source.enabled !== false,
       trigger,
-      radius: Math.max(0, Number(source.radius) || 0),
+      radius: snapFeetToSceneGrid(source.radius),
       once: source.once === true,
       cooldown: Math.max(0, Number(source.cooldown) || 0),
-      check: {
-        type: checkType,
-        key: normalizeCheckKey(checkType, source?.check?.key),
-        dc: Math.max(0, Number(source?.check?.dc) || 10),
-        blockOnFail: source?.check?.blockOnFail === true
-      },
-      actions: rawActions.map(normalizeAction)
+      showArea: source.showArea === true,
+      powerFormula,
+      useStoredPower: source.useStoredPower === true,
+      check: normalizeCheck(source.check),
+      actions: baseActions,
+      variants
     };
   }
 
   function getRules(tileOrLoot) {
-    const loot = tileOrLoot?.kind ? tileOrLoot : getBetterInvGroundLoot(tileOrLoot);
+    const loot = tileOrLoot?.kind || tileOrLoot?.effects
+      ? tileOrLoot
+      : getBetterInvGroundLoot(tileOrLoot);
     const rules = loot?.effects?.rules;
     return Array.isArray(rules) ? rules.map(normalizeRule) : [];
   }
@@ -789,6 +1011,43 @@
     ).join("");
   }
 
+  function getConditionOptions() {
+    const entries = {};
+    for (const status of Array.from(CONFIG?.statusEffects ?? [])) {
+      const id = String(status?.id ?? status?._id ?? "").trim();
+      if (!id) continue;
+      const rawLabel = status?.name ?? status?.label ?? id;
+      entries[id] = game.i18n?.localize?.(rawLabel) ?? rawLabel;
+    }
+    const fallbacks = {
+      blinded: "Blind",
+      charmed: "Bezaubert",
+      deafened: "Taub",
+      exhaustion: "Erschöpfung",
+      frightened: "Verängstigt",
+      grappled: "Gepackt",
+      incapacitated: "Handlungsunfähig",
+      invisible: "Unsichtbar",
+      paralyzed: "Gelähmt",
+      petrified: "Versteinert",
+      poisoned: "Vergiftet",
+      prone: "Liegend",
+      restrained: "Festgesetzt",
+      stunned: "Betäubt",
+      unconscious: "Bewusstlos"
+    };
+    for (const [id, label] of Object.entries(fallbacks)) {
+      if (!Object.hasOwn(entries, id)) entries[id] = label;
+    }
+    return entries;
+  }
+
+  function normalizeConditionId(value) {
+    const entries = getConditionOptions();
+    const clean = String(value ?? "").trim();
+    return Object.hasOwn(entries, clean) ? clean : (Object.keys(entries)[0] ?? "prone");
+  }
+
   function checkKeyOptionsHtml(type, selected) {
     const entries = getCheckKeyOptions(type);
     if (!Object.keys(entries).length) return `<option value="">Kein Wurf ausgewählt</option>`;
@@ -796,9 +1055,12 @@
     return optionsHtml(entries, clean);
   }
 
-  function actionCardHtml(action) {
+  function actionCardHtml(action, { variantValue = null } = {}) {
+    const conditionId = normalizeConditionId(action.conditionId);
+    const gridStep = getSceneGridMetrics()?.distanceFeet ?? 5;
+    const variantAttribute = Number.isInteger(variantValue) ? ` data-variant-value="${attr(variantValue)}"` : "";
     return `
-      <div class="betterinv-ground-effect-action" data-effect-action data-action-id="${attr(action.id)}">
+      <div class="betterinv-ground-effect-action" data-effect-action data-action-id="${attr(action.id)}"${variantAttribute}>
         <div class="betterinv-ground-effect-action-head">
           <select data-action-field="outcome" aria-label="Ausführungsbedingung">
             ${optionsHtml(OUTCOMES, action.outcome)}
@@ -809,23 +1071,105 @@
           <button type="button" data-remove-action title="Aktion entfernen"><i class="fas fa-xmark"></i></button>
         </div>
         <div class="betterinv-ground-effect-action-grid">
-          <label>Wert / Formel / Text / Ziel
+          <label data-action-value-wrap><span data-action-value-label>Wert / Formel / Text / Ziel</span>
             <input type="text" data-action-field="value" value="${attr(action.value)}" placeholder="z. B. 2d6, Nachricht, Makroname oder Tile-ID">
           </label>
-          <label>Dauer (Sek.)
+          <label data-action-condition-wrap>Foundry-Zustand
+            <select data-action-field="conditionId">${optionsHtml(getConditionOptions(), conditionId)}</select>
+          </label>
+          <label data-action-damage-type-wrap>Schadenstyp
+            <select data-action-field="damageType">${optionsHtml(DAMAGE_TYPES, action.damageType)}</select>
+          </label>
+          <label data-action-duration-wrap>Dauer (Sek., 0 = dauerhaft)
             <input type="number" data-action-field="duration" min="0" step="1" value="${attr(action.duration)}">
           </label>
-          <label>Radius (Fuß)
-            <input type="number" data-action-field="radius" min="0" step="1" value="${attr(action.radius)}">
+          <label data-action-radius-wrap>Aktionsradius (Fuß)
+            <input type="number" data-action-field="radius" min="0" step="${attr(gridStep)}" value="${attr(action.radius)}">
           </label>
         </div>
-        <label>Zusatzdaten
+        ${Number.isInteger(variantValue) ? "" : `
+          <input type="hidden" data-action-field="powerMin" value="${attr(action.powerMin ?? "")}">
+          <input type="hidden" data-action-field="powerMax" value="${attr(action.powerMax ?? "")}">`}
+        <label data-action-secondary-wrap><span data-action-secondary-label>Zusatzdaten</span>
           <textarea data-action-field="secondary" rows="2" placeholder='Active Effect: JSON-Array. Andere Bodenobjekte: optionaler Trigger, z. B. activate.'>${esc(action.secondary)}</textarea>
+        </label>
+        <small class="betterinv-ground-action-context-help" data-action-context-help></small>
+      </div>`;
+  }
+
+  function checkEditorHtml(check, { variant = false } = {}) {
+    const fieldAttribute = path => variant
+      ? `data-variant-check-field="${attr(path)}"`
+      : `data-field="check.${attr(path)}"`;
+    return `
+      <div class="betterinv-ground-effect-grid" data-check-editor>
+        <label>Art
+          <select ${fieldAttribute("type")} data-check-type>${optionsHtml(CHECK_TYPES, check.type)}</select>
+        </label>
+        <label data-check-key-label><span data-check-key-title>Attribut / Fertigkeit</span>
+          <select ${fieldAttribute("key")} data-check-key ${check.type === "none" ? "disabled" : ""}>
+            ${checkKeyOptionsHtml(check.type, check.key)}
+          </select>
+        </label>
+        <label>SG
+          <input type="number" ${fieldAttribute("dc")} min="0" step="1" value="${attr(check.dc)}">
+        </label>
+        <label class="betterinv-ground-effect-checkline">
+          <input type="checkbox" ${fieldAttribute("blockOnFail")} ${check.blockOnFail ? "checked" : ""}> Interaktion bei Fehlschlag stoppen
         </label>
       </div>`;
   }
 
+  function variantCardHtml(variant) {
+    const actionCount = variant.actions.length;
+    return `
+      <details class="betterinv-ground-effect-variant" data-effect-variant data-variant-value="${attr(variant.value)}">
+        <summary>
+          <span><i class="fas fa-dice" aria-hidden="true"></i> Variante ${attr(variant.value)}</span>
+          <small data-variant-summary>${actionCount} ${actionCount === 1 ? "Aktion" : "Aktionen"}</small>
+        </summary>
+        <div class="betterinv-ground-effect-variant-body">
+          <fieldset>
+            <legend>Optionaler Wurf für Variante ${attr(variant.value)}</legend>
+            ${checkEditorHtml(variant.check, { variant: true })}
+          </fieldset>
+          <fieldset class="betterinv-ground-effect-actions" data-effect-action-group>
+            <div class="betterinv-ground-effect-actions-title">
+              <legend>Aktionen für Variante ${attr(variant.value)}</legend>
+              <button type="button" data-add-action><i class="fas fa-plus"></i> Aktion hinzufügen</button>
+            </div>
+            <div data-effect-actions>
+              ${variant.actions.map(action => actionCardHtml(action, { variantValue: variant.value })).join("")
+                || `<p class="betterinv-ground-actions-empty" data-actions-empty>Noch keine Aktion für diese Variante.</p>`}
+            </div>
+          </fieldset>
+        </div>
+      </details>`;
+  }
+
+  function powerVariantsHtml(rule) {
+    const sides = getPowerDieSides(rule.powerFormula);
+    if (!sides) {
+      return `<p class="betterinv-ground-variants-empty">Wähle einen Würfel aus. Danach erscheinen die Ergebnisvarianten hier einzeln und aufklappbar.</p>`;
+    }
+    return rule.variants
+      .filter(variant => variant.value >= 1 && variant.value <= sides)
+      .sort((a, b) => a.value - b.value)
+      .map(variantCardHtml)
+      .join("");
+  }
+
+  function powerDieOptionsHtml(selected) {
+    const clean = String(selected ?? "").trim().toLowerCase();
+    const options = Object.entries(POWER_DICE);
+    if (clean && !Object.hasOwn(POWER_DICE, clean)) {
+      options.push([clean, `Bestehende Formel: ${clean}`]);
+    }
+    return optionsHtml(Object.fromEntries(options), clean);
+  }
+
   function ruleCardHtml(rule) {
+    const gridStep = getSceneGridMetrics()?.distanceFeet ?? 5;
     return `
       <article class="betterinv-ground-effect-rule" data-effect-rule data-rule-id="${attr(rule.id)}">
         <header>
@@ -834,53 +1178,60 @@
             <span>Aktiv</span>
           </label>
           <input type="text" data-field="name" value="${attr(rule.name)}" aria-label="Name des Effekts">
+          <button type="button" class="betterinv-ground-effect-collapse" data-toggle-rule title="Effekt zuklappen" aria-label="Effekt zuklappen" aria-expanded="true"><i class="fas fa-chevron-up"></i></button>
           <button type="button" data-remove-rule title="Effekt entfernen"><i class="fas fa-trash"></i></button>
         </header>
 
-        <div class="betterinv-ground-effect-grid">
-          <label>Trigger
-            <select data-field="trigger">${optionsHtml(RULE_TRIGGERS, rule.trigger)}</select>
-          </label>
-          <label>Trigger-Reichweite (Fuß)
-            <input type="number" data-field="radius" min="0" step="1" value="${attr(rule.radius)}">
-          </label>
-          <label>Abklingzeit (Sek.)
-            <input type="number" data-field="cooldown" min="0" step="1" value="${attr(rule.cooldown)}">
-          </label>
-          <label class="betterinv-ground-effect-checkline">
-            <input type="checkbox" data-field="once" ${rule.once ? "checked" : ""}> Nur einmal auslösen
-          </label>
-        </div>
-
-        <fieldset>
-          <legend>Optionaler Wurf</legend>
+        <div class="betterinv-ground-effect-rule-body" data-rule-body>
           <div class="betterinv-ground-effect-grid">
-            <label>Art
-              <select data-field="check.type">${optionsHtml(CHECK_TYPES, rule.check.type)}</select>
+            <label>Trigger
+              <select data-field="trigger">${optionsHtml(RULE_TRIGGERS, rule.trigger)}</select>
             </label>
-            <label data-check-key-label><span data-check-key-title>Attribut / Fertigkeit</span>
-              <select data-field="check.key" ${rule.check.type === "none" ? "disabled" : ""}>
-                ${checkKeyOptionsHtml(rule.check.type, rule.check.key)}
-              </select>
+            <label>Trigger-Reichweite (Fuß)
+              <input type="number" data-field="radius" min="0" step="${attr(gridStep)}" value="${attr(rule.radius)}">
             </label>
-            <label>SG
-              <input type="number" data-field="check.dc" min="0" step="1" value="${attr(rule.check.dc)}">
+            <label>Abklingzeit (Sek.)
+              <input type="number" data-field="cooldown" min="0" step="1" value="${attr(rule.cooldown)}">
             </label>
             <label class="betterinv-ground-effect-checkline">
-              <input type="checkbox" data-field="check.blockOnFail" ${rule.check.blockOnFail ? "checked" : ""}> Interaktion bei Fehlschlag stoppen
+              <input type="checkbox" data-field="once" ${rule.once ? "checked" : ""}> Nur einmal auslösen
+            </label>
+            <label class="betterinv-ground-effect-checkline">
+              <input type="checkbox" data-field="showArea" ${rule.showArea ? "checked" : ""}> Grid-Bereich auf der Karte anzeigen
             </label>
           </div>
-        </fieldset>
 
-        <fieldset class="betterinv-ground-effect-actions">
-          <div class="betterinv-ground-effect-actions-title">
-            <legend>Aktionen</legend>
-            <button type="button" data-add-action><i class="fas fa-plus"></i> Aktion hinzufügen</button>
-          </div>
-          <div data-effect-actions>
-            ${rule.actions.map(actionCardHtml).join("") || `<p class="betterinv-ground-actions-empty" data-actions-empty>Noch keine Aktion angelegt.</p>`}
-          </div>
-        </fieldset>
+          <fieldset>
+            <legend>Optionaler Stärke-/Variantenwurf</legend>
+            <div class="betterinv-ground-effect-grid">
+              <label>Variantenwürfel
+                <select data-field="powerFormula">${powerDieOptionsHtml(rule.powerFormula)}</select>
+              </label>
+              <label class="betterinv-ground-effect-checkline">
+                <input type="checkbox" data-field="useStoredPower" ${rule.useStoredPower ? "checked" : ""}> Zuletzt am Objekt gewürfelte Stärke verwenden
+              </label>
+            </div>
+            <small>Beim Auslösen wird einmal gewürfelt und das Ergebnis am Bodenobjekt gespeichert. Nur die passende Ergebnisvariante wird anschließend ausgeführt.</small>
+            <div class="betterinv-ground-effect-variants" data-power-variants>
+              ${powerVariantsHtml(rule)}
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <legend>Optionaler Wurf ohne Variante</legend>
+            ${checkEditorHtml(rule.check)}
+          </fieldset>
+
+          <fieldset class="betterinv-ground-effect-actions" data-effect-action-group data-base-actions>
+            <div class="betterinv-ground-effect-actions-title">
+              <legend>Aktionen ohne Variante</legend>
+              <button type="button" data-add-action><i class="fas fa-plus"></i> Aktion hinzufügen</button>
+            </div>
+            <div data-effect-actions>
+              ${rule.actions.map(action => actionCardHtml(action)).join("") || `<p class="betterinv-ground-actions-empty" data-actions-empty>Noch keine Aktion angelegt.</p>`}
+            </div>
+          </fieldset>
+        </div>
       </article>`;
   }
 
@@ -893,12 +1244,37 @@
       value: value("value")?.value,
       duration: Number(value("duration")?.value),
       radius: Number(value("radius")?.value),
-      secondary: value("secondary")?.value
+      secondary: value("secondary")?.value,
+      damageType: value("damageType")?.value,
+      conditionId: value("conditionId")?.value,
+      powerMin: value("powerMin")?.value,
+      powerMax: value("powerMax")?.value
     });
   }
 
   function readRuleCard(card) {
     const value = path => card.querySelector(`[data-field="${CSS.escape(path)}"]`);
+    const baseActionContainer = card.querySelector("[data-base-actions] [data-effect-actions]");
+    const baseActionCards = Array.from(baseActionContainer?.children ?? [])
+      .filter(child => child.matches?.("[data-effect-action]"));
+    const variants = Array.from(card.querySelectorAll("[data-effect-variant]")).map(variantCard => {
+      const variantValue = Math.max(1, Math.trunc(Number(variantCard.dataset.variantValue) || 1));
+      const variantField = path => variantCard.querySelector(`[data-variant-check-field="${CSS.escape(path)}"]`);
+      const actionContainer = variantCard.querySelector("[data-effect-actions]");
+      const actions = Array.from(actionContainer?.children ?? [])
+        .filter(child => child.matches?.("[data-effect-action]"))
+        .map(readActionCard);
+      return normalizeVariant({
+        value: variantValue,
+        check: {
+          type: variantField("type")?.value,
+          key: variantField("key")?.value,
+          dc: Number(variantField("dc")?.value),
+          blockOnFail: Boolean(variantField("blockOnFail")?.checked)
+        },
+        actions
+      }, variantValue);
+    });
     return normalizeRule({
       id: card.dataset.ruleId || randomId(),
       name: value("name")?.value,
@@ -907,13 +1283,17 @@
       radius: Number(value("radius")?.value),
       cooldown: Number(value("cooldown")?.value),
       once: Boolean(value("once")?.checked),
+      showArea: Boolean(value("showArea")?.checked),
+      powerFormula: value("powerFormula")?.value,
+      useStoredPower: Boolean(value("useStoredPower")?.checked),
       check: {
         type: value("check.type")?.value,
         key: value("check.key")?.value,
         dc: Number(value("check.dc")?.value),
         blockOnFail: Boolean(value("check.blockOnFail")?.checked)
       },
-      actions: Array.from(card.querySelectorAll("[data-effect-action]")).map(readActionCard)
+      actions: baseActionCards.map(readActionCard),
+      variants
     });
   }
 
@@ -925,6 +1305,7 @@
       ...(loot.effects ?? {}),
       rules: Array.from(rules ?? []).map(normalizeRule)
     };
+    if (typeof syncBetterInvGroundProfileIntoLoot === "function") syncBetterInvGroundProfileIntoLoot(loot);
     await tileDocument.update({
       [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot
     }, { betterInventoryGroundEffects: true, userId: game.user.id });
@@ -937,9 +1318,21 @@
       ui.notifications.warn("Nur ein GM kann die Effekte eines Bodenobjekts bearbeiten.");
       return false;
     }
-    const loot = getBetterInvGroundLoot(tileDocument);
+    const documentName = String(tileDocument?.documentName ?? tileDocument?.constructor?.documentName ?? "").toLowerCase();
+    const itemProfileMode = documentName === "item";
+    const itemProfile = itemProfileMode
+      ? (getBetterInvItemGroundProfile(tileDocument) ?? {})
+      : null;
+    const loot = itemProfileMode
+      ? {
+          ...itemProfile,
+          kind: "item",
+          name: tileDocument.name,
+          image: tileDocument.img
+        }
+      : getBetterInvGroundLoot(tileDocument);
     if (!loot) return false;
-    const initialRules = getRules(tileDocument);
+    const initialRules = getRules(loot);
 
     return await new Promise(resolve => {
       let settled = false;
@@ -964,10 +1357,10 @@
           if (hasRules) existing?.remove?.();
           else if (list && !existing) list.insertAdjacentHTML("beforeend", `<p class="betterinv-ground-effects-empty" data-effects-empty>Noch keine Effekte angelegt.</p>`);
         };
-        const refreshCheckKey = ruleCard => {
-          const typeSelect = ruleCard?.querySelector?.('[data-field="check.type"]');
-          const keySelect = ruleCard?.querySelector?.('[data-field="check.key"]');
-          const title = ruleCard?.querySelector?.("[data-check-key-title]");
+        const refreshCheckKey = checkEditor => {
+          const typeSelect = checkEditor?.querySelector?.("[data-check-type]");
+          const keySelect = checkEditor?.querySelector?.("[data-check-key]");
+          const title = checkEditor?.querySelector?.("[data-check-key-title]");
           if (!typeSelect || !keySelect) return;
           const type = String(typeSelect.value || "none");
           const previous = String(keySelect.value || "");
@@ -983,22 +1376,117 @@
                   : "Attribut / Fertigkeit";
           }
         };
-        for (const ruleCard of Array.from(list?.querySelectorAll?.("[data-effect-rule]") ?? [])) refreshCheckKey(ruleCard);
+        const refreshVariantSummary = variantCard => {
+          if (!variantCard) return;
+          const actionContainer = variantCard.querySelector?.("[data-effect-actions]");
+          const count = Array.from(actionContainer?.children ?? [])
+            .filter(child => child.matches?.("[data-effect-action]"))
+            .length;
+          const summary = variantCard.querySelector?.("[data-variant-summary]");
+          if (summary) summary.textContent = `${count} ${count === 1 ? "Aktion" : "Aktionen"}`;
+        };
+        const refreshActionFields = actionCard => {
+          const type = String(actionCard?.querySelector?.('[data-action-field="type"]')?.value ?? "chat");
+          const valueWrap = actionCard?.querySelector?.("[data-action-value-wrap]");
+          const valueLabel = actionCard?.querySelector?.("[data-action-value-label]");
+          const valueInput = actionCard?.querySelector?.('[data-action-field="value"]');
+          const conditionWrap = actionCard?.querySelector?.("[data-action-condition-wrap]");
+          const damageTypeWrap = actionCard?.querySelector?.("[data-action-damage-type-wrap]");
+          const durationWrap = actionCard?.querySelector?.("[data-action-duration-wrap]");
+          const radiusWrap = actionCard?.querySelector?.("[data-action-radius-wrap]");
+          const secondaryWrap = actionCard?.querySelector?.("[data-action-secondary-wrap]");
+          const secondaryLabel = actionCard?.querySelector?.("[data-action-secondary-label]");
+          const help = actionCard?.querySelector?.("[data-action-context-help]");
+          const valueConfig = {
+            chat: ["Nachricht", "Text, der im Chat erscheinen soll"],
+            damage: ["Schadensformel", "z. B. 2d6+3"],
+            heal: ["Heilungsformel", "z. B. 1d8+2"],
+            activeEffect: ["Name des eigenen Effekts", "z. B. Brennend"],
+            sound: ["Audio-Dateipfad", "modules/.../sound.ogg"],
+            activateOther: ["Tile-ID, UUID oder genauer Name", "mehrere Ziele durch Komma trennen"],
+            macro: ["Makro-ID oder genauer Makroname", "z. B. Feuerkristall"],
+            light: ["Optional: Lichtfarbe", "z. B. #ff8a32"],
+            darkness: ["Optional: Farbe", "z. B. #000000"]
+          };
+          const valueEntry = valueConfig[type];
+          if (valueWrap) valueWrap.hidden = !valueEntry;
+          if (valueLabel && valueEntry) valueLabel.textContent = valueEntry[0];
+          if (valueInput && valueEntry) valueInput.placeholder = valueEntry[1];
+          if (conditionWrap) conditionWrap.hidden = type !== "condition";
+          if (damageTypeWrap) damageTypeWrap.hidden = type !== "damage";
+          if (durationWrap) durationWrap.hidden = !["condition", "activeEffect", "light", "darkness"].includes(type);
+          if (radiusWrap) radiusWrap.hidden = !["damage", "heal", "condition", "activeEffect", "light", "darkness"].includes(type);
+          if (secondaryWrap) secondaryWrap.hidden = !["activeEffect", "activateOther", "sound"].includes(type);
+          if (secondaryLabel) secondaryLabel.textContent = type === "activeEffect"
+            ? "Änderungen als JSON-Array (Expertenmodus)"
+            : type === "activateOther"
+              ? "Optionaler Ziel-Trigger"
+              : "Lautstärke von 0 bis 1";
+          if (help) {
+            help.textContent = type === "condition"
+              ? "Kein JSON nötig: Der ausgewählte Foundry-Zustand wird direkt angewendet."
+              : type === "activeEffect"
+                ? "Nur für eigene system- oder modulabhängige Änderungen. Für Blind, Liegend, Unsichtbar usw. den Foundry-Zustand verwenden."
+                : ["damage", "heal"].includes(type)
+                  ? "Radius 0 betrifft nur den auslösenden Charakter; ein größerer Radius betrifft alle Token im gridbasierten Bereich."
+                  : ["light", "darkness"].includes(type)
+                    ? "Das Licht bleibt am Bodenobjekt verankert und folgt ihm beim Verschieben."
+                    : "";
+          }
+        };
+        for (const checkEditor of Array.from(list?.querySelectorAll?.("[data-check-editor]") ?? [])) refreshCheckKey(checkEditor);
+        for (const actionCard of Array.from(list?.querySelectorAll?.("[data-effect-action]") ?? [])) refreshActionFields(actionCard);
+        for (const variantCard of Array.from(list?.querySelectorAll?.("[data-effect-variant]") ?? [])) refreshVariantSummary(variantCard);
         list?.addEventListener?.("change", event => {
-          if (!event.target?.matches?.('[data-field="check.type"]')) return;
-          refreshCheckKey(event.target.closest?.("[data-effect-rule]"));
+          if (event.target?.matches?.("[data-check-type]")) {
+            refreshCheckKey(event.target.closest?.("[data-check-editor]"));
+            return;
+          }
+          if (event.target?.matches?.('[data-field="powerFormula"]')) {
+            const ruleCard = event.target.closest?.("[data-effect-rule]");
+            const variantContainer = ruleCard?.querySelector?.("[data-power-variants]");
+            if (!ruleCard || !variantContainer) return;
+            const snapshot = readRuleCard(ruleCard);
+            variantContainer.innerHTML = powerVariantsHtml(snapshot);
+            for (const checkEditor of Array.from(variantContainer.querySelectorAll("[data-check-editor]"))) refreshCheckKey(checkEditor);
+            for (const actionCard of Array.from(variantContainer.querySelectorAll("[data-effect-action]"))) refreshActionFields(actionCard);
+            for (const variantCard of Array.from(variantContainer.querySelectorAll("[data-effect-variant]"))) refreshVariantSummary(variantCard);
+            return;
+          }
+          if (event.target?.matches?.('[data-action-field="type"]')) {
+            refreshActionFields(event.target.closest?.("[data-effect-action]"));
+          }
         });
         element.querySelector?.("[data-add-rule]")?.addEventListener("click", () => {
           list?.querySelector?.("[data-effects-empty]")?.remove?.();
           const rule = normalizeRule({
             name: `Effekt ${(list?.querySelectorAll?.("[data-effect-rule]")?.length ?? 0) + 1}`,
+            showArea: true,
             actions: [{ type: "chat", outcome: "always" }]
           });
           list?.insertAdjacentHTML?.("beforeend", ruleCardHtml(rule));
-          refreshCheckKey(list?.lastElementChild);
+          for (const checkEditor of Array.from(list?.lastElementChild?.querySelectorAll?.("[data-check-editor]") ?? [])) refreshCheckKey(checkEditor);
+          refreshActionFields(list?.lastElementChild?.querySelector?.("[data-effect-action]"));
           list?.lastElementChild?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
         });
         list?.addEventListener?.("click", event => {
+          const toggleRule = event.target?.closest?.("[data-toggle-rule]");
+          if (toggleRule) {
+            const ruleCard = toggleRule.closest?.("[data-effect-rule]");
+            const body = ruleCard?.querySelector?.("[data-rule-body]");
+            if (!body) return;
+            const collapsed = !body.hidden;
+            body.hidden = collapsed;
+            ruleCard.classList.toggle("is-collapsed", collapsed);
+            toggleRule.setAttribute("aria-expanded", String(!collapsed));
+            toggleRule.setAttribute("aria-label", collapsed ? "Effekt aufklappen" : "Effekt zuklappen");
+            toggleRule.title = collapsed ? "Effekt aufklappen" : "Effekt zuklappen";
+            const icon = toggleRule.querySelector("i");
+            icon?.classList?.toggle("fa-chevron-down", collapsed);
+            icon?.classList?.toggle("fa-chevron-up", !collapsed);
+            return;
+          }
+
           const removeRule = event.target?.closest?.("[data-remove-rule]");
           if (removeRule) {
             removeRule.closest?.("[data-effect-rule]")?.remove?.();
@@ -1008,27 +1496,43 @@
 
           const addAction = event.target?.closest?.("[data-add-action]");
           if (addAction) {
-            const ruleCard = addAction.closest?.("[data-effect-rule]");
-            const actions = ruleCard?.querySelector?.("[data-effect-actions]");
+            const actionGroup = addAction.closest?.("[data-effect-action-group]");
+            const actions = actionGroup?.querySelector?.("[data-effect-actions]");
+            const variantCard = actionGroup?.closest?.("[data-effect-variant]");
+            const variantValue = variantCard
+              ? Math.max(1, Math.trunc(Number(variantCard.dataset.variantValue) || 1))
+              : null;
             actions?.querySelector?.("[data-actions-empty]")?.remove?.();
-            actions?.insertAdjacentHTML?.("beforeend", actionCardHtml(normalizeAction({ type: "chat", outcome: "always" })));
+            actions?.insertAdjacentHTML?.("beforeend", actionCardHtml(
+              normalizeAction({ type: "chat", outcome: "always" }),
+              { variantValue }
+            ));
+            refreshActionFields(actions?.lastElementChild);
+            refreshVariantSummary(variantCard);
             return;
           }
 
           const removeAction = event.target?.closest?.("[data-remove-action]");
           if (removeAction) {
-            const ruleCard = removeAction.closest?.("[data-effect-rule]");
-            const actions = ruleCard?.querySelector?.("[data-effect-actions]");
+            const actionGroup = removeAction.closest?.("[data-effect-action-group]");
+            const actions = actionGroup?.querySelector?.("[data-effect-actions]");
+            const variantCard = actionGroup?.closest?.("[data-effect-variant]");
             removeAction.closest?.("[data-effect-action]")?.remove?.();
             if (actions && !actions.querySelector("[data-effect-action]")) {
-              actions.insertAdjacentHTML("beforeend", `<p class="betterinv-ground-actions-empty" data-actions-empty>Noch keine Aktion angelegt.</p>`);
+              const emptyLabel = variantCard ? "Noch keine Aktion für diese Variante." : "Noch keine Aktion angelegt.";
+              actions.insertAdjacentHTML("beforeend", `<p class="betterinv-ground-actions-empty" data-actions-empty>${emptyLabel}</p>`);
             }
+            refreshVariantSummary(variantCard);
           }
         });
       };
 
+      const viewportWidth = Math.max(420, Number(globalThis.innerWidth) || 1200);
+      const viewportHeight = Math.max(480, Number(globalThis.innerHeight) || 900);
+      const initialWidth = Math.min(760, viewportWidth - 48);
+      const initialHeight = Math.min(640, viewportHeight - 120);
       dialog = new Dialog({
-        title: `Effekte: ${loot.name || tileDocument.name || "Bodenobjekt"}`,
+        title: `${itemProfileMode ? "Bodenprofil" : "Effekte"}: ${loot.name || tileDocument.name || "Bodenobjekt"}`,
         content: `
           <form class="betterinv-ground-effects-editor" autocomplete="off">
             <header class="betterinv-ground-effects-intro">
@@ -1043,7 +1547,7 @@
             </div>
             <aside class="betterinv-ground-effects-help">
               <strong>Wichtige Eingaben:</strong>
-              Schaden/Heilung: Formel wie <code>2d6+3</code>. Active Effect: Name bei „Wert“ und ein JSON-Array bei „Zusatzdaten“. Andere Bodenobjekte: ID, UUID oder exakter Name; mehrere Ziele mit Komma trennen.
+              Schaden/Heilung: Formel wie <code>2d6+3</code>. Blind, Unsichtbar, Liegend und weitere Standardzustände brauchen kein JSON. „Eigener Active Effect“ bleibt nur für Sonderfälle. Andere Bodenobjekte: ID, UUID oder exakter Name; mehrere Ziele mit Komma trennen.
             </aside>
           </form>`,
         buttons: {
@@ -1053,9 +1557,21 @@
             callback: html => {
               const root = html?.[0] ?? html;
               const rules = Array.from(root?.querySelectorAll?.("[data-effect-rule]") ?? []).map(readRuleCard);
-              void saveRules(tileDocument, rules)
+              const saveAction = itemProfileMode
+                ? tileDocument.setFlag(MODULE_ID, BETTER_INV_GROUND_PROFILE_FLAG, {
+                    ...clone(itemProfile ?? {}),
+                    version: 1,
+                    effects: {
+                      ...(clone(itemProfile?.effects ?? {})),
+                      rules
+                    }
+                  })
+                : saveRules(tileDocument, rules);
+              void Promise.resolve(saveAction)
                 .then(() => {
-                  ui.notifications.info("Bodenobjekt-Effekte gespeichert.");
+                  ui.notifications.info(itemProfileMode
+                    ? "Das Bodenprofil bleibt jetzt am Gegenstand gespeichert."
+                    : "Bodenobjekt-Effekte gespeichert.");
                   done(true);
                 })
                 .catch(error => {
@@ -1074,8 +1590,8 @@
         render: bindEditor,
         close: () => done(false)
       }, {
-        width: 820,
-        height: 780,
+        width: initialWidth,
+        height: initialHeight,
         resizable: true,
         classes: ["betterinv-standard-dialog", "betterinv-ground-effects-dialog"]
       });
@@ -1212,16 +1728,17 @@
     } catch (_error) {}
   }
 
-  async function performCheck(rule, actor) {
-    if (rule.check.type === "none") return { performed: false, success: true, total: null };
+  async function performCheck(rule, actor, { check: requestedCheck = rule.check, name = rule.name } = {}) {
+    const check = normalizeCheck(requestedCheck);
+    if (check.type === "none") return { performed: false, success: true, total: null };
     if (!actor) return { performed: true, success: false, total: null, reason: "Kein Charakter für den Wurf verfügbar." };
-    const modifier = getModifier(actor, rule.check.type, rule.check.key);
+    const modifier = getModifier(actor, check.type, check.key);
     const roll = await evaluateRoll(`1d20 + ${modifier}`);
     const total = Number(roll.total) || 0;
-    const success = total >= Number(rule.check.dc || 0);
+    const success = total >= Number(check.dc || 0);
     await postRoll(roll, {
       actor,
-      flavor: `${rule.name}: ${CHECK_TYPES[rule.check.type]} (${String(rule.check.key).toUpperCase()}) gegen SG ${rule.check.dc} – ${success ? "Erfolg" : "Fehlschlag"}`
+      flavor: `${name}: ${CHECK_TYPES[check.type]} (${String(check.key).toUpperCase()}) gegen SG ${check.dc} – ${success ? "Erfolg" : "Fehlschlag"}`
     });
     return { performed: true, success, total };
   }
@@ -1231,9 +1748,100 @@
     const current = Number(foundry.utils.getProperty(actor, "system.attributes.hp.value")) || 0;
     const max = Number(foundry.utils.getProperty(actor, "system.attributes.hp.max")) || current;
     const delta = Math.max(0, Number(amount) || 0);
-    const next = mode === "heal" ? Math.min(max, current + delta) : Math.max(0, current - delta);
-    await actor.update({ "system.attributes.hp.value": next }, { betterInventoryGroundEffect: true });
+    const temporary = Math.max(0, Number(foundry.utils.getProperty(actor, "system.attributes.hp.temp")) || 0);
+    const absorbed = mode === "damage" ? Math.min(temporary, delta) : 0;
+    const hpDelta = mode === "damage" ? Math.max(0, delta - absorbed) : delta;
+    const next = mode === "heal" ? Math.min(max, current + hpDelta) : Math.max(0, current - hpDelta);
+    const updateData = { "system.attributes.hp.value": next };
+    if (mode === "damage" && absorbed > 0) updateData["system.attributes.hp.temp"] = temporary - absorbed;
+    await actor.update(updateData, { betterInventoryGroundEffect: true });
     return next;
+  }
+
+  function getActionTargetActors(tileDocument, action, context = {}) {
+    const directActor = getContextActor(context);
+    const radius = Math.max(0, Number(action?.radius) || 0);
+    if (radius <= 0) return directActor ? [directActor] : [];
+    const scene = tileDocument?.parent ?? canvas?.scene;
+    const actors = new Map();
+    for (const tokenDocument of Array.from(scene?.tokens?.contents ?? scene?.tokens ?? [])) {
+      if (!tokenOverlapsGridArea(tokenDocument, tileDocument, radius)) continue;
+      const actor = tokenDocument?.actor
+        ?? tokenDocument?.object?.actor
+        ?? game.actors?.get?.(tokenDocument?.actorId)
+        ?? null;
+      if (actor?.id) actors.set(actor.id, actor);
+    }
+    return Array.from(actors.values());
+  }
+
+  async function applyCondition(actor, action, rule, loot, tileDocument) {
+    if (!actor) throw new Error("Für den Foundry-Zustand wurde kein Charakter gefunden.");
+    const conditionId = normalizeConditionId(action.conditionId);
+    const status = Array.from(CONFIG?.statusEffects ?? [])
+      .find(entry => String(entry?.id ?? entry?._id ?? "") === conditionId)
+      ?? null;
+    const rawLabel = status?.name ?? status?.label ?? getConditionOptions()[conditionId] ?? conditionId;
+    const name = game.i18n?.localize?.(rawLabel) ?? rawLabel;
+    const durationSeconds = Math.max(0, Number(action.duration) || 0);
+    const effectData = status ? clone(status) : {};
+    delete effectData.id;
+    delete effectData._id;
+    effectData.name = String(name || rule.name);
+    effectData.img = effectData.img || effectData.icon || loot.image || "icons/svg/aura.svg";
+    effectData.icon = effectData.icon || effectData.img;
+    effectData.disabled = false;
+    effectData.statuses = [conditionId];
+    effectData.duration = durationSeconds
+      ? { seconds: durationSeconds, startTime: game.time?.worldTime ?? 0 }
+      : {};
+    effectData.changes = Array.isArray(effectData.changes) ? effectData.changes : [];
+    effectData.flags = {
+      ...(effectData.flags ?? {}),
+      core: { ...(effectData.flags?.core ?? {}), statusId: conditionId },
+      [MODULE_ID]: { groundRuleId: rule.id, groundTileId: tileDocument.id, conditionId }
+    };
+    await actor.createEmbeddedDocuments("ActiveEffect", [effectData], { betterInventoryGroundEffect: true });
+  }
+
+  async function resolveRulePower(tileDocument, rule, actor) {
+    if (rule.useStoredPower) {
+      const stored = Number(getBetterInvGroundLoot(tileDocument)?.effects?.lastPower?.value);
+      if (Number.isFinite(stored)) return stored;
+    }
+    if (rule.powerFormula) {
+      const roll = await evaluateRoll(rule.powerFormula);
+      await postRoll(roll, {
+        actor,
+        flavor: `${rule.name}: Stärke-/Variantenwurf`
+      });
+      const total = Number(roll.total);
+      if (!Number.isFinite(total)) throw new Error("Der Stärke-/Variantenwurf hat kein gültiges Ergebnis geliefert.");
+      await updateGroundLoot(tileDocument, loot => {
+        loot.effects = {
+          ...(loot.effects ?? {}),
+          lastPower: {
+            value: total,
+            formula: rule.powerFormula,
+            ruleId: rule.id,
+            rolledAt: Date.now()
+          }
+        };
+        return loot;
+      });
+      return total;
+    }
+    return null;
+  }
+
+  function actionMatchesPower(action, power) {
+    const hasMinimum = Number.isFinite(action.powerMin);
+    const hasMaximum = Number.isFinite(action.powerMax);
+    if (!hasMinimum && !hasMaximum) return true;
+    if (!Number.isFinite(power)) return false;
+    if (hasMinimum && power < action.powerMin) return false;
+    if (hasMaximum && power > action.powerMax) return false;
+    return true;
   }
 
   function parseChanges(value) {
@@ -1271,7 +1879,9 @@
         dim: radius,
         bright: darkness ? 0 : Math.max(0, radius / 2),
         angle: 360,
-        color: darkness ? "#000000" : "#ffb347",
+        color: /^#[0-9a-f]{6}$/i.test(String(rule.action.value ?? "").trim())
+          ? String(rule.action.value).trim()
+          : (darkness ? "#000000" : "#ffb347"),
         alpha: darkness ? 0.72 : 0.35,
         attenuation: 0.5,
         luminosity: darkness ? -1 : 0.5,
@@ -1396,22 +2006,36 @@
       case "damage":
       case "heal": {
         const roll = await evaluateRoll(action.value || "1");
-        await postRoll(roll, { actor, flavor: `${label}: ${rule.name}` });
-        await updateActorHp(actor, roll.total, action.type, rule);
+        const damageTypeLabel = action.type === "damage" && action.damageType !== "none"
+          ? ` (${DAMAGE_TYPES[action.damageType] ?? action.damageType})`
+          : "";
+        await postRoll(roll, { actor, flavor: `${label}: ${rule.name}${damageTypeLabel}` });
+        const targets = getActionTargetActors(tileDocument, action, context);
+        if (!targets.length) throw new Error(`Für ${action.type === "damage" ? "Schaden" : "Heilung"} wurde kein Ziel im Bereich gefunden.`);
+        for (const target of targets) await updateActorHp(target, roll.total, action.type, rule);
+        return;
+      }
+      case "condition": {
+        const targets = getActionTargetActors(tileDocument, action, context);
+        if (!targets.length) throw new Error("Für den Foundry-Zustand wurde kein Ziel im Bereich gefunden.");
+        for (const target of targets) await applyCondition(target, action, rule, loot, tileDocument);
         return;
       }
       case "activeEffect": {
-        if (!actor) throw new Error("Für den Active Effect wurde kein Charakter gefunden.");
+        const targets = getActionTargetActors(tileDocument, action, context);
+        if (!targets.length) throw new Error("Für den eigenen Active Effect wurde kein Ziel im Bereich gefunden.");
         const durationSeconds = Math.max(0, Number(action.duration) || 0);
-        await actor.createEmbeddedDocuments("ActiveEffect", [{
-          name: action.value || rule.name,
-          img: loot.image || "icons/svg/aura.svg",
-          icon: loot.image || "icons/svg/aura.svg",
-          disabled: false,
-          duration: durationSeconds ? { seconds: durationSeconds, startTime: game.time?.worldTime ?? 0 } : {},
-          changes: parseChanges(action.secondary),
-          flags: { [MODULE_ID]: { groundRuleId: rule.id, groundTileId: tileDocument.id } }
-        }], { betterInventoryGroundEffect: true });
+        for (const target of targets) {
+          await target.createEmbeddedDocuments("ActiveEffect", [{
+            name: action.value || rule.name,
+            img: loot.image || "icons/svg/aura.svg",
+            icon: loot.image || "icons/svg/aura.svg",
+            disabled: false,
+            duration: durationSeconds ? { seconds: durationSeconds, startTime: game.time?.worldTime ?? 0 } : {},
+            changes: parseChanges(action.secondary),
+            flags: { [MODULE_ID]: { groundRuleId: rule.id, groundTileId: tileDocument.id } }
+          }], { betterInventoryGroundEffect: true });
+        }
         return;
       }
       case "hide":
@@ -1508,6 +2132,7 @@
       const marked = [];
       for (const rule of rules) {
         try {
+          const power = await resolveRulePower(tileDocument, rule, actor);
           const check = await performCheck(rule, actor);
           if (check.performed && !check.success && rule.check.blockOnFail) blocked = true;
 
@@ -1515,9 +2140,29 @@
             const runAction = action.outcome === "always"
               || (action.outcome === "success" && check.success)
               || (action.outcome === "failure" && check.performed && !check.success);
-            if (!runAction) continue;
+            if (!runAction || !actionMatchesPower(action, power)) continue;
             await executeAction(tileDocument, rule, action, { ...context, activationChain }, check);
             if (!tileDocument.parent) break;
+          }
+
+          const variant = Number.isFinite(power)
+            ? rule.variants.find(entry => entry.value === Math.trunc(power))
+            : null;
+          if (variant && tileDocument.parent) {
+            const variantName = `${rule.name} – Variante ${variant.value}`;
+            const variantCheck = await performCheck(rule, actor, {
+              check: variant.check,
+              name: variantName
+            });
+            if (variantCheck.performed && !variantCheck.success && variant.check.blockOnFail) blocked = true;
+            for (const action of variant.actions) {
+              const runAction = action.outcome === "always"
+                || (action.outcome === "success" && variantCheck.success)
+                || (action.outcome === "failure" && variantCheck.performed && !variantCheck.success);
+              if (!runAction) continue;
+              await executeAction(tileDocument, { ...rule, name: variantName }, action, { ...context, activationChain }, variantCheck);
+              if (!tileDocument.parent) break;
+            }
           }
 
           marked.push(rule);
@@ -1712,15 +2357,13 @@
           .filter(entry => entry.enabled && ["enter", "leave", "proximity", "stay"].includes(entry.trigger));
         if (!rules.length) continue;
 
-        const overlaps = tokenOverlapsTile(tokenDocument, tile);
-        const sweptOverlap = !primeOnly && !overlaps && sweptFrom
-          ? tokenSweptOverlapsTile(tokenDocument, tile, sweptFrom)
-          : false;
         for (const rule of rules) {
           const key = `${sceneId}:${tileDocument.id}:${tokenId}:${rule.id}`;
-          const radius = Math.max(0, Number(rule.radius) || Number(tileDocument.parent?.grid?.distance) || 5);
-          const near = tokenDistanceToTile(tokenDocument, tile) <= radius;
-          const current = rule.trigger === "proximity" ? near : overlaps;
+          const radius = Math.max(0, Number(rule.radius) || 0);
+          const current = tokenOverlapsGridArea(tokenDocument, tile, radius);
+          const sweptOverlap = !primeOnly && !current && sweptFrom
+            ? tokenSweptOverlapsGridArea(tokenDocument, tile, radius, sweptFrom)
+            : false;
           // A token can jump from one side of a small tile to the other between
           // two render frames. Treat a swept intersection as a temporary inside
           // state. The following scan then produces the matching leave event.
@@ -1887,6 +2530,7 @@
     onCanvasTearDown,
     onTileChanged,
     openEffectEditor,
+    openItemProfileEditor: openEffectEditor,
     decorateObjectEditor,
     getRules,
     hasTrigger,
