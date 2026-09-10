@@ -35,6 +35,7 @@
   "changelog": "https://github.com/axon-dystro/BetterInv/blob/main/CHANGELOG.md",
   "scripts": [
     "scripts/main.js",
+    "scripts/peer-transfers.js",
     "scripts/ground-effects.js"
   ],
   "styles": [
