@@ -7,9 +7,7 @@
     "minimum": "14",
     "verified": "14"
   },
-  "system": [
-    "dnd5e"
-  ],
+  "socket": true,
   "relationships": {
     "systems": [
       {
@@ -35,6 +33,7 @@
   "changelog": "https://github.com/axon-dystro/BetterInv/blob/main/CHANGELOG.md",
   "scripts": [
     "scripts/main.js",
+    "scripts/v14-compat.js",
     "scripts/peer-transfers.js",
     "scripts/ground-effects.js"
   ],
