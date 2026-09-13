@@ -173,6 +173,29 @@ assert.equal(tileData.width, 50, "Ein halbes Grid muss bei 100 Pixel Gridgröße
 assert.equal(tileData.height, 50);
 assert.equal(tileData.flags.betterinv.groundLoot.display.requireLineOfSight, true);
 
+const alwaysVisibleWithoutLos = vm.runInContext(`(() => {
+  const previousIsGm = game.user.isGM;
+  const previousVisibility = canvas.visibility;
+  game.user.isGM = false;
+  canvas.visibility = { testVisibility: () => false };
+  const tile = {
+    id: "player-visible-ground-loot",
+    parent: canvas.scene,
+    x: 225,
+    y: 225,
+    width: ${JSON.stringify(tileData.width)},
+    height: ${JSON.stringify(tileData.height)},
+    getFlag: () => (${JSON.stringify(tileData.flags.betterinv.groundLoot)})
+  };
+  const result = computeBetterInvGroundTileDesiredVisibility(tile);
+  game.user.isGM = previousIsGm;
+  canvas.visibility = previousVisibility;
+  return result;
+})()`, context);
+assert.equal(alwaysVisibleWithoutLos, true, "Bodenloot im Modus 'always' muss auch für Spieler ohne zusätzlichen LOS-Treffer sichtbar sein");
+assert.match(mainSource, /betterinv-item-action-remove-container/, "Das Drei-Punkte-Menü muss Gegenstände aus dem aktiven Rucksack entfernen können");
+assert.match(mainSource, /decorateBetterInvDialog\(dialog,[\s\S]*betterinv-transfer-route-window/, "Der Übertragen-/Fallenlassen-Dialog muss das BetterInv-Dialogdesign erhalten");
+
 vm.runInContext(groundSource, context, { filename: "scripts/ground-effects.js" });
 const normalizedRules = context.AxonsInventoryGround.getRules({
   kind: "item",

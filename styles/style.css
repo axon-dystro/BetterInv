@@ -4121,6 +4121,15 @@
   color: #e3f5ff;
 }
 
+.betterinv-item-actions-menu .betterinv-item-action-remove-container {
+  color: #d9c78e;
+}
+.betterinv-item-actions-menu .betterinv-item-action-remove-container:hover,
+.betterinv-item-actions-menu .betterinv-item-action-remove-container:focus-visible {
+  background: #39301d;
+  color: #fff1bd;
+}
+
 .betterinv-transfer-window {
   z-index: 26000 !important;
 }
@@ -7265,14 +7274,20 @@ button.betterinv-category-picker:focus-visible {
 
 /* Phase 10.2: transfer route and ground-loot controls */
 .betterinv-transfer-route-window .window-content {
-  background: linear-gradient(180deg, #181715, #0f0f0e);
+  padding: 0 !important;
+  overflow: hidden !important;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,.018), rgba(38,24,55,.12)),
+    #0d0d11;
   color: #e8e1d0;
 }
 
 .betterinv-transfer-route-dialog {
   display: grid;
   gap: 14px;
-  padding: 6px;
+  padding: 16px;
+  border-top: 1px solid rgba(200,168,90,.22);
+  font-family: Signika, Georgia, "Times New Roman", serif;
 }
 
 .betterinv-transfer-route-dialog > p {

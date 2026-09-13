@@ -840,9 +840,11 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
   const itemDuplicate = items && allowed("showItemDuplicate");
   const itemDelete = items && allowed("showItemDelete");
   const itemGroundConfigure = items && user?.isGM === true;
+  const itemMoveToContainer = items && containers && allowed("showItemMoveToContainer");
   const itemActionsMenuMaster = items && allowed("showItemActionsMenu");
   const itemActionsMenu = itemActionsMenuMaster && (
     favorites || equipActions || itemShareAction || itemDuplicate || itemDelete || itemGroundConfigure
+    || (itemMoveToContainer && Boolean(resolvedContainerId))
   );
 
   return {
@@ -878,7 +880,7 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
     containerRename: containers && allowed("showContainerRename"),
     containerLayerControls: containers && allowed("showContainerLayerControls"),
     containerSorting: containers && allowed("showContainerSorting"),
-    itemMoveToContainer: items && containers && allowed("showItemMoveToContainer"),
+    itemMoveToContainer,
     encumbrance: enabled && allowed("showEncumbrance"),
     currency,
     currencyCalculator,
@@ -8771,11 +8773,15 @@ function computeBetterInvGroundTileDesiredVisibility(tileOrDocument, { forcePlay
   if (game.user?.isGM && !previewAsPlayer) return true;
   if (config.visibilityMode === "hidden") return false;
 
+  // "always" means visible to players without an additional token-vision
+  // check. Previously the line-of-sight test ran before this branch, so the GM
+  // could see freshly dropped loot while a player client hid the same Tile.
+  if (config.visibilityMode === "always") return true;
+
   const center = getBetterInvGroundTileVisualCenter(tileOrDocument);
   const scene = document.parent ?? canvas?.scene;
   const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
   if (config.requireLineOfSight && !testBetterInvGroundLineOfSight(center)) return false;
-  if (config.visibilityMode === "always") return true;
 
   const gridDistanceFeet = getBetterInvGroundGridStepFeet(scene);
   const sceneX = Number(canvas?.dimensions?.sceneX ?? 0) || 0;
@@ -9416,11 +9422,17 @@ async function promptBetterInvTransferRoute({ title = "Übertragen", description
           resolve(null);
         }
       }
-    }, { width: 510, classes: ["betterinv-transfer-route-window"] });
+    }, {
+      width: 510,
+      classes: ["betterinv-standard-dialog", "betterinv-transfer-window", "betterinv-transfer-route-window"]
+    });
     dialog.render(true);
     setTimeout(() => {
+      const element = decorateBetterInvDialog(dialog, {
+        classes: ["betterinv-standard-dialog", "betterinv-transfer-window", "betterinv-transfer-route-window"]
+      });
       bringFoundryDialogsToFront({ avoidOverlap: false });
-      const root = dialog.element?.[0] ?? dialog.element;
+      const root = element ?? dialog.element?.[0] ?? dialog.element;
       root?.querySelector?.('[data-route="actor"]')?.addEventListener("click", () => choose("actor"));
       root?.querySelector?.('[data-route="ground"]')?.addEventListener("click", () => choose("ground"));
     }, 30);
@@ -10545,10 +10557,19 @@ function openBetterInvItemActionMenu(button, actor, item) {
   const features = getBetterInvFeaturePlan(userSettings, { actor, containerId: betterInvState.containerId });
   const equipped = features.equipActions ? getItemEquippedData(item) : { supported: false, value: false };
   const favorite = features.favorites ? isBetterInvFavorite(item) : false;
+  const activeContainer = betterInvState.containerId ? actor.items?.get?.(betterInvState.containerId) : null;
+  const itemContainerReference = getItemContainerId(item);
+  const canRemoveFromContainer = Boolean(
+    features.itemMoveToContainer
+    && activeContainer
+    && itemContainerReference
+    && betterInvContainerReferenceMatches(itemContainerReference, activeContainer)
+  );
   menu.innerHTML = `
     ${features.equipActions && equipped.supported ? `<button type="button" class="betterinv-item-action-equipped" role="menuitem"><i class="fas ${equipped.value ? "fa-box-open" : "fa-shield-alt"}"></i><span>${equipped.value ? "Ablegen" : "Ausrüsten"}</span></button>` : ""}
     ${features.favorites ? `<button type="button" class="betterinv-item-action-favorite" role="menuitem"><i class="${favorite ? "fas" : "far"} fa-star"></i><span>${favorite ? "Aus Favoriten entfernen" : "Zu Favoriten hinzufügen"}</span></button>` : ""}
     ${features.itemShareAction ? `<button type="button" class="betterinv-item-action-transfer" role="menuitem"><i class="fas fa-right-left"></i><span>Übertragen / fallen lassen</span></button>` : ""}
+    ${canRemoveFromContainer ? `<button type="button" class="betterinv-item-action-remove-container" role="menuitem"><i class="fas fa-arrow-up-from-bracket"></i><span>Aus dem Rucksack nehmen</span></button>` : ""}
     ${features.itemGroundConfigure ? `<button type="button" class="betterinv-item-action-ground-profile" role="menuitem"><i class="fas fa-wand-magic-sparkles"></i><span>Bodenprofil & Effekte</span></button>` : ""}
     ${features.itemDuplicate ? `<button type="button" class="betterinv-item-action-duplicate" role="menuitem"><i class="fas fa-copy"></i><span>Duplizieren</span></button>` : ""}
     ${features.itemDelete ? `<button type="button" class="betterinv-item-action-delete" role="menuitem"><i class="fas fa-trash"></i><span>Löschen</span></button>` : ""}
@@ -10590,10 +10611,11 @@ function openBetterInvItemActionMenu(button, actor, item) {
     const action = actionButton.classList.contains("betterinv-item-action-equipped") ? "equipped"
       : actionButton.classList.contains("betterinv-item-action-favorite") ? "favorite"
         : actionButton.classList.contains("betterinv-item-action-transfer") ? "transfer"
-          : actionButton.classList.contains("betterinv-item-action-ground-profile") ? "groundProfile"
-            : actionButton.classList.contains("betterinv-item-action-duplicate") ? "duplicate"
-              : actionButton.classList.contains("betterinv-item-action-delete") ? "delete"
-                : null;
+          : actionButton.classList.contains("betterinv-item-action-remove-container") ? "removeContainer"
+            : actionButton.classList.contains("betterinv-item-action-ground-profile") ? "groundProfile"
+              : actionButton.classList.contains("betterinv-item-action-duplicate") ? "duplicate"
+                : actionButton.classList.contains("betterinv-item-action-delete") ? "delete"
+                  : null;
     if (!action) return;
     close();
 
@@ -10603,10 +10625,11 @@ function openBetterInvItemActionMenu(button, actor, item) {
         const allowed = action === "equipped" ? currentFeatures.equipActions
           : action === "favorite" ? currentFeatures.favorites
             : action === "transfer" ? currentFeatures.itemShareAction
-              : action === "groundProfile" ? currentFeatures.itemGroundConfigure
-                : action === "duplicate" ? currentFeatures.itemDuplicate
-                  : action === "delete" ? currentFeatures.itemDelete
-                    : false;
+              : action === "removeContainer" ? currentFeatures.itemMoveToContainer && Boolean(betterInvState.containerId)
+                : action === "groundProfile" ? currentFeatures.itemGroundConfigure
+                  : action === "duplicate" ? currentFeatures.itemDuplicate
+                    : action === "delete" ? currentFeatures.itemDelete
+                      : false;
         if (!allowed) {
           ui.notifications.warn("Diese Gegenstandsaktion wurde vom GM oder in deinen Einstellungen deaktiviert.");
           return;
@@ -10614,6 +10637,21 @@ function openBetterInvItemActionMenu(button, actor, item) {
         if (action === "equipped") await toggleBetterInvItemEquipped(item);
         else if (action === "favorite") await toggleBetterInvFavorite(item);
         else if (action === "transfer") await transferBetterInvItem(actor, item);
+        else if (action === "removeContainer") {
+          const containerId = betterInvState.containerId;
+          const container = containerId ? actor.items?.get?.(containerId) : null;
+          const currentReference = getItemContainerId(item);
+          if (!container || !currentReference || !betterInvContainerReferenceMatches(currentReference, container)) {
+            ui.notifications.warn("Der Gegenstand liegt nicht mehr in diesem Rucksack.");
+            return;
+          }
+          await withBetterInvRefreshBatch(async () => {
+            await moveItemToContainer(item, null);
+            await setItemCategory(item, "__unsorted", null);
+            await setItemCategory(item, "__unsorted", containerId);
+          }, { forceRefresh: true });
+          ui.notifications.info(`${item.name} wurde aus dem Rucksack genommen.`);
+        }
         else if (action === "groundProfile") await openBetterInvItemGroundProfileEditor(item);
         else if (action === "duplicate") await duplicateBetterInvItem(actor, item);
         else if (action === "delete") await deleteBetterInvItem(item);
@@ -10622,6 +10660,7 @@ function openBetterInvItemActionMenu(button, actor, item) {
           equipped: ["Ausrüstungsstatus konnte nicht geändert werden", "Der Ausrüstungsstatus konnte nicht geändert werden."],
           favorite: ["Favoritenstatus konnte nicht geändert werden", "Der Favoritenstatus konnte nicht geändert werden."],
           transfer: ["Gegenstand konnte nicht übertragen werden", error?.message || "Der Gegenstand konnte nicht übertragen werden."],
+          removeContainer: ["Gegenstand konnte nicht aus dem Rucksack genommen werden", error?.message || "Der Gegenstand konnte nicht aus dem Rucksack genommen werden."],
           groundProfile: ["Bodenprofil konnte nicht bearbeitet werden", error?.message || "Das Bodenprofil konnte nicht bearbeitet werden."],
           duplicate: ["Gegenstand konnte nicht dupliziert werden", "Der Gegenstand konnte nicht dupliziert werden."],
           delete: ["Gegenstand konnte nicht gelöscht werden", "Der Gegenstand konnte nicht gelöscht werden."]

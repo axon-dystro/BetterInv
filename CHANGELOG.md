@@ -1,5 +1,11 @@
 # Changelog
 
+## Unveröffentlicht
+
+- Bodenbeute im Sichtbarkeitsmodus „Immer“ wird für Spieler nicht mehr versehentlich durch die zusätzliche Sichtlinienprüfung ausgeblendet.
+- Der Dialog „Übertragen / fallen lassen“ verwendet nun zuverlässig das einheitliche BetterInv-Design, auch unter Foundry VTT 14.
+- Das Drei-Punkte-Menü von Gegenständen in einem Rucksack enthält nun die Aktion „Aus dem Rucksack nehmen“.
+
 ## 1.6.0
 
 - Freies Formelfeld des Stärke-/Variantenwurfs durch ein Würfeldropdown für `1d2`, `1d4`, `1d6`, `1d8`, `1d10`, `1d12` und `1d20` ersetzt.
