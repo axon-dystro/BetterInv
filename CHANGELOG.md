@@ -2,6 +2,7 @@
 
 ## Unveröffentlicht
 
+- Größenänderungen von Bodenobjekten mit `M` + Mausrad reagieren nun schneller und verwenden stufenlose Zwischenwerte statt fester Größenstufen.
 - Bodenbeute im Sichtbarkeitsmodus „Immer“ wird für Spieler nicht mehr versehentlich durch die zusätzliche Sichtlinienprüfung ausgeblendet.
 - Der Dialog „Übertragen / fallen lassen“ verwendet nun zuverlässig das einheitliche BetterInv-Design, auch unter Foundry VTT 14.
 - Das Drei-Punkte-Menü von Gegenständen in einem Rucksack enthält nun die Aktion „Aus dem Rucksack nehmen“.

@@ -8189,11 +8189,13 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     loot.display = { ...(loot.display ?? {}) };
     if (mode === "resize") {
       const requestedUnits = Number(payload.sizeGridUnits);
-      const nearestIndex = getBetterInvNearestGroundSizeIndex(requestedUnits);
-      const sizeGridUnits = betterInvGroundSizeIndexToUnits(nearestIndex);
+      if (!Number.isFinite(requestedUnits)) throw new Error("Die neue Größe ist ungültig.");
+      // Wheel/trackpad resizing is intentionally continuous. The fixed size
+      // list remains useful only as convenient presets in the configuration UI.
+      const sizeGridUnits = Math.round(Math.max(0.125, Math.min(10, requestedUnits)) * 1000) / 1000;
       const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
-      const width = Math.max(1, Math.round(gridSize * sizeGridUnits));
-      const height = Math.max(1, Math.round(gridSize * sizeGridUnits));
+      const width = Math.max(1, Math.round(gridSize * sizeGridUnits * 1000) / 1000);
+      const height = Math.max(1, Math.round(gridSize * sizeGridUnits * 1000) / 1000);
       const centerX = Number(tile.x ?? 0) + Number(tile.width ?? 0) / 2;
       const centerY = Number(tile.y ?? 0) + Number(tile.height ?? 0) / 2;
       Object.assign(update, { x: centerX - width / 2, y: centerY - height / 2, width, height });

@@ -207,11 +207,11 @@ await vm.runInContext(`executeBetterInvGmGroundAction("transformTile", {
   sceneId: "scene",
   tileId: "transform-tile",
   mode: "resize",
-  sizeGridUnits: 1.5
+  sizeGridUnits: 1.37
 }, "player")`, context);
-assert.equal(transformTile.width, 150, "Die Größenänderung muss auf eine erlaubte Grid-Stufe einrasten");
-assert.equal(transformTile.x, 175, "Beim Skalieren muss der Mittelpunkt des Bodenobjekts erhalten bleiben");
-assert.equal(transformLoot.itemData.flags.betterinv.groundProfile.display.sizeGridUnits, 1.5, "Die aktuelle Größe muss im Item-Profil persistieren");
+assert.equal(transformTile.width, 137, "Die Größenänderung muss stufenlose Zwischenwerte erlauben");
+assert.equal(transformTile.x, 181.5, "Beim stufenlosen Skalieren muss der Mittelpunkt des Bodenobjekts erhalten bleiben");
+assert.equal(transformLoot.itemData.flags.betterinv.groundProfile.display.sizeGridUnits, 1.37, "Die stufenlose aktuelle Größe muss im Item-Profil persistieren");
 transformLoot.permissions.playerRotate = false;
 await assert.rejects(
   vm.runInContext(`executeBetterInvGmGroundAction("transformTile", {
@@ -369,4 +369,4 @@ const unexpectedDuplicateStaticHooks = Array.from(hookCounts)
   .filter(([entry, count]) => count > 1 && entry !== "once:ready");
 assert.deepEqual(unexpectedDuplicateStaticHooks, [], "Andere direkt registrierte statische Hooks dürfen nicht doppelt vorkommen");
 
-console.log("Static audit passed: syntax, manifest, configurable currency factors, persistent profiles, grid snapping and executable strength variants.");
+console.log("Static audit passed: syntax, manifest, configurable currency factors, persistent profiles, continuous ground scaling and executable strength variants.");

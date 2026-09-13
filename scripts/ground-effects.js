@@ -243,7 +243,7 @@
     return objectAllowed && getGroundFeaturePermission(featureKey);
   }
 
-  function queueGroundTransform(tile, mode, direction) {
+  function queueGroundTransform(tile, mode, direction, wheelDelta = 0) {
     const document = getTileDocument(tile);
     if (!document?.id || !document.parent) return;
     const permissionKey = mode === "resize" ? "playerResize" : "playerRotate";
@@ -260,9 +260,14 @@
     let payload;
     if (mode === "resize") {
       const currentUnits = Number(previous.sizeGridUnits ?? getBetterInvGroundDisplayConfig(document).sizeGridUnits);
-      const currentIndex = getBetterInvNearestGroundSizeIndex(currentUnits);
-      const nextIndex = Math.max(0, Math.min(BETTER_INV_GROUND_SIZE_STEPS.length - 1, currentIndex + direction));
-      payload = { sizeGridUnits: betterInvGroundSizeIndexToUnits(nextIndex) };
+      // Scale proportionally to the actual wheel/trackpad movement instead of
+      // jumping through the editor's preset sizes. Rounding to three decimals
+      // only keeps socket payloads and persisted flags stable; the visual size
+      // still changes at roughly pixel resolution on a normal Foundry grid.
+      const normalizedDelta = Math.max(-240, Math.min(240, Number(wheelDelta) || direction * -100));
+      const scaleFactor = Math.exp(-normalizedDelta * 0.00125);
+      const sizeGridUnits = Math.max(0.125, Math.min(10, currentUnits * scaleFactor));
+      payload = { sizeGridUnits: Math.round(sizeGridUnits * 1000) / 1000 };
     } else {
       const currentRotation = Number(previous.rotation ?? document.rotation ?? 0) || 0;
       payload = { rotation: currentRotation + direction * 15 };
@@ -282,7 +287,7 @@
       }).then(() => drawHitAreas()).catch(error => {
         ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Bodenobjekt konnte nicht verändert werden.");
       });
-    }, 90));
+    }, 35));
   }
 
   function transformPoint(transform, point, inverse = false) {
@@ -786,7 +791,8 @@
       const tile = getSelectedGroundTile();
       if (!tile) return;
       const direction = Number(event.deltaY) < 0 ? 1 : -1;
-      queueGroundTransform(tile, heldTransformKey, direction);
+      const deltaMultiplier = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 600 : 1;
+      queueGroundTransform(tile, heldTransformKey, direction, Number(event.deltaY) * deltaMultiplier);
       stopEvent(event);
     }, { capture: true, passive: false, signal });
 
