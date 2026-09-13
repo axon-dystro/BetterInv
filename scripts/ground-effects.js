@@ -866,6 +866,18 @@
     };
   }
 
+  function convertFeetToSceneDistance(feet, scene = canvas?.scene) {
+    const requestedFeet = Math.max(0, Number(feet) || 0);
+    const sceneDistancePerGrid = Math.max(0.0001, Number(scene?.grid?.distance ?? 5) || 5);
+    let feetPerGrid = sceneDistancePerGrid;
+    try {
+      if (typeof getBetterInvGroundGridStepFeet === "function") {
+        feetPerGrid = Math.max(0.0001, Number(getBetterInvGroundGridStepFeet(scene)) || sceneDistancePerGrid);
+      }
+    } catch (_error) {}
+    return requestedFeet / feetPerGrid * sceneDistancePerGrid;
+  }
+
   function getPolygonBounds(points = []) {
     const valid = Array.from(points ?? []).filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
     if (!valid.length) return null;
@@ -1994,7 +2006,12 @@
   async function createLinkedLight(tileDocument, rule, darkness = false) {
     const scene = tileDocument.parent ?? canvas?.scene;
     if (!scene) throw new Error("Die Szene wurde nicht gefunden.");
-    const radius = Math.max(0, Number(rule.action.radius || rule.radius) || Number(scene.grid?.distance) || 5);
+    const radiusFeet = Math.max(0, Number(rule.action.radius || rule.radius) || getSceneGridMetrics(tileDocument).distanceFeet);
+    // Foundry expects bright/dim in the Scene's configured distance unit, while
+    // BetterInv deliberately presents effect ranges in feet. Convert here so a
+    // 30 ft light remains six 5-ft squares and does not become 30 metres (or
+    // thirty 1-unit squares) on differently configured scenes.
+    const radius = convertFeetToSceneDistance(radiusFeet, scene);
     const center = getTileVisualCenter(tileDocument);
     const data = {
       name: `${darkness ? "Dunkelheit" : "Licht"}: ${getBetterInvGroundLoot(tileDocument)?.name || tileDocument.name || "Bodenobjekt"}`,
@@ -2025,7 +2042,9 @@
           groundEffectLight: {
             tileId: tileDocument.id,
             ruleId: rule.id,
-            darkness
+            darkness,
+            radiusFeet,
+            brightRadiusFeet: darkness ? 0 : radiusFeet / 2
           }
         }
       }
@@ -2667,6 +2686,7 @@
     onTileChanged,
     openEffectEditor,
     openItemProfileEditor: openEffectEditor,
+    convertFeetToSceneDistance,
     normalizeRules: rules => Array.from(rules ?? []).map(normalizeRule),
     decorateObjectEditor,
     getRules,

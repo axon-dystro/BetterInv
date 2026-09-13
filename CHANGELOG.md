@@ -2,6 +2,7 @@
 
 ## Unveröffentlicht
 
+- Licht- und Dunkelheitsradien werden aus den im Editor verwendeten Fuß korrekt in die konfigurierte Distanz-Einheit der Szene umgerechnet, statt auf metrischen oder anders skalierten Karten die gesamte Ansicht aufzuhellen.
 - Beim Erstellen eines Gegenstands kann sein Bild direkt vom lokalen PC gewählt, in Foundrys Datenverzeichnis hochgeladen und als Item-Bild gesetzt werden.
 - Item-Bodenprofile können beim Ausrüsten automatisch eine verknüpfte Kartendarstellung am Charakter-Token erzeugen; das Item selbst bleibt sicher im Inventar.
 - Befestigte Bodenobjekte folgen ihrem Token, lösen sich beim manuellen Ziehen und lassen sich im Aktionsdialog erneut anheften oder lösen.

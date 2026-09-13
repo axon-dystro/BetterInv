@@ -283,6 +283,10 @@ assert.match(groundSource, /requestBetterInvGmGroundAction\("transformTile"/, "S
 assert.match(mainSource, /allowGroundMove[\s\S]*allowGroundResize[\s\S]*allowGroundRotate[\s\S]*allowGroundActivate[\s\S]*allowGroundEffects/, "Die GM-Regeln müssen Bodenaktionen getrennt sperren können");
 
 vm.runInContext(groundSource, context, { filename: "scripts/ground-effects.js" });
+const metricLightRadius = vm.runInContext(`AxonsInventoryGround.convertFeetToSceneDistance(30, {
+  grid: { distance: 1, units: "m" }
+})`, context);
+assert.ok(Math.abs(metricLightRadius - 9.144) < 0.001, "30 Fuß Licht müssen für metrische Szenen in 9,144 Meter umgerechnet werden");
 const normalizedRules = context.AxonsInventoryGround.getRules({
   kind: "item",
   effects: {
