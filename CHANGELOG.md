@@ -95,6 +95,7 @@
 - Klick auf Bodenbeute reagiert jetzt über einen einzigen Canvas-Handler ohne zufällige Mehrfachklicks
 - GMs können Bodenobjekte per gehaltenem Linksklick direkt auf der Karte verschieben
 - Neuer GM-Editor für Bodenobjekte mit logarithmischer Größe von 0,01× bis 100×
+- Verknüpfte Lichtquellen folgen beim Ziehen flüssig der lokalen Item-Vorschau; Trefferflächen werden dabei nur einmal pro Render-Frame neu aufgebaut
 - Sichtbarkeit pro Bodenobjekt: immer sichtbar, nur in Reichweite oder für Spieler verborgen
 - Optionale Foundry-Sichtlinienprüfung zusätzlich zur Reichweite
 - Aufheben kann pro Bodenobjekt ein- oder ausgeschaltet werden

@@ -280,6 +280,9 @@ assert.match(mainSource, /decorateBetterInvDialog\(dialog,[\s\S]*betterinv-trans
 assert.match(groundSource, /event\.code === "KeyM"/, "M muss die Größensteuerung des markierten Bodenobjekts aktivieren");
 assert.match(groundSource, /event\.code === "KeyN"/, "N muss die Drehsteuerung des markierten Bodenobjekts aktivieren");
 assert.match(groundSource, /requestBetterInvGmGroundAction\("transformTile"/, "Spieler-Transformationen müssen sicher über den GM laufen");
+assert.match(groundSource, /applyLinkedLightVisualDelta\(state\.lightVisualState, dx, dy\)/, "Verknüpftes Licht muss schon während des Ziehens lokal mit dem Bodenobjekt laufen");
+assert.match(groundSource, /refreshPosition: true, refreshField: true/, "Die Lichtvorschau muss Position und Lichtfeld pro Render-Frame aktualisieren");
+assert.match(groundSource, /scheduleHitAreaDraw\(\)/, "Trefferflächen dürfen während des Ziehens höchstens einmal pro Frame neu gezeichnet werden");
 assert.match(mainSource, /allowGroundMove[\s\S]*allowGroundResize[\s\S]*allowGroundRotate[\s\S]*allowGroundActivate[\s\S]*allowGroundEffects/, "Die GM-Regeln müssen Bodenaktionen getrennt sperren können");
 
 vm.runInContext(groundSource, context, { filename: "scripts/ground-effects.js" });

@@ -104,6 +104,7 @@
   let heldTransformKey = "";
   let hitAreaDebugEnabled = false;
   let debugGraphics = null;
+  let hitAreaDrawFrame = null;
   const pendingTransformTimers = new Map();
   const pendingTransformValues = new Map();
   const tokenScanTimers = new Map();
@@ -579,6 +580,46 @@
     };
   }
 
+  function scheduleHitAreaDraw() {
+    if (hitAreaDrawFrame != null) return;
+    const schedule = globalThis.requestAnimationFrame ?? (callback => setTimeout(callback, 16));
+    hitAreaDrawFrame = schedule(() => {
+      hitAreaDrawFrame = null;
+      drawHitAreas();
+    });
+  }
+
+  function captureLinkedLightVisualState(tileOrDocument) {
+    const tileDocument = getTileDocument(tileOrDocument);
+    const scene = tileDocument?.parent ?? canvas?.scene;
+    if (!tileDocument?.id || !scene) return [];
+    return getLinkedLights(scene, tileDocument.id).map(document => ({
+      document,
+      x: Number(document.x ?? 0),
+      y: Number(document.y ?? 0)
+    }));
+  }
+
+  function setLinkedLightVisualPosition(state, x, y, { render = true } = {}) {
+    const document = state?.document;
+    if (!document || !Number.isFinite(x) || !Number.isFinite(y)) return;
+    document.updateSource?.({ x, y });
+    if (!render) return;
+    document.object?.renderFlags?.set?.({ refreshPosition: true, refreshField: true });
+  }
+
+  function applyLinkedLightVisualDelta(states, dx, dy) {
+    for (const state of states ?? []) {
+      setLinkedLightVisualPosition(state, state.x + dx, state.y + dy);
+    }
+  }
+
+  function restoreLinkedLightVisualState(states, { render = true } = {}) {
+    for (const state of states ?? []) {
+      setLinkedLightVisualPosition(state, state.x, state.y, { render });
+    }
+  }
+
   function applyTileVisualDelta(tile, visualState, dx, dy) {
     if (!tile || !visualState) return;
     if (visualState.control) {
@@ -590,7 +631,7 @@
       setDisplayPosition(tile.mesh, visualState.mesh.x + delta.x, visualState.mesh.y + delta.y);
     }
     tile._betterInvGroundDragDelta = { x: dx, y: dy };
-    drawHitAreas();
+    scheduleHitAreaDraw();
   }
 
   function restoreTileVisualState(tile, visualState) {
@@ -655,7 +696,8 @@
         nextY: Number(document.y ?? tile.y ?? 0),
         canDrag,
         dragging: false,
-        visualState: captureTileVisualState(tile)
+        visualState: captureTileVisualState(tile),
+        lightVisualState: captureLinkedLightVisualState(document)
       };
       try { host.setPointerCapture?.(event.pointerId); } catch (_error) {}
       setCursorForTile(tile, false);
@@ -688,7 +730,10 @@
       state.nextY = state.originalY + (Number(point.y) - state.startCanvasY);
       const tile = getTilePlaceable({ id: state.tileId, parent: { id: state.sceneId } })
         ?? getGroundTiles().find(candidate => String(getTileDocument(candidate)?.id ?? "") === state.tileId);
-      applyTileVisualDelta(tile, state.visualState, Number(point.x) - state.startCanvasX, Number(point.y) - state.startCanvasY);
+      const dx = Number(point.x) - state.startCanvasX;
+      const dy = Number(point.y) - state.startCanvasY;
+      applyTileVisualDelta(tile, state.visualState, dx, dy);
+      applyLinkedLightVisualDelta(state.lightVisualState, dx, dy);
       setCursorForTile(tile, true);
       stopEvent(event);
     }, globalOptions);
@@ -705,25 +750,20 @@
       if (state.dragging) {
         void (async () => {
           try {
-            const document = getTileDocument(tile);
-            if (game.user?.isGM) {
-              await document.update({ x: Math.round(state.nextX), y: Math.round(state.nextY) }, {
-                betterInventoryGroundMove: true,
-                requestUserId: game.user.id,
-                animate: false
-              });
-              delete tile._betterInvGroundDragDelta;
-            } else {
-              await requestBetterInvGmGroundAction("moveTile", {
-                sceneId: state.sceneId,
-                tileId: state.tileId,
-                x: state.nextX,
-                y: state.nextY
-              });
-              delete tile._betterInvGroundDragDelta;
-            }
+            // Reset only the local document source before the authoritative GM
+            // update. The rendered light remains at the drop point and Foundry
+            // can still detect the real persisted position change correctly.
+            restoreLinkedLightVisualState(state.lightVisualState, { render: false });
+            await requestBetterInvGmGroundAction("moveTile", {
+              sceneId: state.sceneId,
+              tileId: state.tileId,
+              x: state.nextX,
+              y: state.nextY
+            });
+            delete tile._betterInvGroundDragDelta;
           } catch (error) {
             restoreTileVisualState(tile, state.visualState);
+            restoreLinkedLightVisualState(state.lightVisualState);
             ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Bodenobjekt konnte nicht verschoben werden.");
           } finally {
             drawHitAreas();
@@ -742,6 +782,7 @@
       if (!state?.dragging) return;
       const tile = getGroundTiles().find(candidate => String(getTileDocument(candidate)?.id ?? "") === state.tileId) ?? null;
       restoreTileVisualState(tile, state.visualState);
+      restoreLinkedLightVisualState(state.lightVisualState);
       setCursorForTile(tile, false);
     }, globalOptions);
 
@@ -2664,6 +2705,11 @@
 
   function onCanvasTearDown() {
     uninstallInteraction();
+    if (hitAreaDrawFrame != null) {
+      const cancel = globalThis.cancelAnimationFrame ?? clearTimeout;
+      cancel(hitAreaDrawFrame);
+      hitAreaDrawFrame = null;
+    }
     debugGraphics?.destroy?.({ children: true });
     debugGraphics = null;
     tokenRuleStates.clear();
