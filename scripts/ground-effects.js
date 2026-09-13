@@ -105,6 +105,7 @@
   let hitAreaDebugEnabled = false;
   let debugGraphics = null;
   let hitAreaDrawFrame = null;
+  let dragVisualFrame = null;
   const pendingTransformTimers = new Map();
   const pendingTransformValues = new Map();
   const tokenScanTimers = new Map();
@@ -605,7 +606,10 @@
     if (!document || !Number.isFinite(x) || !Number.isFinite(y)) return;
     document.updateSource?.({ x, y });
     if (!render) return;
-    document.object?.renderFlags?.set?.({ refreshPosition: true, refreshField: true });
+    // Position-only is Foundry's native lightweight movement path. Its render
+    // flag propagates the dependent updates itself; explicitly adding
+    // refreshField rebuilt the full FOV shape for every mouse event.
+    document.object?.renderFlags?.set?.({ refreshPosition: true });
   }
 
   function applyLinkedLightVisualDelta(states, dx, dy) {
@@ -618,6 +622,37 @@
     for (const state of states ?? []) {
       setLinkedLightVisualPosition(state, state.x, state.y, { render });
     }
+  }
+
+  function flushGroundDragVisual(state) {
+    if (dragVisualFrame != null) {
+      const cancel = globalThis.cancelAnimationFrame ?? clearTimeout;
+      cancel(dragVisualFrame);
+      dragVisualFrame = null;
+    }
+    const pending = state?.pendingVisual;
+    if (!pending) return;
+    state.pendingVisual = null;
+    applyTileVisualDelta(pending.tile, state.visualState, pending.dx, pending.dy);
+    applyLinkedLightVisualDelta(state.lightVisualState, pending.dx, pending.dy);
+  }
+
+  function scheduleGroundDragVisual(state, tile, dx, dy) {
+    state.pendingVisual = { tile, dx, dy };
+    if (dragVisualFrame != null) return;
+    const schedule = globalThis.requestAnimationFrame ?? (callback => setTimeout(callback, 16));
+    dragVisualFrame = schedule(() => {
+      dragVisualFrame = null;
+      flushGroundDragVisual(state);
+    });
+  }
+
+  function cancelGroundDragVisual(state) {
+    state.pendingVisual = null;
+    if (dragVisualFrame == null) return;
+    const cancel = globalThis.cancelAnimationFrame ?? clearTimeout;
+    cancel(dragVisualFrame);
+    dragVisualFrame = null;
   }
 
   function applyTileVisualDelta(tile, visualState, dx, dy) {
@@ -732,8 +767,7 @@
         ?? getGroundTiles().find(candidate => String(getTileDocument(candidate)?.id ?? "") === state.tileId);
       const dx = Number(point.x) - state.startCanvasX;
       const dy = Number(point.y) - state.startCanvasY;
-      applyTileVisualDelta(tile, state.visualState, dx, dy);
-      applyLinkedLightVisualDelta(state.lightVisualState, dx, dy);
+      scheduleGroundDragVisual(state, tile, dx, dy);
       setCursorForTile(tile, true);
       stopEvent(event);
     }, globalOptions);
@@ -741,6 +775,7 @@
     window.addEventListener("pointerup", event => {
       const state = pointerState;
       if (!state || (state.pointerId != null && event.pointerId !== state.pointerId)) return;
+      flushGroundDragVisual(state);
       pointerState = null;
       const tile = getGroundTiles().find(candidate => String(getTileDocument(candidate)?.id ?? "") === state.tileId) ?? null;
       setCursorForTile(tile, false);
@@ -780,6 +815,7 @@
       const state = pointerState;
       pointerState = null;
       if (!state?.dragging) return;
+      cancelGroundDragVisual(state);
       const tile = getGroundTiles().find(candidate => String(getTileDocument(candidate)?.id ?? "") === state.tileId) ?? null;
       restoreTileVisualState(tile, state.visualState);
       restoreLinkedLightVisualState(state.lightVisualState);
@@ -2709,6 +2745,11 @@
       const cancel = globalThis.cancelAnimationFrame ?? clearTimeout;
       cancel(hitAreaDrawFrame);
       hitAreaDrawFrame = null;
+    }
+    if (dragVisualFrame != null) {
+      const cancel = globalThis.cancelAnimationFrame ?? clearTimeout;
+      cancel(dragVisualFrame);
+      dragVisualFrame = null;
     }
     debugGraphics?.destroy?.({ children: true });
     debugGraphics = null;

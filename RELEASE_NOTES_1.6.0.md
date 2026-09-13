@@ -13,7 +13,7 @@
 - Regeln und Varianten lassen sich unabhängig ein- und ausklappen.
 - Effekt- und Bodenprofilfenster sind kompakter, scrollbar, verschiebbar und horizontal wie vertikal skalierbar.
 - Das Inventar-Einstellungsfenster bleibt beim Arbeiten geöffnet und merkt sich Position und Größe lokal pro Foundry-Nutzer.
-- Lichtquellen folgen verschobenen Bodenobjekten direkt in der lokalen Ziehbewegung, ohne für jeden Mauspunkt ein Netzwerk- oder Datenbank-Update auszulösen.
+- Lichtquellen folgen verschobenen Bodenobjekten direkt in der lokalen Ziehbewegung. Mehrere Mausereignisse werden pro Bildschirm-Frame gebündelt; teure vollständige Lichtfeld-Neuberechnungen und Netzwerk-/Datenbank-Updates pro Mauspunkt werden vermieden.
 
 ## Kompatibilität
 
