@@ -6384,6 +6384,55 @@ button.betterinv-category-picker:focus-visible {
   text-align: center;
 }
 
+.betterinv-new-item-image-field {
+  align-items: start !important;
+}
+
+.betterinv-new-item-image-picker {
+  min-width: 0;
+  padding: 8px !important;
+  display: grid !important;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed rgba(200,168,90,.48) !important;
+  background: rgba(8,8,11,.64) !important;
+  color: #eee4cf !important;
+  text-align: left;
+}
+
+.betterinv-new-item-image-picker:hover,
+.betterinv-new-item-image-picker:focus-visible {
+  border-color: #d9bd69 !important;
+  background: rgba(56,43,20,.72) !important;
+}
+
+.betterinv-new-item-image-picker > img {
+  width: 54px;
+  height: 54px;
+  border: 1px solid rgba(200,168,90,.34);
+  border-radius: 5px;
+  object-fit: contain;
+  background: #09090c;
+}
+
+.betterinv-new-item-image-picker > span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.betterinv-new-item-image-picker strong,
+.betterinv-new-item-image-picker small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.betterinv-new-item-image-picker small {
+  color: #a99f8c;
+  white-space: normal;
+}
+
 .betterinv-new-item-dialog .notes {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);

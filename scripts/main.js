@@ -458,10 +458,14 @@ function installBetterInvOperationalHooks() {
   registerBetterInvOperationalHook("updateToken", (token, changes) => {
     scheduleBetterInvGroundVisibilityRefresh();
     globalThis.AxonsInventoryGround?.handleTokenMovement?.(token, changes);
+    if (["x", "y", "elevation", "width", "height", "rotation"].some(key => Object.hasOwn(changes ?? {}, key))) {
+      void updateBetterInvAttachedGroundTilesForToken(token);
+    }
   });
   registerBetterInvOperationalHook("deleteToken", token => {
     scheduleBetterInvGroundVisibilityRefresh();
     globalThis.AxonsInventoryGround?.handleTokenDelete?.(token);
+    void detachBetterInvGroundTilesFromToken(token);
   });
   registerBetterInvOperationalHook("sightRefresh", () => scheduleBetterInvGroundVisibilityRefresh());
   registerBetterInvOperationalHook("visibilityRefresh", () => scheduleBetterInvGroundVisibilityRefresh());
@@ -530,6 +534,11 @@ function installBetterInvOperationalHooks() {
     else installBetterInvGroundCanvasInteraction();
     scheduleBetterInvGroundVisibilityRefresh();
     if (game.user?.isGM) void reconcileBetterInvGroundPickupClaims();
+    if (game.user?.isGM) {
+      for (const token of Array.from(canvas?.scene?.tokens?.contents ?? canvas?.scene?.tokens ?? [])) {
+        void updateBetterInvAttachedGroundTilesForToken(token);
+      }
+    }
   });
   registerBetterInvOperationalHook("canvasTearDown", () => {
     globalThis.AxonsInventoryGround?.onCanvasTearDown?.();
@@ -6297,14 +6306,49 @@ function getItemEquippedData(item, renderCache = null) {
   return result;
 }
 
+function getBetterInvTokenForActor(actor, scene = canvas?.scene) {
+  if (!actor || !scene) return null;
+  const placeables = Array.from(canvas?.tokens?.placeables ?? []);
+  const controlled = placeables.find(token => token?.controlled && token.actor?.id === actor.id);
+  if (controlled) return controlled.document ?? controlled;
+  const placed = placeables.find(token => token.actor?.id === actor.id);
+  if (placed) return placed.document ?? placed;
+  return Array.from(scene.tokens?.contents ?? scene.tokens ?? [])
+    .find(token => String(token?.actorId ?? token?.actor?.id ?? "") === String(actor.id)) ?? null;
+}
+
+async function syncBetterInvEquippedGroundItem(item, equipped) {
+  const actor = item?.parent;
+  const profile = getBetterInvNormalizedItemGroundProfile(item, canvas?.scene);
+  if (!actor || profile.interaction?.attachOnEquip !== true) return;
+  const scene = canvas?.scene ?? game.scenes?.active ?? null;
+  if (!scene) throw new Error("Zum Befestigen muss eine Szene geöffnet sein.");
+  const token = equipped ? getBetterInvTokenForActor(actor, scene) : null;
+  if (equipped && !token) throw new Error(`Auf der aktuellen Szene wurde kein Token für ${actor.name} gefunden.`);
+  await requestBetterInvGmGroundAction("syncEquippedItem", {
+    sceneId: scene.id,
+    sourceActorId: actor.id,
+    sourceItemId: item.id,
+    tokenId: token?.id ?? null,
+    equipped: equipped === true
+  });
+}
+
 async function toggleBetterInvItemEquipped(item) {
   const equipped = getItemEquippedData(item);
   if (!equipped.supported || !equipped.updatePath) {
     ui.notifications.warn("Dieser Gegenstand unterstützt keinen Ausrüstungsstatus.");
     return;
   }
-  await item.update({ [equipped.updatePath]: !equipped.value });
-  ui.notifications.info(`${item.name} wurde ${equipped.value ? "abgelegt" : "ausgerüstet"}.`);
+  const nextEquipped = !equipped.value;
+  await item.update({ [equipped.updatePath]: nextEquipped });
+  try {
+    await syncBetterInvEquippedGroundItem(item, nextEquipped);
+  } catch (error) {
+    try { await item.update({ [equipped.updatePath]: equipped.value }); } catch (_rollbackError) {}
+    throw error;
+  }
+  ui.notifications.info(`${item.name} wurde ${nextEquipped ? "ausgerüstet" : "abgelegt"}.`);
 }
 
 function isBetterInvFavorite(item, renderCache = null) {
@@ -7732,7 +7776,8 @@ function getBetterInvNormalizedItemGroundProfile(item, scene = canvas?.scene) {
       requireLineOfSight: display.requireLineOfSight !== false
     },
     interaction: {
-      pickupEnabled: interaction.pickupEnabled !== false
+      pickupEnabled: interaction.pickupEnabled !== false,
+      attachOnEquip: interaction.attachOnEquip === true
     },
     permissions: {
       playerMove: permissions.playerMove !== false,
@@ -8004,6 +8049,63 @@ async function createBetterInvGroundTile(scene, data) {
   return tile;
 }
 
+function getBetterInvSceneToken(scene, tokenId) {
+  return scene?.tokens?.get?.(tokenId)
+    ?? Array.from(scene?.tokens?.contents ?? scene?.tokens ?? [])
+      .find(token => String(token?.id ?? "") === String(tokenId ?? ""))
+    ?? null;
+}
+
+function getBetterInvAttachedTilePosition(scene, tokenDocument, tileDocument) {
+  const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
+  const tokenWidth = Math.max(gridSize, Number(tokenDocument?.width ?? 1) * gridSize);
+  const tokenHeight = Math.max(gridSize, Number(tokenDocument?.height ?? 1) * gridSize);
+  const tokenCenterX = Number(tokenDocument?.x ?? 0) + tokenWidth / 2;
+  const tokenCenterY = Number(tokenDocument?.y ?? 0) + tokenHeight / 2;
+  const tileWidth = Math.max(1, Number(tileDocument?.width ?? gridSize / 2) || gridSize / 2);
+  const tileHeight = Math.max(1, Number(tileDocument?.height ?? gridSize / 2) || gridSize / 2);
+  // Top-right keeps the item visible without hiding the character artwork.
+  const centerX = tokenCenterX + tokenWidth * 0.34;
+  const centerY = tokenCenterY - tokenHeight * 0.34;
+  return { x: centerX - tileWidth / 2, y: centerY - tileHeight / 2 };
+}
+
+function getBetterInvAttachedGroundTiles(scene, tokenId = null) {
+  return Array.from(scene?.tiles?.contents ?? scene?.tiles ?? []).filter(tile => {
+    const attachment = getBetterInvGroundLoot(tile)?.attachment;
+    if (!attachment?.tokenId) return false;
+    return tokenId == null || String(attachment.tokenId) === String(tokenId);
+  });
+}
+
+async function updateBetterInvAttachedGroundTilesForToken(tokenDocument) {
+  if (!game.user?.isGM || !tokenDocument?.id) return;
+  const primaryGm = getBetterInvPrimaryActiveGm();
+  if (primaryGm && primaryGm.id !== game.user.id) return;
+  const scene = tokenDocument.parent ?? canvas?.scene;
+  if (!scene) return;
+  for (const tile of getBetterInvAttachedGroundTiles(scene, tokenDocument.id)) {
+    const position = getBetterInvAttachedTilePosition(scene, tokenDocument, tile);
+    if (Math.abs(Number(tile.x ?? 0) - position.x) < 0.01 && Math.abs(Number(tile.y ?? 0) - position.y) < 0.01) continue;
+    await tile.update(position, { betterInventoryGroundAttachmentFollow: true, animate: false });
+  }
+}
+
+async function detachBetterInvGroundTilesFromToken(tokenDocument) {
+  if (!game.user?.isGM || !tokenDocument?.id) return;
+  const primaryGm = getBetterInvPrimaryActiveGm();
+  if (primaryGm && primaryGm.id !== game.user.id) return;
+  const scene = tokenDocument.parent ?? canvas?.scene;
+  if (!scene) return;
+  for (const tile of getBetterInvAttachedGroundTiles(scene, tokenDocument.id)) {
+    const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tile) ?? {});
+    delete loot.attachment;
+    await tile.update({ [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot }, {
+      betterInventoryGroundAttachmentDetach: true
+    });
+  }
+}
+
 async function restoreBetterInvCurrencyWallet(actor, wallet, operation = {}) {
   const current = getBetterInvCurrencyWallet(actor);
   const oldBalances = cloneBetterInvCurrencyBalances(wallet);
@@ -8113,6 +8215,81 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     return { tileId: tile.id, name: sourceItem.name, quantity };
   }
 
+  if (action === "syncEquippedItem") {
+    const sourceActor = game.actors?.get?.(payload.sourceActorId) ?? null;
+    const sourceItem = sourceActor?.items?.get?.(payload.sourceItemId) ?? null;
+    if (!sourceActor || !sourceItem) throw new Error("Der auszurüstende Gegenstand wurde nicht gefunden.");
+    if (!canBetterInvUserModifyActorAs(sourceActor, requestUser)) throw new Error("Du darfst diesen Charakter nicht bearbeiten.");
+    const projections = Array.from(scene.tiles?.contents ?? scene.tiles ?? []).filter(tile => {
+      const projection = getBetterInvGroundLoot(tile)?.projection;
+      return projection?.equipped === true
+        && String(projection.sourceActorId ?? "") === String(sourceActor.id)
+        && String(projection.sourceItemId ?? "") === String(sourceItem.id);
+    });
+
+    if (payload.equipped !== true) {
+      for (const projection of projections) await projection.delete({ betterInventoryEquippedProjectionRemove: true });
+      return { removed: projections.length };
+    }
+
+    const equipped = getItemEquippedData(sourceItem);
+    if (!equipped.supported || equipped.value !== true) throw new Error("Der Gegenstand ist nicht ausgerüstet.");
+    const profile = getBetterInvNormalizedItemGroundProfile(sourceItem, scene);
+    if (profile.interaction?.attachOnEquip !== true) throw new Error("Für diesen Gegenstand ist das automatische Befestigen nicht aktiviert.");
+    const token = getBetterInvSceneToken(scene, payload.tokenId);
+    if (!token || String(token.actorId ?? token.actor?.id ?? "") !== String(sourceActor.id)) {
+      throw new Error("Der gewählte Token gehört nicht zu diesem Charakter.");
+    }
+
+    let tile = projections.shift() ?? null;
+    for (const duplicate of projections) await duplicate.delete({ betterInventoryEquippedProjectionDuplicate: true });
+    if (!tile) {
+      const itemData = prepareBetterInvTransferredItemData(sourceItem, 1);
+      const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
+      const tokenWidth = Math.max(gridSize, Number(token.width ?? 1) * gridSize);
+      const tokenHeight = Math.max(gridSize, Number(token.height ?? 1) * gridSize);
+      const tileData = buildBetterInvGroundTileData(scene, {
+        x: Number(token.x ?? 0) + tokenWidth / 2,
+        y: Number(token.y ?? 0) + tokenHeight / 2,
+        name: sourceItem.name,
+        image: sourceItem.img,
+        loot: {
+          ...profile,
+          kind: "item",
+          name: sourceItem.name,
+          image: sourceItem.img || "icons/svg/item-bag.svg",
+          quantity: 1,
+          itemData,
+          projection: {
+            equipped: true,
+            sourceActorId: sourceActor.id,
+            sourceItemId: sourceItem.id,
+            sourceItemUuid: sourceItem.uuid ?? null
+          },
+          attachment: { tokenId: token.id, actorId: sourceActor.id },
+          droppedByUserId: requestUser.id,
+          droppedByActorId: sourceActor.id,
+          createdAt: Date.now()
+        }
+      });
+      tile = await createBetterInvGroundTile(scene, tileData);
+      const position = getBetterInvAttachedTilePosition(scene, token, tile);
+      await tile.update(position, { betterInventoryEquippedProjectionAttach: true, animate: false });
+      if (globalThis.AxonsInventoryGround?.hasTrigger?.(tile, "drop")) {
+        await globalThis.AxonsInventoryGround.runTrigger(tile, "drop", { actor: sourceActor, forceLocal: true });
+      }
+    } else {
+      const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tile) ?? {});
+      loot.attachment = { tokenId: token.id, actorId: sourceActor.id };
+      const position = getBetterInvAttachedTilePosition(scene, token, tile);
+      await tile.update({ ...position, [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot }, {
+        betterInventoryEquippedProjectionAttach: true,
+        animate: false
+      });
+    }
+    return { tileId: tile.id, attached: true };
+  }
+
   if (action === "dropCurrency") {
     const sourceActor = game.actors?.get?.(payload.sourceActorId) ?? null;
     if (!sourceActor) throw new Error("Der Quellcharakter wurde nicht gefunden.");
@@ -8160,12 +8337,63 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     const x = Number(payload.x);
     const y = Number(payload.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("Die neue Position ist ungültig.");
-    await tile.update({ x: Math.round(x), y: Math.round(y) }, {
+    const update = { x: Math.round(x), y: Math.round(y) };
+    if (loot.attachment?.tokenId) {
+      const nextLoot = foundry.utils.deepClone(loot);
+      delete nextLoot.attachment;
+      update[`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`] = nextLoot;
+    }
+    await tile.update(update, {
       betterInventoryGroundMove: true,
       requestUserId: requestUser.id,
       animate: false
     });
     return { tileId: tile.id, x: Math.round(x), y: Math.round(y) };
+  }
+
+  if (action === "attachTile" || action === "detachTile") {
+    const tile = scene.tiles?.get?.(payload.tileId) ?? null;
+    const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tile) ?? {});
+    if (!tile || !loot?.kind) throw new Error("Diese Bodenbeute existiert nicht mehr.");
+    const groundFeatures = getBetterInvGroundFeaturePlanFor(requestUser, null, null);
+    if (!requestUser.isGM && (loot?.permissions?.playerMove === false || !groundFeatures.groundMove)) {
+      throw new Error("Der GM hat das Befestigen dieses Bodenobjekts nicht erlaubt.");
+    }
+
+    if (action === "detachTile") {
+      const attachedToken = getBetterInvSceneToken(scene, loot.attachment?.tokenId);
+      const attachedActor = game.actors?.get?.(attachedToken?.actorId ?? attachedToken?.actor?.id) ?? attachedToken?.actor ?? null;
+      if (!requestUser.isGM && attachedActor && !canBetterInvUserModifyActorAs(attachedActor, requestUser)) {
+        throw new Error("Du darfst dieses Bodenobjekt nicht vom Token lösen.");
+      }
+      delete loot.attachment;
+      await tile.update({ [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot }, { betterInventoryGroundDetach: true });
+      return { tileId: tile.id, attached: false };
+    }
+
+    const token = getBetterInvSceneToken(scene, payload.tokenId);
+    const tokenActor = game.actors?.get?.(token?.actorId ?? token?.actor?.id) ?? token?.actor ?? null;
+    if (!token || !tokenActor) throw new Error("Der Token wurde nicht gefunden.");
+    if (!canBetterInvUserModifyActorAs(tokenActor, requestUser)) throw new Error("Du darfst an diesem Token nichts befestigen.");
+    loot.attachment = { tokenId: token.id, actorId: tokenActor.id };
+    const position = getBetterInvAttachedTilePosition(scene, token, tile);
+    await tile.update({ ...position, [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot }, {
+      betterInventoryGroundAttach: true,
+      animate: false
+    });
+    return { tileId: tile.id, attached: true };
+  }
+
+  if (action === "removeProjection") {
+    const tile = scene.tiles?.get?.(payload.tileId) ?? null;
+    const loot = getBetterInvGroundLoot(tile);
+    if (!tile || loot?.projection?.equipped !== true) throw new Error("Diese ausgerüstete Darstellung existiert nicht mehr.");
+    const sourceActor = game.actors?.get?.(loot.projection.sourceActorId) ?? null;
+    if (!requestUser.isGM && !canBetterInvUserModifyActorAs(sourceActor, requestUser)) {
+      throw new Error("Du darfst diese Darstellung nicht entfernen.");
+    }
+    await tile.delete({ betterInventoryEquippedProjectionRemove: true });
+    return { tileId: tile.id, removed: true };
   }
 
   if (action === "transformTile") {
@@ -8363,7 +8591,7 @@ function deactivateBetterInvGroundTiles() {
   for (const tile of Array.from(canvas?.tiles?.placeables ?? [])) deactivateBetterInvGroundTile(tile);
 }
 
-async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pickupBlockedReason = "", canActivate = false, canRemove = false, canConfigure = false, configureLabel = "Einstellungen" } = {}) {
+async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pickupBlockedReason = "", canActivate = false, canAttach = false, isAttached = false, canRemove = false, canConfigure = false, configureLabel = "Einstellungen" } = {}) {
   const isCurrency = loot?.kind === "currency";
   const summary = isCurrency
     ? formatBetterInvCurrencyAmounts(normalizeBetterInvGroundTransfers(loot?.currencies))
@@ -8398,6 +8626,13 @@ async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pic
         icon: '<i class="fas fa-bolt"></i>',
         label: "Aktivieren",
         callback: () => done("activate")
+      };
+    }
+    if (canAttach) {
+      buttons.attachment = {
+        icon: `<i class="fas ${isAttached ? "fa-link-slash" : "fa-link"}"></i>`,
+        label: isAttached ? "Vom Token lösen" : "Am Token anheften",
+        callback: () => done(isAttached ? "detach" : "attach")
       };
     }
     if (canConfigure) {
@@ -8510,6 +8745,13 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
 
     const canActivate = Boolean(effectsApi?.canActivate?.(tileDocument));
     const groundFeatures = getBetterInvGroundFeaturePlanFor(game.user, actor, null);
+    const actorToken = actor ? getBetterInvTokenForActor(actor, tileDocument.parent ?? canvas?.scene) : null;
+    const isAttached = Boolean(loot?.attachment?.tokenId);
+    const canAttach = Boolean(
+      loot.kind === "item"
+      && (isAttached || actorToken)
+      && (game.user?.isGM || (loot?.permissions?.playerMove !== false && groundFeatures.groundMove))
+    );
     const canPlayerEditEffects = Boolean(
       !game.user?.isGM
       && loot?.permissions?.playerEffects === true
@@ -8522,6 +8764,8 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
       pickupAllowed,
       pickupBlockedReason,
       canActivate,
+      canAttach,
+      isAttached,
       canRemove: Boolean(game.user?.isGM),
       canConfigure: Boolean(game.user?.isGM || canPlayerEditEffects),
       configureLabel: game.user?.isGM ? "Einstellungen" : "Effekte bearbeiten"
@@ -8538,6 +8782,23 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
       if (!canActivate || !effectsApi?.runTrigger) return;
       const result = await effectsApi.runTrigger(tileDocument, "activate", { actor });
       if (result?.blocked) ui.notifications.warn("Die Aktivierung wurde durch den Effekt-Wurf gestoppt.");
+      return;
+    }
+
+    if (action === "attach" || action === "detach") {
+      if (!canAttach) return;
+      if (action === "attach" && !actorToken) {
+        ui.notifications.warn("Für den gewählten Charakter wurde auf dieser Szene kein Token gefunden.");
+        return;
+      }
+      await requestBetterInvGmGroundAction(action === "attach" ? "attachTile" : "detachTile", {
+        sceneId: tileDocument.parent?.id ?? canvas?.scene?.id,
+        tileId: tileDocument.id,
+        tokenId: action === "attach" ? actorToken.id : null
+      });
+      ui.notifications.info(action === "attach"
+        ? `${loot.name || "Das Bodenobjekt"} ist jetzt am Token befestigt.`
+        : `${loot.name || "Das Bodenobjekt"} wurde vom Token gelöst.`);
       return;
     }
 
@@ -8572,6 +8833,15 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
         ui.notifications.warn("Das Bodenobjekt kann nach Ausführung seiner Effekte nicht aufgehoben werden.");
         return;
       }
+    }
+
+    if (loot?.projection?.equipped === true) {
+      await requestBetterInvGmGroundAction("removeProjection", {
+        sceneId: tileDocument.parent?.id ?? canvas?.scene?.id,
+        tileId: tileDocument.id
+      });
+      ui.notifications.info(`${loot.name || "Der Gegenstand"} bleibt im Inventar; seine Kartendarstellung wurde entfernt.`);
+      return;
     }
 
     const result = await requestBetterInvGmGroundAction("pickup", {
@@ -8825,6 +9095,7 @@ function getBetterInvGroundDisplayConfig(tileOrDocument) {
       : 0.18),
     requireLineOfSight: loot?.display?.requireLineOfSight !== false,
     pickupEnabled: loot?.interaction?.pickupEnabled !== false,
+    attachOnEquip: loot?.interaction?.attachOnEquip === true,
     playerMove: loot?.permissions?.playerMove !== false,
     playerResize: loot?.permissions?.playerResize !== false,
     playerRotate: loot?.permissions?.playerRotate !== false,
@@ -9107,7 +9378,8 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
   };
   loot.interaction = {
     ...(loot.interaction ?? {}),
-    pickupEnabled: values.pickupEnabled !== false
+    pickupEnabled: values.pickupEnabled !== false,
+    attachOnEquip: values.attachOnEquip === true
   };
   loot.permissions = {
     ...(loot.permissions ?? {}),
@@ -9228,6 +9500,7 @@ async function openBetterInvItemGroundProfileEditor(item) {
           <section class="betterinv-ground-editor-section">
             <h3><i class="fas fa-hand"></i> Interaktion</h3>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="pickupEnabled" ${profile.interaction.pickupEnabled ? "checked" : ""}> Kann aufgehoben werden</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="attachOnEquip" ${profile.interaction.attachOnEquip ? "checked" : ""}> Beim Ausrüsten automatisch am eigenen Token befestigen</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerMove" ${profile.permissions.playerMove ? "checked" : ""}> Spieler dürfen das Objekt verschieben</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerResize" ${profile.permissions.playerResize ? "checked" : ""}> Spieler dürfen mit M + Mausrad die Größe ändern</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerRotate" ${profile.permissions.playerRotate ? "checked" : ""}> Spieler dürfen mit N + Mausrad drehen</label>
@@ -9265,7 +9538,8 @@ async function openBetterInvItemGroundProfileEditor(item) {
               },
               interaction: {
                 ...current.interaction,
-                pickupEnabled: Boolean(form?.querySelector?.('[name="pickupEnabled"]')?.checked)
+                pickupEnabled: Boolean(form?.querySelector?.('[name="pickupEnabled"]')?.checked),
+                attachOnEquip: Boolean(form?.querySelector?.('[name="attachOnEquip"]')?.checked)
               },
               permissions: {
                 ...current.permissions,
@@ -9453,6 +9727,7 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
           <section class="betterinv-ground-editor-section">
             <h3><i class="fas fa-hand"></i> Interaktion</h3>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="pickupEnabled" ${config.pickupEnabled ? "checked" : ""}> Kann aufgehoben werden</label>
+            ${!isCurrency ? `<label class="betterinv-ground-editor-check"><input type="checkbox" name="attachOnEquip" ${config.attachOnEquip ? "checked" : ""}> Beim Ausrüsten automatisch am eigenen Token befestigen</label>` : ""}
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerMove" ${config.playerMove ? "checked" : ""}> Spieler dürfen das Objekt verschieben</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerResize" ${config.playerResize ? "checked" : ""}> Spieler dürfen mit M + Mausrad die Größe ändern</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerRotate" ${config.playerRotate ? "checked" : ""}> Spieler dürfen mit N + Mausrad drehen</label>
@@ -9493,6 +9768,7 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
               visibilityFadeDuration: Number(form?.querySelector?.('[name="visibilityFadeDuration"]')?.value ?? config.visibilityFadeDuration),
               requireLineOfSight: Boolean(form?.querySelector?.('[name="requireLineOfSight"]')?.checked),
               pickupEnabled: Boolean(form?.querySelector?.('[name="pickupEnabled"]')?.checked),
+              attachOnEquip: Boolean(form?.querySelector?.('[name="attachOnEquip"]')?.checked),
               playerMove: Boolean(form?.querySelector?.('[name="playerMove"]')?.checked),
               playerResize: Boolean(form?.querySelector?.('[name="playerResize"]')?.checked),
               playerRotate: Boolean(form?.querySelector?.('[name="playerRotate"]')?.checked),
@@ -10513,9 +10789,12 @@ async function promptNewBetterInvItem() {
 
   return await new Promise(resolve => {
     let settled = false;
+    let selectedImageFile = null;
+    let previewObjectUrl = "";
     const done = value => {
       if (settled) return;
       settled = true;
+      if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
       resolve(value);
     };
     const dialog = new Dialog({
@@ -10528,6 +10807,14 @@ async function promptNewBetterInvItem() {
               <strong>Neuen Gegenstand anlegen</strong>
               <small>Lege zuerst Name und Art fest. Details bearbeitest du danach im normalen Foundry-Fenster.</small>
             </span>
+          </div>
+          <div class="form-group betterinv-new-item-image-field">
+            <label><i class="fas fa-image" aria-hidden="true"></i>Bild</label>
+            <button type="button" class="betterinv-new-item-image-picker" data-betterinv-item-image-picker>
+              <img src="icons/svg/item-bag.svg" alt="Vorschau" data-betterinv-item-image-preview>
+              <span><strong>Bild vom PC auswählen</strong><small>PNG, JPG, WebP oder GIF; wird in Foundry gespeichert.</small></span>
+            </button>
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden data-betterinv-item-image-input>
           </div>
           <div class="form-group">
             <label for="betterinv-new-item-name"><i class="fas fa-signature" aria-hidden="true"></i>Name</label>
@@ -10546,7 +10833,7 @@ async function promptNewBetterInvItem() {
           callback: html => {
             const name = sanitizePlainText(html.find('[name="name"]').val(), { max: 120 }) || "Neuer Gegenstand";
             const type = String(html.find('[name="type"]').val() ?? defaultType);
-            done({ name, type: types.includes(type) ? type : defaultType });
+            done({ name, type: types.includes(type) ? type : defaultType, imageFile: selectedImageFile });
           }
         },
         cancel: { label: "Abbrechen", callback: () => done(null) }
@@ -10559,13 +10846,66 @@ async function promptNewBetterInvItem() {
     });
     dialog.render(true);
     setTimeout(() => {
-      decorateBetterInvDialog(dialog, {
+      const element = decorateBetterInvDialog(dialog, {
         classes: ["betterinv-standard-dialog", "betterinv-form-dialog", "betterinv-new-item-dialog"],
         focusSelector: 'input[name="name"]',
         selectInput: true
       });
+      const picker = element?.querySelector?.("[data-betterinv-item-image-picker]");
+      const input = element?.querySelector?.("[data-betterinv-item-image-input]");
+      const preview = element?.querySelector?.("[data-betterinv-item-image-preview]");
+      picker?.addEventListener("click", event => {
+        event.preventDefault();
+        input?.click?.();
+      });
+      input?.addEventListener("change", () => {
+        const file = input.files?.[0] ?? null;
+        if (!file) return;
+        if (!String(file.type ?? "").startsWith("image/")) {
+          ui.notifications.warn("Bitte wähle eine Bilddatei aus.");
+          input.value = "";
+          return;
+        }
+        selectedImageFile = file;
+        if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl);
+        previewObjectUrl = URL.createObjectURL(file);
+        if (preview) preview.src = previewObjectUrl;
+        const label = picker?.querySelector?.("strong");
+        if (label) label.textContent = file.name;
+      });
     }, 40);
   });
+}
+
+async function uploadBetterInvItemImage(file) {
+  if (!file) return null;
+  const FilePickerClass = foundry?.applications?.apps?.FilePicker?.implementation
+    ?? foundry?.applications?.apps?.FilePicker
+    ?? globalThis.FilePicker;
+  if (typeof FilePickerClass?.upload !== "function") {
+    throw new Error("Der Foundry-Dateiupload ist in dieser Version nicht verfügbar.");
+  }
+
+  const uploadDirectory = "betterinv/item-images";
+  if (typeof FilePickerClass.createDirectory === "function") {
+    try { await FilePickerClass.createDirectory("data", "betterinv", { notify: false }); } catch (_error) {}
+    try { await FilePickerClass.createDirectory("data", uploadDirectory, { notify: false }); } catch (_error) {}
+  }
+  const extension = String(file.name ?? "item.webp").split(".").pop()?.replace(/[^a-z0-9]/gi, "").toLowerCase() || "webp";
+  const baseName = String(file.name ?? "item")
+    .replace(/\.[^.]+$/, "")
+    .normalize("NFKD")
+    .replace(/[^a-z0-9_-]+/gi, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60) || "item";
+  const uniqueName = `${baseName}-${Date.now().toString(36)}-${createBetterInvRequestId().slice(-6)}.${extension}`;
+  const uploadFile = typeof File === "function"
+    ? new File([file], uniqueName, { type: file.type, lastModified: file.lastModified })
+    : file;
+  const result = await FilePickerClass.upload("data", uploadDirectory, uploadFile, {}, { notify: false });
+  const path = String(result?.path ?? result?.url ?? "").trim();
+  if (!path) throw new Error("Foundry hat für das hochgeladene Bild keinen Pfad zurückgegeben.");
+  return path;
 }
 
 async function createBetterInvItem(actor, activeContainer = null) {
@@ -10588,9 +10928,16 @@ async function createBetterInvItem(actor, activeContainer = null) {
   const input = await promptNewBetterInvItem();
   if (!input) return null;
 
+  let image = null;
+  if (input.imageFile) {
+    ui.notifications.info("Bild wird in Foundry hochgeladen …");
+    image = await uploadBetterInvItemImage(input.imageFile);
+  }
+
   const created = await actor.createEmbeddedDocuments("Item", [{
     name: input.name,
-    type: input.type
+    type: input.type,
+    ...(image ? { img: image } : {})
   }]);
   const item = created?.[0] ?? null;
   if (!item) throw new Error("Foundry hat keinen erstellten Gegenstand zurückgegeben.");

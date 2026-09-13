@@ -18,6 +18,8 @@ Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODUL
 - Einstellungen: Zahnrad im Inventar-Header
 - GM-Spielerregeln: Im Einstellungsfenster global, pro Spieler oder im geöffneten Rucksack
 - Bodenbeute: Gegenstand auf freie Karte ziehen; ein Klick markiert das vollständige Tile-Rechteck, Ziehen verschiebt es und Doppelklick oder Rechtsklick öffnet die Aktionen. Am markierten Objekt ändert `M` + Mausrad die Größe und `N` + Mausrad die Drehung in 15-Grad-Schritten.
+- Bilder und ausgerüstete Bodenobjekte: Beim Erstellen lässt sich ein lokales Bild direkt nach Foundry hochladen. Mit „Beim Ausrüsten automatisch am eigenen Token befestigen“ bleibt das Item im Inventar, während eine verknüpfte Kartendarstellung dem Token folgt. Ziehen löst sie; der Aktionsdialog heftet oder löst sie gezielt.
+- Fackel-Beispiel: Im Bodenprofil eine Regel „Beim Fallenlassen“ mit der Aktion „Licht erzeugen“ und Radius `60` anlegen. Foundry erzeugt 30 ft helles und 60 ft dämmriges Licht, das dem Bodenobjekt oder dem angehefteten Token folgt.
 - Spielerrechte für Bodenobjekte: Der GM kann Verschieben, Größenänderung, Drehung, Aktivierung und Effektbearbeitung getrennt global, pro Spieler und zusätzlich pro Bodenobjekt erlauben oder sperren.
 - Dauerhafte Transformation: Die Option „Aktuelle Größe und Drehung am Item speichern“ übernimmt beide Werte beim Aufheben und erneuten Fallenlassen.
 - Dauerhafte Bodenprofile: Im Drei-Punkte-Menü eines Items kann der GM Regeln schon im Inventar speichern. Das Profil bleibt beim Fallenlassen, Aufheben und erneuten Fallenlassen am Gegenstand.

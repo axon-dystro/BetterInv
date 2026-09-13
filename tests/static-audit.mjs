@@ -136,6 +136,7 @@ const profile = vm.runInContext(`getBetterInvNormalizedItemGroundProfile({
 assert.equal(profile.display.visibilityDistanceFeet, 0, "Sichtradius 0 muss das eigene Grid-Feld bedeuten");
 assert.equal(profile.display.sizeGridUnits, 0.125);
 assert.equal(profile.display.persistTransform, true, "Größe und Drehung sollen standardmäßig am Item erhalten bleiben");
+assert.equal(profile.interaction.attachOnEquip, false, "Normale Gegenstände dürfen nicht ungefragt beim Ausrüsten auf der Karte erscheinen");
 assert.equal(profile.permissions.playerMove, true);
 assert.equal(profile.permissions.playerResize, true);
 assert.equal(profile.permissions.playerRotate, true);
@@ -223,6 +224,34 @@ await assert.rejects(
   /nicht erlaubt/,
   "Eine objektbezogene GM-Sperre darf nicht über den Socket umgangen werden"
 );
+const attachmentActor = { id: "attachment-actor", canUserModify: user => user?.id === "player" };
+const attachmentToken = {
+  id: "attachment-token",
+  actorId: attachmentActor.id,
+  parent: context.canvas.scene,
+  x: 100,
+  y: 200,
+  width: 1,
+  height: 1
+};
+context.game.actors = new Map([[attachmentActor.id, attachmentActor]]);
+context.canvas.scene.tokens = { get: id => id === attachmentToken.id ? attachmentToken : null, contents: [attachmentToken] };
+await vm.runInContext(`executeBetterInvGmGroundAction("attachTile", {
+  sceneId: "scene",
+  tileId: "transform-tile",
+  tokenId: "attachment-token"
+}, "player")`, context);
+assert.equal(transformLoot.attachment.tokenId, attachmentToken.id, "Ein erlaubtes Bodenobjekt muss am eigenen Token befestigt werden können");
+await vm.runInContext(`executeBetterInvGmGroundAction("moveTile", {
+  sceneId: "scene",
+  tileId: "transform-tile",
+  x: 400,
+  y: 500
+}, "player")`, context);
+assert.equal(transformLoot.attachment, undefined, "Manuelles Ziehen muss ein befestigtes Bodenobjekt automatisch lösen");
+assert.equal(transformTile.x, 400);
+assert.match(mainSource, /data-betterinv-item-image-input/, "Der Gegenstandsdialog muss einen lokalen Bildimport anbieten");
+assert.match(mainSource, /syncEquippedItem/, "Ausrüsten muss die verknüpfte Kartendarstellung synchronisieren");
 context.game.scenes = originalScenes;
 context.game.users = originalUsers;
 

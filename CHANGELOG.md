@@ -2,6 +2,10 @@
 
 ## Unveröffentlicht
 
+- Beim Erstellen eines Gegenstands kann sein Bild direkt vom lokalen PC gewählt, in Foundrys Datenverzeichnis hochgeladen und als Item-Bild gesetzt werden.
+- Item-Bodenprofile können beim Ausrüsten automatisch eine verknüpfte Kartendarstellung am Charakter-Token erzeugen; das Item selbst bleibt sicher im Inventar.
+- Befestigte Bodenobjekte folgen ihrem Token, lösen sich beim manuellen Ziehen und lassen sich im Aktionsdialog erneut anheften oder lösen.
+- Lichtaktionen mit dem Trigger „Beim Fallenlassen“ erzeugen auch bei automatisch angehefteten Items echtes, mitbewegtes Foundry-Licht.
 - Größenänderungen von Bodenobjekten mit `M` + Mausrad reagieren nun schneller und verwenden stufenlose Zwischenwerte statt fester Größenstufen.
 - Bodenbeute im Sichtbarkeitsmodus „Immer“ wird für Spieler nicht mehr versehentlich durch die zusätzliche Sichtlinienprüfung ausgeblendet.
 - Der Dialog „Übertragen / fallen lassen“ verwendet nun zuverlässig das einheitliche BetterInv-Design, auch unter Foundry VTT 14.
