@@ -32,7 +32,7 @@ function validateBetterInvSupportLinks() {
 }
 const DEFAULT_CATEGORIES = [];
 const BETTER_INV_USER_SETTINGS_FLAG = "userSettings";
-const BETTER_INV_USER_SETTINGS_VERSION = 6;
+const BETTER_INV_USER_SETTINGS_VERSION = 7;
 const BETTER_INV_GM_RESTRICTIONS_SETTING = "gmRestrictions";
 const BETTER_INV_GM_RESTRICTIONS_VERSION = 1;
 const BETTER_INV_CURRENCY_LABELS_SETTING = "currencyLabels";
@@ -85,6 +85,11 @@ const DEFAULT_BETTER_INV_USER_SETTINGS = Object.freeze({
   showContainerLayerControls: true,
   showContainerSorting: true,
   showItemMoveToContainer: true,
+  allowGroundMove: true,
+  allowGroundResize: true,
+  allowGroundRotate: true,
+  allowGroundActivate: true,
+  allowGroundEffects: true,
   showEncumbrance: true
 });
 
@@ -154,6 +159,18 @@ const BETTER_INV_SETTINGS_GROUPS = [
       ["showContainerLayerControls", "Rucksack-Layer ändern", "Erlaubt Layer hinzuzufügen oder zu entfernen."],
       ["showContainerSorting", "Rucksäcke sortieren", "Erlaubt Rucksäcke per Drag-and-drop zu verschieben."],
       ["showItemMoveToContainer", "Gegenstände in Rucksäcke verschieben", "Erlaubt Gegenstände per Drag-and-drop in oder aus Rucksäcken zu bewegen."]
+    ]
+  },
+  {
+    id: "ground",
+    title: "Bodenobjekte",
+    icon: "fa-gem",
+    settings: [
+      ["allowGroundMove", "Bodenobjekte verschieben", "Erlaubt Spielern freigegebene Bodenobjekte mit der Maus zu verschieben."],
+      ["allowGroundResize", "Größe verändern", "Erlaubt Spielern bei einem markierten Bodenobjekt M gedrückt zu halten und mit dem Mausrad die Größe zu ändern."],
+      ["allowGroundRotate", "Drehen", "Erlaubt Spielern bei einem markierten Bodenobjekt N gedrückt zu halten und mit dem Mausrad zu drehen."],
+      ["allowGroundActivate", "Effekte auslösen", "Erlaubt Spielern die manuelle Aktivierung bei dafür freigegebenen Bodenobjekten."],
+      ["allowGroundEffects", "Effekte bearbeiten", "Erlaubt Spielern den Effekt-Editor nur bei Bodenobjekten, die der GM zusätzlich dafür freigegeben hat."]
     ]
   },
   {
@@ -841,6 +858,11 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
   const itemDelete = items && allowed("showItemDelete");
   const itemGroundConfigure = items && user?.isGM === true;
   const itemMoveToContainer = items && containers && allowed("showItemMoveToContainer");
+  const groundMove = enabled && allowed("allowGroundMove");
+  const groundResize = enabled && allowed("allowGroundResize");
+  const groundRotate = enabled && allowed("allowGroundRotate");
+  const groundActivate = enabled && allowed("allowGroundActivate");
+  const groundEffects = enabled && allowed("allowGroundEffects");
   const itemActionsMenuMaster = items && allowed("showItemActionsMenu");
   const itemActionsMenu = itemActionsMenuMaster && (
     favorites || equipActions || itemShareAction || itemDuplicate || itemDelete || itemGroundConfigure
@@ -881,6 +903,11 @@ function getBetterInvFeaturePlan(settings = getBetterInvUserSettings(), {
     containerLayerControls: containers && allowed("showContainerLayerControls"),
     containerSorting: containers && allowed("showContainerSorting"),
     itemMoveToContainer,
+    groundMove,
+    groundResize,
+    groundRotate,
+    groundActivate,
+    groundEffects,
     encumbrance: enabled && allowed("showEncumbrance"),
     currency,
     currencyCalculator,
@@ -7691,6 +7718,8 @@ function getBetterInvNormalizedItemGroundProfile(item, scene = canvas?.scene) {
     version: 1,
     display: {
       sizeGridUnits: Math.max(0.125, Number(display.sizeGridUnits) || BETTER_INV_GROUND_DEFAULT_SIZE),
+      rotation: Number.isFinite(Number(display.rotation)) ? Number(display.rotation) : 0,
+      persistTransform: display.persistTransform !== false,
       visibilityMode: ["always", "proximity", "hidden"].includes(String(display.visibilityMode))
         ? String(display.visibilityMode)
         : "always",
@@ -7706,7 +7735,10 @@ function getBetterInvNormalizedItemGroundProfile(item, scene = canvas?.scene) {
       pickupEnabled: interaction.pickupEnabled !== false
     },
     permissions: {
-      playerMove: permissions.playerMove === true,
+      playerMove: permissions.playerMove !== false,
+      playerResize: permissions.playerResize !== false,
+      playerRotate: permissions.playerRotate !== false,
+      playerEffects: permissions.playerEffects === true,
       playerActivate: permissions.playerActivate !== false
     },
     effects: {
@@ -7734,13 +7766,24 @@ function buildBetterInvGroundProfile(loot = {}) {
 
 function syncBetterInvGroundProfileIntoLoot(loot) {
   if (!loot || loot.kind !== "item" || !loot.itemData || typeof loot.itemData !== "object") return loot;
+  const previousProfile = foundry.utils.getProperty(loot.itemData, `flags.${MODULE_ID}.${BETTER_INV_GROUND_PROFILE_FLAG}`) ?? {};
   loot.itemData.flags = loot.itemData.flags && typeof loot.itemData.flags === "object"
     ? loot.itemData.flags
     : {};
   loot.itemData.flags[MODULE_ID] = loot.itemData.flags[MODULE_ID] && typeof loot.itemData.flags[MODULE_ID] === "object"
     ? loot.itemData.flags[MODULE_ID]
     : {};
-  loot.itemData.flags[MODULE_ID][BETTER_INV_GROUND_PROFILE_FLAG] = buildBetterInvGroundProfile(loot);
+  const nextProfile = buildBetterInvGroundProfile(loot);
+  if (nextProfile.display?.persistTransform === false) {
+    const previousDisplay = previousProfile?.display && typeof previousProfile.display === "object"
+      ? previousProfile.display
+      : {};
+    for (const key of ["sizeGridUnits", "baseWidth", "baseHeight", "scale", "rotation"]) {
+      if (Object.hasOwn(previousDisplay, key)) nextProfile.display[key] = foundry.utils.deepClone(previousDisplay[key]);
+      else delete nextProfile.display[key];
+    }
+  }
+  loot.itemData.flags[MODULE_ID][BETTER_INV_GROUND_PROFILE_FLAG] = nextProfile;
   return loot;
 }
 
@@ -7922,7 +7965,10 @@ function buildBetterInvGroundTileData(scene, { x, y, name, image, loot }) {
     ...(normalizedLoot.interaction ?? {})
   };
   normalizedLoot.permissions = {
-    playerMove: false,
+    playerMove: true,
+    playerResize: true,
+    playerRotate: true,
+    playerEffects: false,
     playerActivate: true,
     ...(normalizedLoot.permissions ?? {})
   };
@@ -7932,7 +7978,7 @@ function buildBetterInvGroundTileData(scene, { x, y, name, image, loot }) {
     y: Math.round(pointY - size / 2),
     width: size,
     height: size,
-    rotation: 0,
+    rotation: Number.isFinite(Number(normalizedLoot.display.rotation)) ? Number(normalizedLoot.display.rotation) : 0,
     alpha: 1,
     hidden: false,
     locked: false,
@@ -8108,7 +8154,8 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
     const tile = scene.tiles?.get?.(payload.tileId) ?? null;
     const loot = getBetterInvGroundLoot(tile);
     if (!tile || !loot) throw new Error("Diese Bodenbeute existiert nicht mehr.");
-    const playerMoveAllowed = loot?.permissions?.playerMove === true;
+    const groundFeatures = getBetterInvGroundFeaturePlanFor(requestUser, null, null);
+    const playerMoveAllowed = loot?.permissions?.playerMove !== false && groundFeatures.groundMove;
     if (!requestUser.isGM && !playerMoveAllowed) throw new Error("Der GM hat das Verschieben dieser Bodenbeute nicht erlaubt.");
     const x = Number(payload.x);
     const y = Number(payload.y);
@@ -8119,6 +8166,80 @@ async function executeBetterInvGmGroundAction(action, payload = {}, requestUserI
       animate: false
     });
     return { tileId: tile.id, x: Math.round(x), y: Math.round(y) };
+  }
+
+  if (action === "transformTile") {
+    const tile = scene.tiles?.get?.(payload.tileId) ?? null;
+    const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tile) ?? {});
+    if (!tile || !loot?.kind) throw new Error("Diese Bodenbeute existiert nicht mehr.");
+    const mode = String(payload.mode ?? "");
+    const groundFeatures = getBetterInvGroundFeaturePlanFor(requestUser, null, null);
+    const allowed = mode === "resize"
+      ? loot?.permissions?.playerResize !== false && groundFeatures.groundResize
+      : mode === "rotate"
+        ? loot?.permissions?.playerRotate !== false && groundFeatures.groundRotate
+        : false;
+    if (!requestUser.isGM && !allowed) {
+      throw new Error(mode === "resize"
+        ? "Der GM hat das Vergrößern und Verkleinern dieser Bodenbeute nicht erlaubt."
+        : "Der GM hat das Drehen dieser Bodenbeute nicht erlaubt.");
+    }
+
+    const update = {};
+    loot.display = { ...(loot.display ?? {}) };
+    if (mode === "resize") {
+      const requestedUnits = Number(payload.sizeGridUnits);
+      const nearestIndex = getBetterInvNearestGroundSizeIndex(requestedUnits);
+      const sizeGridUnits = betterInvGroundSizeIndexToUnits(nearestIndex);
+      const gridSize = Math.max(1, Number(scene?.grid?.size ?? canvas?.grid?.size ?? 100) || 100);
+      const width = Math.max(1, Math.round(gridSize * sizeGridUnits));
+      const height = Math.max(1, Math.round(gridSize * sizeGridUnits));
+      const centerX = Number(tile.x ?? 0) + Number(tile.width ?? 0) / 2;
+      const centerY = Number(tile.y ?? 0) + Number(tile.height ?? 0) / 2;
+      Object.assign(update, { x: centerX - width / 2, y: centerY - height / 2, width, height });
+      Object.assign(loot.display, { baseWidth: width, baseHeight: height, scale: 1, sizeGridUnits });
+    } else if (mode === "rotate") {
+      const requestedRotation = Number(payload.rotation);
+      if (!Number.isFinite(requestedRotation)) throw new Error("Die neue Drehung ist ungültig.");
+      const rotation = ((Math.round(requestedRotation / 15) * 15) % 360 + 360) % 360;
+      update.rotation = rotation;
+      loot.display.rotation = rotation;
+    } else {
+      throw new Error("Unbekannte Bodenobjekt-Transformation.");
+    }
+
+    syncBetterInvGroundProfileIntoLoot(loot);
+    update[`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`] = loot;
+    await tile.update(update, {
+      betterInventoryGroundTransform: true,
+      requestUserId: requestUser.id,
+      animate: false
+    });
+    return {
+      tileId: tile.id,
+      width: Number(update.width ?? tile.width),
+      height: Number(update.height ?? tile.height),
+      rotation: Number(update.rotation ?? tile.rotation ?? 0)
+    };
+  }
+
+  if (action === "updateEffects") {
+    const tile = scene.tiles?.get?.(payload.tileId) ?? null;
+    const loot = foundry.utils.deepClone(getBetterInvGroundLoot(tile) ?? {});
+    if (!tile || !loot?.kind) throw new Error("Diese Bodenbeute existiert nicht mehr.");
+    const groundFeatures = getBetterInvGroundFeaturePlanFor(requestUser, null, null);
+    const allowed = loot?.permissions?.playerEffects === true && groundFeatures.groundEffects;
+    if (!requestUser.isGM && !allowed) throw new Error("Der GM hat das Bearbeiten der Effekte für dieses Bodenobjekt nicht erlaubt.");
+    const normalizeRules = globalThis.AxonsInventoryGround?.normalizeRules;
+    if (typeof normalizeRules !== "function") throw new Error("Der Effekt-Editor ist noch nicht vollständig geladen.");
+    const rules = normalizeRules(Array.from(payload.rules ?? []).slice(0, 50));
+    loot.version = Math.max(3, Number(loot.version) || 0);
+    loot.effects = { ...(loot.effects ?? {}), rules };
+    syncBetterInvGroundProfileIntoLoot(loot);
+    await tile.update({
+      [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot
+    }, { betterInventoryGroundEffects: true, requestUserId: requestUser.id });
+    return { tileId: tile.id, ruleCount: rules.length };
   }
 
   if (action === "pickup") {
@@ -8240,7 +8361,7 @@ function deactivateBetterInvGroundTiles() {
   for (const tile of Array.from(canvas?.tiles?.placeables ?? [])) deactivateBetterInvGroundTile(tile);
 }
 
-async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pickupBlockedReason = "", canActivate = false, canRemove = false, canConfigure = false } = {}) {
+async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pickupBlockedReason = "", canActivate = false, canRemove = false, canConfigure = false, configureLabel = "Einstellungen" } = {}) {
   const isCurrency = loot?.kind === "currency";
   const summary = isCurrency
     ? formatBetterInvCurrencyAmounts(normalizeBetterInvGroundTransfers(loot?.currencies))
@@ -8280,7 +8401,7 @@ async function promptBetterInvGroundLootAction({ loot, actor, pickupAllowed, pic
     if (canConfigure) {
       buttons.settings = {
         icon: '<i class="fas fa-gear"></i>',
-        label: "Einstellungen",
+        label: configureLabel,
         callback: () => done("settings")
       };
     }
@@ -8386,6 +8507,13 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
     }
 
     const canActivate = Boolean(effectsApi?.canActivate?.(tileDocument));
+    const groundFeatures = getBetterInvGroundFeaturePlanFor(game.user, actor, null);
+    const canPlayerEditEffects = Boolean(
+      !game.user?.isGM
+      && loot?.permissions?.playerEffects === true
+      && groundFeatures.groundEffects
+      && typeof effectsApi?.openEffectEditor === "function"
+    );
     const action = await promptBetterInvGroundLootAction({
       loot,
       actor,
@@ -8393,13 +8521,14 @@ async function openBetterInvGroundPickupDialog(tileDocument, { triggerClick = tr
       pickupBlockedReason,
       canActivate,
       canRemove: Boolean(game.user?.isGM),
-      canConfigure: Boolean(game.user?.isGM)
+      canConfigure: Boolean(game.user?.isGM || canPlayerEditEffects),
+      configureLabel: game.user?.isGM ? "Einstellungen" : "Effekte bearbeiten"
     });
     if (!action) return;
 
     if (action === "settings") {
-      if (!game.user?.isGM) return;
-      await openBetterInvGroundObjectEditor(tileDocument);
+      if (game.user?.isGM) await openBetterInvGroundObjectEditor(tileDocument);
+      else if (canPlayerEditEffects) await effectsApi.openEffectEditor(tileDocument);
       return;
     }
 
@@ -8681,6 +8810,8 @@ function getBetterInvGroundDisplayConfig(tileOrDocument) {
     baseHeight,
     scale,
     sizeGridUnits,
+    rotation: Number.isFinite(Number(document?.rotation)) ? Number(document.rotation) : 0,
+    persistTransform: loot?.display?.persistTransform !== false,
     visibilityMode,
     visibilityDistanceFeet,
     // Kept as an alias for older code and already stored world data.
@@ -8692,7 +8823,10 @@ function getBetterInvGroundDisplayConfig(tileOrDocument) {
       : 0.18),
     requireLineOfSight: loot?.display?.requireLineOfSight !== false,
     pickupEnabled: loot?.interaction?.pickupEnabled !== false,
-    playerMove: loot?.permissions?.playerMove === true,
+    playerMove: loot?.permissions?.playerMove !== false,
+    playerResize: loot?.permissions?.playerResize !== false,
+    playerRotate: loot?.permissions?.playerRotate !== false,
+    playerEffects: loot?.permissions?.playerEffects === true,
     playerActivate: loot?.permissions?.playerActivate !== false
   };
 }
@@ -8959,6 +9093,8 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
     baseHeight: gridSize,
     scale: sizeGridUnits,
     sizeGridUnits,
+    rotation: Number.isFinite(Number(values.rotation)) ? Number(values.rotation) : current.rotation,
+    persistTransform: values.persistTransform !== false,
     visibilityMode: ["always", "proximity", "hidden"].includes(values.visibilityMode) ? values.visibilityMode : "always",
     visibilityDistance: Math.max(0, Number(values.visibilityDistanceFeet) || 0),
     visibilityDistanceFeet: Math.max(0, Number(values.visibilityDistanceFeet) || 0),
@@ -8974,6 +9110,9 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
   loot.permissions = {
     ...(loot.permissions ?? {}),
     playerMove: values.playerMove === true,
+    playerResize: values.playerResize === true,
+    playerRotate: values.playerRotate === true,
+    playerEffects: values.playerEffects === true,
     playerActivate: values.playerActivate !== false
   };
   syncBetterInvGroundProfileIntoLoot(loot);
@@ -8982,6 +9121,7 @@ async function updateBetterInvGroundObjectConfiguration(tileDocument, values) {
     y: centerY - height / 2,
     width,
     height,
+    rotation: Number.isFinite(Number(values.rotation)) ? Number(values.rotation) : current.rotation,
     [`flags.${MODULE_ID}.${BETTER_INV_GROUND_FLAG}`]: loot
   }, { betterInventoryGroundConfigure: true, userId: game.user.id });
   scheduleBetterInvGroundVisibilityRefresh();
@@ -9066,6 +9206,7 @@ async function openBetterInvItemGroundProfileEditor(item) {
               <span>10 Grid</span>
             </label>
             <div class="betterinv-ground-editor-scale">Aktuell: <strong data-ground-size-label></strong></div>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="persistTransform" ${profile.display.persistTransform ? "checked" : ""}> Aktuelle Größe und Drehung beim Aufheben und erneuten Fallenlassen beibehalten</label>
           </section>
           <section class="betterinv-ground-editor-section">
             <h3><i class="fas fa-eye"></i> Sichtbarkeit nach dem Fallenlassen</h3>
@@ -9086,6 +9227,9 @@ async function openBetterInvItemGroundProfileEditor(item) {
             <h3><i class="fas fa-hand"></i> Interaktion</h3>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="pickupEnabled" ${profile.interaction.pickupEnabled ? "checked" : ""}> Kann aufgehoben werden</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerMove" ${profile.permissions.playerMove ? "checked" : ""}> Spieler dürfen das Objekt verschieben</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerResize" ${profile.permissions.playerResize ? "checked" : ""}> Spieler dürfen mit M + Mausrad die Größe ändern</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerRotate" ${profile.permissions.playerRotate ? "checked" : ""}> Spieler dürfen mit N + Mausrad drehen</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerEffects" ${profile.permissions.playerEffects ? "checked" : ""}> Spieler dürfen Effekte bearbeiten</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerActivate" ${profile.permissions.playerActivate ? "checked" : ""}> Spieler dürfen „Aktivieren“ auslösen</label>
           </section>
           <section class="betterinv-ground-editor-section betterinv-ground-editor-effects">
@@ -9111,6 +9255,8 @@ async function openBetterInvItemGroundProfileEditor(item) {
               display: {
                 ...current.display,
                 sizeGridUnits: betterInvGroundSizeIndexToUnits(form?.querySelector?.('[name="sizeGridIndex"]')?.value ?? sizeIndex),
+                rotation: current.display.rotation,
+                persistTransform: Boolean(form?.querySelector?.('[name="persistTransform"]')?.checked),
                 visibilityMode: String(form?.querySelector?.('[name="visibilityMode"]')?.value ?? "always"),
                 visibilityDistanceFeet: snapBetterInvGroundFeetToGrid(form?.querySelector?.('[name="visibilityDistanceFeet"]')?.value ?? visibilityFeet, scene),
                 requireLineOfSight: Boolean(form?.querySelector?.('[name="requireLineOfSight"]')?.checked)
@@ -9122,6 +9268,9 @@ async function openBetterInvItemGroundProfileEditor(item) {
               permissions: {
                 ...current.permissions,
                 playerMove: Boolean(form?.querySelector?.('[name="playerMove"]')?.checked),
+                playerResize: Boolean(form?.querySelector?.('[name="playerResize"]')?.checked),
+                playerRotate: Boolean(form?.querySelector?.('[name="playerRotate"]')?.checked),
+                playerEffects: Boolean(form?.querySelector?.('[name="playerEffects"]')?.checked),
                 playerActivate: Boolean(form?.querySelector?.('[name="playerActivate"]')?.checked)
               }
             };
@@ -9253,6 +9402,9 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
             </label>
             <div class="betterinv-ground-editor-scale">Aktuell: <strong data-ground-size-label>${config.sizeGridUnits.toLocaleString("de-DE", { maximumFractionDigits: 3 })} Grid</strong></div>
             <small class="betterinv-ground-visibility-hint">Die Stufen folgen dem Kartenraster: ⅛, ¼, ½, ¾, 1, 1½, 2, 3, 4, 6, 8 oder 10 Kästchen.</small>
+            <div class="betterinv-ground-editor-scale">Drehung: <strong>${config.rotation.toLocaleString("de-DE", { maximumFractionDigits: 0 })}°</strong></div>
+            <small class="betterinv-ground-visibility-hint">Auf der Karte markieren, dann M + Mausrad für die Größe oder N + Mausrad zum Drehen verwenden.</small>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="persistTransform" ${config.persistTransform ? "checked" : ""}> Aktuelle Größe und Drehung am Item speichern</label>
           </section>
           ${isCurrency ? `
           <section class="betterinv-ground-editor-section betterinv-ground-currency-preview">
@@ -9300,6 +9452,9 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
             <h3><i class="fas fa-hand"></i> Interaktion</h3>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="pickupEnabled" ${config.pickupEnabled ? "checked" : ""}> Kann aufgehoben werden</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerMove" ${config.playerMove ? "checked" : ""}> Spieler dürfen das Objekt verschieben</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerResize" ${config.playerResize ? "checked" : ""}> Spieler dürfen mit M + Mausrad die Größe ändern</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerRotate" ${config.playerRotate ? "checked" : ""}> Spieler dürfen mit N + Mausrad drehen</label>
+            <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerEffects" ${config.playerEffects ? "checked" : ""}> Spieler dürfen Effekte bearbeiten</label>
             <label class="betterinv-ground-editor-check"><input type="checkbox" name="playerActivate" ${config.playerActivate ? "checked" : ""}> Spieler dürfen „Aktivieren“ auslösen</label>
           </section>
           <section class="betterinv-ground-editor-section betterinv-ground-editor-effects">
@@ -9324,6 +9479,8 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
             const sizeIndex = Number(form?.querySelector?.('[name="sizeGridIndex"]')?.value ?? sizeSliderValue);
             const values = {
               sizeGridUnits: betterInvGroundSizeIndexToUnits(sizeIndex),
+              rotation: config.rotation,
+              persistTransform: Boolean(form?.querySelector?.('[name="persistTransform"]')?.checked),
               visibilityMode: String(form?.querySelector?.('[name="visibilityMode"]')?.value ?? "always"),
               visibilityDistanceFeet: snapBetterInvGroundFeetToGrid(
                 Number(form?.querySelector?.('[name="visibilityDistanceFeet"]')?.value ?? config.visibilityDistanceFeet),
@@ -9335,6 +9492,9 @@ async function openBetterInvGroundObjectEditor(tileDocument) {
               requireLineOfSight: Boolean(form?.querySelector?.('[name="requireLineOfSight"]')?.checked),
               pickupEnabled: Boolean(form?.querySelector?.('[name="pickupEnabled"]')?.checked),
               playerMove: Boolean(form?.querySelector?.('[name="playerMove"]')?.checked),
+              playerResize: Boolean(form?.querySelector?.('[name="playerResize"]')?.checked),
+              playerRotate: Boolean(form?.querySelector?.('[name="playerRotate"]')?.checked),
+              playerEffects: Boolean(form?.querySelector?.('[name="playerEffects"]')?.checked),
               playerActivate: Boolean(form?.querySelector?.('[name="playerActivate"]')?.checked)
             };
             void updateBetterInvGroundObjectConfiguration(tileDocument, values)

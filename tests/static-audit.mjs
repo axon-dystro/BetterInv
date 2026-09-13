@@ -135,6 +135,11 @@ const profile = vm.runInContext(`getBetterInvNormalizedItemGroundProfile({
 })`, context);
 assert.equal(profile.display.visibilityDistanceFeet, 0, "Sichtradius 0 muss das eigene Grid-Feld bedeuten");
 assert.equal(profile.display.sizeGridUnits, 0.125);
+assert.equal(profile.display.persistTransform, true, "Größe und Drehung sollen standardmäßig am Item erhalten bleiben");
+assert.equal(profile.permissions.playerMove, true);
+assert.equal(profile.permissions.playerResize, true);
+assert.equal(profile.permissions.playerRotate, true);
+assert.equal(profile.permissions.playerEffects, false, "Spieler-Effektbearbeitung muss pro Objekt ausdrücklich freigegeben werden");
 assert.equal(profile.effects.rules[0].id, "persisted");
 
 const transferData = vm.runInContext(`prepareBetterInvTransferredItemData({
@@ -165,13 +170,61 @@ const tileData = vm.runInContext(`buildBetterInvGroundTileData(canvas.scene, {
   image: "icons/svg/fire.svg",
   loot: {
     kind: "item",
-    display: { sizeGridUnits: 0.5 },
+    display: { sizeGridUnits: 0.5, rotation: 30 },
     itemData: ${JSON.stringify(transferData)}
   }
 })`, context);
 assert.equal(tileData.width, 50, "Ein halbes Grid muss bei 100 Pixel Gridgröße 50 Pixel breit sein");
 assert.equal(tileData.height, 50);
+assert.equal(tileData.rotation, 30, "Die am Item gespeicherte Drehung muss beim Fallenlassen übernommen werden");
 assert.equal(tileData.flags.betterinv.groundLoot.display.requireLineOfSight, true);
+
+let transformLoot = structuredClone(tileData.flags.betterinv.groundLoot);
+const transformTile = {
+  id: "transform-tile",
+  x: tileData.x,
+  y: tileData.y,
+  width: tileData.width,
+  height: tileData.height,
+  rotation: tileData.rotation,
+  parent: context.canvas.scene,
+  getFlag: () => transformLoot,
+  update: async changes => {
+    for (const [key, value] of Object.entries(changes)) {
+      if (key === "flags.betterinv.groundLoot") transformLoot = value;
+      else transformTile[key] = value;
+    }
+    return transformTile;
+  }
+};
+const requestingPlayer = { id: "player", isGM: false, getFlag: () => undefined };
+const originalScenes = context.game.scenes;
+const originalUsers = context.game.users;
+context.canvas.scene.tiles = { get: id => id === transformTile.id ? transformTile : null };
+context.game.scenes = new Map([[context.canvas.scene.id, context.canvas.scene]]);
+context.game.users = { get: id => id === requestingPlayer.id ? requestingPlayer : null, contents: [requestingPlayer] };
+await vm.runInContext(`executeBetterInvGmGroundAction("transformTile", {
+  sceneId: "scene",
+  tileId: "transform-tile",
+  mode: "resize",
+  sizeGridUnits: 1.5
+}, "player")`, context);
+assert.equal(transformTile.width, 150, "Die Größenänderung muss auf eine erlaubte Grid-Stufe einrasten");
+assert.equal(transformTile.x, 175, "Beim Skalieren muss der Mittelpunkt des Bodenobjekts erhalten bleiben");
+assert.equal(transformLoot.itemData.flags.betterinv.groundProfile.display.sizeGridUnits, 1.5, "Die aktuelle Größe muss im Item-Profil persistieren");
+transformLoot.permissions.playerRotate = false;
+await assert.rejects(
+  vm.runInContext(`executeBetterInvGmGroundAction("transformTile", {
+    sceneId: "scene",
+    tileId: "transform-tile",
+    mode: "rotate",
+    rotation: 45
+  }, "player")`, context),
+  /nicht erlaubt/,
+  "Eine objektbezogene GM-Sperre darf nicht über den Socket umgangen werden"
+);
+context.game.scenes = originalScenes;
+context.game.users = originalUsers;
 
 const alwaysVisibleWithoutLos = vm.runInContext(`(() => {
   const previousIsGm = game.user.isGM;
@@ -195,6 +248,10 @@ const alwaysVisibleWithoutLos = vm.runInContext(`(() => {
 assert.equal(alwaysVisibleWithoutLos, true, "Bodenloot im Modus 'always' muss auch für Spieler ohne zusätzlichen LOS-Treffer sichtbar sein");
 assert.match(mainSource, /betterinv-item-action-remove-container/, "Das Drei-Punkte-Menü muss Gegenstände aus dem aktiven Rucksack entfernen können");
 assert.match(mainSource, /decorateBetterInvDialog\(dialog,[\s\S]*betterinv-transfer-route-window/, "Der Übertragen-/Fallenlassen-Dialog muss das BetterInv-Dialogdesign erhalten");
+assert.match(groundSource, /event\.code === "KeyM"/, "M muss die Größensteuerung des markierten Bodenobjekts aktivieren");
+assert.match(groundSource, /event\.code === "KeyN"/, "N muss die Drehsteuerung des markierten Bodenobjekts aktivieren");
+assert.match(groundSource, /requestBetterInvGmGroundAction\("transformTile"/, "Spieler-Transformationen müssen sicher über den GM laufen");
+assert.match(mainSource, /allowGroundMove[\s\S]*allowGroundResize[\s\S]*allowGroundRotate[\s\S]*allowGroundActivate[\s\S]*allowGroundEffects/, "Die GM-Regeln müssen Bodenaktionen getrennt sperren können");
 
 vm.runInContext(groundSource, context, { filename: "scripts/ground-effects.js" });
 const normalizedRules = context.AxonsInventoryGround.getRules({

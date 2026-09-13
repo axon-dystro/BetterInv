@@ -101,8 +101,11 @@
   let pointerState = null;
   let hoverTileId = "";
   let selectedTileId = "";
+  let heldTransformKey = "";
   let hitAreaDebugEnabled = false;
   let debugGraphics = null;
+  const pendingTransformTimers = new Map();
+  const pendingTransformValues = new Map();
   const tokenScanTimers = new Map();
   const tokenMotionTimers = new Map();
   const tokenMotionOrigins = new Map();
@@ -218,6 +221,68 @@
         try { return Boolean(getBetterInvGroundLoot(tile)); }
         catch (_error) { return false; }
       });
+  }
+
+  function getSelectedGroundTile() {
+    if (!selectedTileId) return null;
+    return getGroundTiles().find(tile => String(getTileDocument(tile)?.id ?? "") === selectedTileId) ?? null;
+  }
+
+  function getGroundFeaturePermission(featureKey) {
+    if (game.user?.isGM) return true;
+    try { return getBetterInvGroundFeaturePlanFor(game.user, null, null)?.[featureKey] === true; }
+    catch (_error) { return false; }
+  }
+
+  function canManipulateGroundTile(tileOrDocument, permissionKey, featureKey, { explicit = false } = {}) {
+    if (game.user?.isGM) return true;
+    const loot = getBetterInvGroundLoot(getTileDocument(tileOrDocument));
+    const objectAllowed = explicit
+      ? loot?.permissions?.[permissionKey] === true
+      : loot?.permissions?.[permissionKey] !== false;
+    return objectAllowed && getGroundFeaturePermission(featureKey);
+  }
+
+  function queueGroundTransform(tile, mode, direction) {
+    const document = getTileDocument(tile);
+    if (!document?.id || !document.parent) return;
+    const permissionKey = mode === "resize" ? "playerResize" : "playerRotate";
+    const featureKey = mode === "resize" ? "groundResize" : "groundRotate";
+    if (!canManipulateGroundTile(document, permissionKey, featureKey)) {
+      ui.notifications.warn(mode === "resize"
+        ? "Der GM hat das Vergrößern und Verkleinern dieses Bodenobjekts nicht erlaubt."
+        : "Der GM hat das Drehen dieses Bodenobjekts nicht erlaubt.");
+      return;
+    }
+
+    const key = `${document.parent.id}:${document.id}:${mode}`;
+    const previous = pendingTransformValues.get(key) ?? {};
+    let payload;
+    if (mode === "resize") {
+      const currentUnits = Number(previous.sizeGridUnits ?? getBetterInvGroundDisplayConfig(document).sizeGridUnits);
+      const currentIndex = getBetterInvNearestGroundSizeIndex(currentUnits);
+      const nextIndex = Math.max(0, Math.min(BETTER_INV_GROUND_SIZE_STEPS.length - 1, currentIndex + direction));
+      payload = { sizeGridUnits: betterInvGroundSizeIndexToUnits(nextIndex) };
+    } else {
+      const currentRotation = Number(previous.rotation ?? document.rotation ?? 0) || 0;
+      payload = { rotation: currentRotation + direction * 15 };
+    }
+    pendingTransformValues.set(key, payload);
+    clearTimeout(pendingTransformTimers.get(key));
+    pendingTransformTimers.set(key, setTimeout(() => {
+      pendingTransformTimers.delete(key);
+      const value = pendingTransformValues.get(key);
+      pendingTransformValues.delete(key);
+      if (!value) return;
+      void requestBetterInvGmGroundAction("transformTile", {
+        sceneId: document.parent?.id ?? canvas?.scene?.id,
+        tileId: document.id,
+        mode,
+        ...value
+      }).then(() => drawHitAreas()).catch(error => {
+        ui.notifications.error(error?.betterInvUserMessage || error?.message || "Das Bodenobjekt konnte nicht verändert werden.");
+      });
+    }, 90));
   }
 
   function transformPoint(transform, point, inverse = false) {
@@ -541,7 +606,7 @@
     }
     const document = getTileDocument(tile);
     const loot = getBetterInvGroundLoot(document);
-    const canDrag = Boolean(game.user?.isGM || loot?.permissions?.playerMove === true);
+    const canDrag = canManipulateGroundTile(document, "playerMove", "groundMove");
     host.style.cursor = dragging ? "grabbing" : (canDrag ? "grab" : "pointer");
     hoverTileId = String(document?.id ?? "");
   }
@@ -569,7 +634,7 @@
 
       const document = getTileDocument(tile);
       const loot = getBetterInvGroundLoot(document);
-      const canDrag = Boolean(game.user?.isGM || loot?.permissions?.playerMove === true);
+      const canDrag = canManipulateGroundTile(document, "playerMove", "groundMove");
       selectedTileId = String(document.id ?? "");
       pointerState = {
         pointerId: event.pointerId,
@@ -662,10 +727,8 @@
         return;
       }
 
-      const distance = Math.hypot(Number(event.clientX) - state.clientX, Number(event.clientY) - state.clientY);
-      if (!state.dragging && distance < 6) {
-        void openBetterInvGroundPickupDialog(getTileDocument(tile), { triggerClick: true });
-      }
+      // A single click only selects the object, matching Foundry's normal token
+      // interaction. Double-click or right-click opens the action dialog.
     }, globalOptions);
 
     window.addEventListener("pointercancel", () => {
@@ -687,6 +750,46 @@
       void openBetterInvGroundPickupDialog(getTileDocument(tile), { triggerClick: false });
     }, hostOptions);
 
+    host.addEventListener("dblclick", event => {
+      if (event.button !== 0) return;
+      const point = clientToCanvas(event.clientX, event.clientY);
+      const tile = point ? findTileAtPoint(point.x, point.y) : null;
+      if (!tile) return;
+      selectedTileId = String(getTileDocument(tile)?.id ?? "");
+      drawHitAreas();
+      stopEvent(event);
+      void openBetterInvGroundPickupDialog(getTileDocument(tile), { triggerClick: true });
+    }, hostOptions);
+
+    window.addEventListener("keydown", event => {
+      if (!selectedTileId || event.repeat) return;
+      const target = event.target;
+      if (target?.matches?.("input, textarea, select") || target?.isContentEditable) return;
+      if (event.code === "KeyM") heldTransformKey = "resize";
+      else if (event.code === "KeyN") heldTransformKey = "rotate";
+      else return;
+      stopEvent(event);
+    }, globalOptions);
+
+    window.addEventListener("keyup", event => {
+      if ((event.code === "KeyM" && heldTransformKey === "resize")
+        || (event.code === "KeyN" && heldTransformKey === "rotate")) {
+        heldTransformKey = "";
+        stopEvent(event);
+      }
+    }, globalOptions);
+
+    window.addEventListener("blur", () => { heldTransformKey = ""; }, { signal });
+
+    host.addEventListener("wheel", event => {
+      if (!heldTransformKey || !selectedTileId) return;
+      const tile = getSelectedGroundTile();
+      if (!tile) return;
+      const direction = Number(event.deltaY) < 0 ? 1 : -1;
+      queueGroundTransform(tile, heldTransformKey, direction);
+      stopEvent(event);
+    }, { capture: true, passive: false, signal });
+
     host.addEventListener("pointerleave", () => {
       if (!pointerState) setCursorForTile(null);
     }, hostOptions);
@@ -698,6 +801,10 @@
     interactionController?.abort?.();
     interactionController = null;
     pointerState = null;
+    heldTransformKey = "";
+    for (const timer of pendingTransformTimers.values()) clearTimeout(timer);
+    pendingTransformTimers.clear();
+    pendingTransformValues.clear();
     setCursorForTile(null);
   }
 
@@ -1002,7 +1109,7 @@
     if (!hasTrigger(tileDocument, "activate")) return false;
     if (game.user?.isGM) return true;
     const loot = getBetterInvGroundLoot(tileDocument);
-    return loot?.permissions?.playerActivate !== false;
+    return loot?.permissions?.playerActivate !== false && getGroundFeaturePermission("groundActivate");
   }
 
   function optionsHtml(entries, selected) {
@@ -1298,7 +1405,19 @@
   }
 
   async function saveRules(tileDocument, rules) {
-    if (!game.user?.isGM) throw new Error("Nur ein GM kann Bodenobjekt-Effekte bearbeiten.");
+    if (!game.user?.isGM) {
+      if (!canManipulateGroundTile(tileDocument, "playerEffects", "groundEffects", { explicit: true })) {
+        throw new Error("Der GM hat das Bearbeiten der Effekte für dieses Bodenobjekt nicht erlaubt.");
+      }
+      await requestBetterInvGmGroundAction("updateEffects", {
+        sceneId: getTileDocument(tileDocument)?.parent?.id ?? canvas?.scene?.id,
+        tileId: getTileDocument(tileDocument)?.id,
+        rules: Array.from(rules ?? []).map(normalizeRule)
+      });
+      drawHitAreas();
+      await primeTileRuleStates(tileDocument);
+      return;
+    }
     const loot = clone(getBetterInvGroundLoot(tileDocument) ?? {});
     loot.version = Math.max(3, Number(loot.version) || 0);
     loot.effects = {
@@ -1314,12 +1433,16 @@
   }
 
   async function openEffectEditor(tileDocument) {
-    if (!game.user?.isGM) {
-      ui.notifications.warn("Nur ein GM kann die Effekte eines Bodenobjekts bearbeiten.");
-      return false;
-    }
     const documentName = String(tileDocument?.documentName ?? tileDocument?.constructor?.documentName ?? "").toLowerCase();
     const itemProfileMode = documentName === "item";
+    const playerMayEdit = !itemProfileMode
+      && canManipulateGroundTile(tileDocument, "playerEffects", "groundEffects", { explicit: true });
+    if (!game.user?.isGM && !playerMayEdit) {
+      ui.notifications.warn(itemProfileMode
+        ? "Nur ein GM kann das Bodenprofil eines Inventar-Gegenstands bearbeiten."
+        : "Der GM hat das Bearbeiten der Effekte für dieses Bodenobjekt nicht erlaubt.");
+      return false;
+    }
     const itemProfile = itemProfileMode
       ? (getBetterInvItemGroundProfile(tileDocument) ?? {})
       : null;
@@ -2218,8 +2341,15 @@
         const actor = game.actors?.get?.(message.actorId) ?? null;
         const requestUser = game.users?.get?.(message.requestUserId) ?? null;
         if (!scene || !tile) throw new Error("Das Bodenobjekt wurde nicht gefunden.");
+        if (!requestUser) throw new Error("Der anfragende Spieler wurde nicht gefunden.");
         if (actor && requestUser && !canBetterInvUserModifyActorAs(actor, requestUser)) {
           throw new Error("Der anfragende Spieler darf den angegebenen Charakter nicht steuern.");
+        }
+        if (String(message.trigger ?? "") === "activate" && !requestUser.isGM) {
+          const loot = getBetterInvGroundLoot(tile);
+          const allowed = loot?.permissions?.playerActivate !== false
+            && getBetterInvGroundFeaturePlanFor(requestUser, actor, null)?.groundActivate === true;
+          if (!allowed) throw new Error("Der GM hat die Aktivierung dieses Bodenobjekts nicht erlaubt.");
         }
         const token = message.tokenId ? scene.tokens?.get?.(message.tokenId)?.object ?? null : null;
         const result = await runTriggerLocal(tile, message.trigger, { actor, token, requestUser });
@@ -2531,6 +2661,7 @@
     onTileChanged,
     openEffectEditor,
     openItemProfileEditor: openEffectEditor,
+    normalizeRules: rules => Array.from(rules ?? []).map(normalizeRule),
     decorateObjectEditor,
     getRules,
     hasTrigger,

@@ -17,7 +17,9 @@ Eine kompakte Übersicht aller Funktionen steht in [MODULE_DESCRIPTION.md](MODUL
 - Alternativ: Rucksack-Symbol in Foundrys Oberfläche
 - Einstellungen: Zahnrad im Inventar-Header
 - GM-Spielerregeln: Im Einstellungsfenster global, pro Spieler oder im geöffneten Rucksack
-- Bodenbeute: Gegenstand auf freie Karte ziehen; das vollständige Tile-Rechteck reagiert auf Klick und Ziehen, auch über transparenten Bildstellen. GMs konfigurieren Größe in Grid-Stufen, Sichtweite in Grid-Ringen, Aufheben, Spieler-Verschieben, Spieler-Aktivierung sowie Trigger und Effekt-Aktionen.
+- Bodenbeute: Gegenstand auf freie Karte ziehen; ein Klick markiert das vollständige Tile-Rechteck, Ziehen verschiebt es und Doppelklick oder Rechtsklick öffnet die Aktionen. Am markierten Objekt ändert `M` + Mausrad die Größe und `N` + Mausrad die Drehung in 15-Grad-Schritten.
+- Spielerrechte für Bodenobjekte: Der GM kann Verschieben, Größenänderung, Drehung, Aktivierung und Effektbearbeitung getrennt global, pro Spieler und zusätzlich pro Bodenobjekt erlauben oder sperren.
+- Dauerhafte Transformation: Die Option „Aktuelle Größe und Drehung am Item speichern“ übernimmt beide Werte beim Aufheben und erneuten Fallenlassen.
 - Dauerhafte Bodenprofile: Im Drei-Punkte-Menü eines Items kann der GM Regeln schon im Inventar speichern. Das Profil bleibt beim Fallenlassen, Aufheben und erneuten Fallenlassen am Gegenstand.
 - Einfache Effekte: Rettungswürfe, Schadenstypen und Foundry-Zustände wie Blind, Unsichtbar, Liegend oder Bewusstlos werden über Dropdowns gewählt. Eigenes Active-Effect-JSON bleibt als Expertenoption verfügbar.
 - Variantenwürfe: Über ein Dropdown wird `1d2` bis `1d20` gewählt. Für jedes mögliche Ergebnis erscheint eine eigene aufklappbare Variante mit optionalem Wurf und beliebig vielen Aktionen; ausgeführt wird nur das tatsächlich gewürfelte Ergebnis.

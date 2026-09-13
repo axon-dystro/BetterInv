@@ -5,6 +5,10 @@
 - Bodenbeute im Sichtbarkeitsmodus „Immer“ wird für Spieler nicht mehr versehentlich durch die zusätzliche Sichtlinienprüfung ausgeblendet.
 - Der Dialog „Übertragen / fallen lassen“ verwendet nun zuverlässig das einheitliche BetterInv-Design, auch unter Foundry VTT 14.
 - Das Drei-Punkte-Menü von Gegenständen in einem Rucksack enthält nun die Aktion „Aus dem Rucksack nehmen“.
+- Bodenobjekte werden per Einzelklick markiert; Doppelklick oder Rechtsklick öffnet ihre Aktionen.
+- `M` + Mausrad verändert die Größe eines markierten Bodenobjekts, `N` + Mausrad dreht es in 15-Grad-Schritten.
+- Größe und Drehung können am enthaltenen Item-Profil gespeichert und beim erneuten Fallenlassen wiederhergestellt werden.
+- GM-Sperren und objektbezogene Freigaben für Spieler-Verschieben, Größe, Drehung, Aktivierung und Effektbearbeitung ergänzt.
 
 ## 1.6.0
 
