@@ -1,0 +1,49 @@
+name: Publish Axon's Inventory v1.6.4
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - RELEASE_NOTES_1.6.4.md
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'axon-dystro/BetterInv'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run static audit
+        run: npm test
+
+      - name: Validate version and build package
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e "const m=require('./module.json'); const p=require('./package.json'); if(m.version!=='1.6.4'||p.version!=='1.6.4')process.exit(1); if(!m.download.endsWith('/v1.6.4/betterinv.zip')) process.exit(1)"
+          mkdir -p dist
+          zip -qr dist/betterinv.zip module.json scripts styles templates assets LICENSE README.md CHANGELOG.md MODULE_DESCRIPTION.md
+          test -s dist/betterinv.zip
+          unzip -t dist/betterinv.zip
+          cp module.json dist/module.json
+
+      - name: Publish release with Foundry assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create v1.6.4 dist/betterinv.zip dist/module.json \
+            --target "${GITHUB_SHA}" \
+            --title "Axon's Inventory v1.6.4" \
+            --notes-file RELEASE_NOTES_1.6.4.md \
+            --latest
