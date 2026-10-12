@@ -202,3 +202,33 @@ show('alice');
 assert.ok(renderedContent.indexOf('data-trade-side="a"') < renderedContent.indexOf('data-trade-side="b"'));
 assert.equal((renderedContent.match(/class="betterinv-trade-coins"/g) ?? []).length,2);
 console.log('Trading view tests passed: own offer left for both participants, counterpart right, both coin offers visible.');
+
+// Nearby NPC tokens must be eligible even when unlinked. The GM is their accepting participant.
+scene.grid.units = 'ft';
+scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x)/100*5,Math.abs(a.y-b.y)/100*5,Math.abs(a.elevation-b.elevation))});
+const npc = actor('innkeeper','gm',8);
+npc.type = 'npc';
+item(npc,'potion',2);
+actors.set(npc.id,npc);
+const tn={id:'tn',actor:npc,actorLink:false,x:100,y:0,width:1,height:1,elevation:0};
+tokens.set(tn.id,tn);
+context.game.user=users.get('gm');
+assert.ok(Array.from(context.getBetterInvTransferTargetActors(a),target=>target.id).includes('innkeeper'),
+  'Nearby unlinked NPC must appear as a trade partner');
+const npcPending=await action('open',{
+  sourceActorId:'a',targetActorId:'innkeeper',sourceTokenId:'ta',targetTokenId:'tn',sceneId:'scene',offer:offer()
+});
+assert.equal(npcPending.sides[1].userId,'gm','GM approves an NPC trade');
+let npcTrade=await action('accept',{id:npcPending.id,actorId:'innkeeper',revision:npcPending.revision},'gm');
+npcTrade=await action('offer',{id:npcTrade.id,actorId:'innkeeper',revision:npcTrade.revision,offer:offer([{id:'potion',quantity:1}])},'gm');
+npcTrade=await action('ready',{id:npcTrade.id,actorId:'a',revision:npcTrade.revision},'alice');
+npcTrade=await action('ready',{id:npcTrade.id,actorId:'innkeeper',revision:npcTrade.revision},'gm');
+assert.equal(npcTrade.status,'completed');
+assert.ok([...a.items].some(entry=>entry.name==='potion'),'NPC items are actually transferred');
+assert.equal(npc.items.get('potion').quantity,1);
+tn.x=300;
+assert.ok(!Array.from(context.getBetterInvTransferTargetActors(a),target=>target.id).includes('innkeeper'));
+await assert.rejects(action('open',{
+  sourceActorId:'a',targetActorId:'innkeeper',sourceTokenId:'ta',targetTokenId:'tn',sceneId:'scene',offer:offer()
+}),/5 ft/);
+console.log('Unlinked NPC trading tests passed: visibility, GM approval, mutual confirmation, transfer, five-foot gate.');
