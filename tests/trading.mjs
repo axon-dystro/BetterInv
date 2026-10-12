@@ -203,6 +203,10 @@ assert.ok(renderedContent.indexOf('data-trade-side="a"') < renderedContent.index
 assert.equal((renderedContent.match(/class="betterinv-trade-coins"/g) ?? []).length,2);
 console.log('Trading view tests passed: own offer left for both participants, counterpart right, both coin offers visible.');
 
+// Close the trade window exercised in the preceding UI test before opening another.
+context.game.user=users.get('gm');
+await action('cancel',{id:shared.id,actorId:'a'},'alice');
+
 // Nearby NPC tokens must be eligible even when unlinked. The GM is their accepting participant.
 scene.grid.units = 'ft';
 scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x)/100*5,Math.abs(a.y-b.y)/100*5,Math.abs(a.elevation-b.elevation))});
