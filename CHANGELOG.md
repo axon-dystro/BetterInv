@@ -1,3 +1,12 @@
+# 1.7.1 — 2026-10-12
+
+- Handelsauswahl erfasst nun sichtbare NSCs und Spielercharaktere mit Tokens in 5 ft Reichweite, auch wenn die Tokens nicht verknüpft sind.
+- Für NSC-Handel bestätigt der aktive GM die Handelsanfrage; eine direkte Inventaränderung ohne Zustimmung entfällt.
+- Handel mit unverbundenen Token-Akteuren verwendet deren tatsächliches Inventar statt eines möglicherweise abweichenden Welt-Akteurs.
+- Token-Drop kontrolliert Reichweite und die Berechtigung der anbietenden Partei, nicht Schreibrechte am Empfänger.
+- Handelsanfragen und Bestätigungsschaltflächen erhalten den dunklen Inventarstil, passend zum gemeinsamen Handelsfenster.
+- Regressionstests für unverbundene NSCs, GM-Zustimmung, gegenseitige Bestätigung und den echten Itemtransfer ergänzt.
+
 # 1.7.0 — 2026-10-12
 
 - Handelsfenster im bestehenden Inventarstil: dunkle Flächen, Goldlinien, Item-Slots und gemeinsame Münzangebote. Für jeden Teilnehmer steht das eigene Angebot links, das Gegenangebot rechts; beide bleiben auch auf kleinen Displays nebeneinander sichtbar. Münzänderungen werden beim Verlassen des Felds und Itemänderungen direkt synchronisiert.
