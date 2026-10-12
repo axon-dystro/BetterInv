@@ -166,14 +166,17 @@
       && targetActor
       && targetActor.id !== sourceActor.id
       && actorBelongsToPlayer(targetActor)
+      && globalThis.isBetterInvValidTokenTransferTarget(token, sourceActor.id)
     );
 
     const quantity = getItemQuantityData(sourceItem).value;
     clearBetterInvTokenDropFeedback();
 
+    if (targetActor && actorBelongsToPlayer(targetActor) && targetActor.id !== sourceActor.id && !validTokenTransfer) {
+      ui.notifications.warn("Handel ist nur mit erlaubten Spieler-Tokens innerhalb von 5 ft möglich.");
+      return;
+    }
     if (validTokenTransfer) {
-      const confirmed = await confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity);
-      if (!confirmed) return;
       await withBetterInvRefreshBatch(
         () => globalThis.transferBetterInvItemToActor(sourceActor, sourceItem, targetActor, quantity),
         { forceRefresh: true }

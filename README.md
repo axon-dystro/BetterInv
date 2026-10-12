@@ -43,3 +43,15 @@ Axon’s Inventory überträgt selbst keine Diagnose- oder Nutzerdaten. Exportie
 ## Lizenz
 
 Die Nutzung ist kostenlos, das Modul bleibt jedoch proprietär. Weiterverbreitung, Verkauf, Neuverpackung und Veröffentlichung veränderter Versionen sind ohne ausdrückliche Genehmigung nicht erlaubt. Die vollständigen Bedingungen stehen in [LICENSE](LICENSE).
+
+## Gemeinsames Handelsfenster (ab 1.7.0)
+
+Über **Handeln** bei den Münzen oder **Übertragen** im Item-Menü einen anderen Spielercharakter auswählen. Eigene Bearbeitungsrechte am Empfänger sind nicht erforderlich. Eine aktive GM-Sitzung und ein aktiver Besitzer des Empfängercharakters sind erforderlich. Beide verknüpften, sichtbaren Tokens müssen auf derselben geöffneten Szene innerhalb von **5 ft** stehen. Nur solche Spielercharaktere erscheinen in der Auswahl; bei mehreren eigenen Tokens wird ein kontrollierter Token bevorzugt. Entfernung wird mit dem Foundry-Szenenraster gemessen, einschließlich Höhe und Umrechnung von Metern in Fuß. Bei quadratischen Rastern wird zwischen den nächstliegenden belegten Feldern gemessen; bei Hex-/rasterlosen Szenen zwischen den Token-Zentren. Beide Seiten können eigene Items und alle konfigurierten Münzarten anbieten, auch Item gegen Gold oder Geschenke ohne Gegenleistung.
+
+Der Empfänger erhält zuerst eine **Handelsanfrage** mit **Annehmen** und **Ablehnen**. Bis zur Annahme kann keiner das Angebot ändern oder den Austausch bestätigen. Ein beim Start ausgewähltes Item ist direkt im Angebot; beim Menüstart ein Stück, beim Ablegen auf einen Spieler-Token der gezogene Stapel. Weggehen über 5 ft oder Entfernen eines beteiligten Tokens beendet eine offene Anfrage/einen offenen Handel.
+
+Items ins eigene Angebot ziehen (ein Stück pro Drop) oder mit Menge auswählen. Münzbeträge mit **Angebot speichern** übernehmen. Erst wenn beide Seiten **Handel bestätigen** drücken, wird der Austausch ausgeführt. Jede gespeicherte Änderung hebt beide Bestätigungen auf. Schließen oder **Abbrechen** beendet den offenen Handel. Gefüllte Rucksäcke müssen vorher geleert werden; die GM-Handelssperren gelten weiterhin.
+
+Die GM-Sitzung hält offene Angebote im Arbeitsspeicher. Ein GM-Neuladen verwirft offene Sitzungen; anschließend das Fenster schließen und einen neuen Handel eröffnen. Foundry bietet hier keine atomare Transaktion über mehrere Dokumente: Fehler lösen einen Rücklauf aus. Falls der Rücklauf selbst fehlschlägt, wird der Handel gesperrt und der GM muss beide Charakterbögen prüfen.
+
+Das Handelsfenster verwendet die Farbvariablen des Inventars. Jeder Teilnehmer sieht **links sein eigenes Angebot** und **rechts das Angebot seines Handelspartners**, jeweils mit Item-Slots, Mengen, allen Münzarten und Bestätigungsstatus. Münzänderungen werden beim Verlassen des Eingabefelds gespeichert und beiden Seiten angezeigt; hinzugefügte oder entfernte Items werden direkt gemeinsam angezeigt.

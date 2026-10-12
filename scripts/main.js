@@ -4766,7 +4766,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, {
           ${showTransfer ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-transfer"
-            title="Eingegebene Münzen exakt an einen anderen Charakter übertragen"
+            title="Gemeinsames Handelsfenster für Items und Münzen öffnen"
             ${editable ? "" : "disabled"}
           >
             <i class="fas fa-handshake" aria-hidden="true"></i>
@@ -5147,8 +5147,16 @@ async function commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfe
 async function transferBetterInvCurrency(sourceActor) {
   const transfers = getBetterInvCurrencyAdditionDraft();
   if (!transfers.length) {
-    ui.notifications.warn("Gib zuerst die Münzen ein, die du handeln oder fallen lassen möchtest.");
-    return false;
+    if (!getBetterInvFeaturePlan(getBetterInvUserSettings(), { actor: sourceActor }).currencyTransfer) {
+      ui.notifications.warn("Gib zuerst Münzen zum Fallenlassen ein.");
+      return false;
+    }
+    const target = await promptBetterInvActorTarget(sourceActor, {
+      title: "Handel eröffnen", heading: "Handelspartner auswählen",
+      description: "Wähle einen Spielercharakter innerhalb von 5 ft und sende ihm eine Handelsanfrage.",
+      confirmLabel: "Anfrage senden", icon: "fa-handshake"
+    });
+    return target ? await openBetterInvTrade(sourceActor, target) : false;
   }
 
   const features = getBetterInvFeaturePlan(getBetterInvUserSettings(), { actor: sourceActor });
@@ -5181,13 +5189,13 @@ async function transferBetterInvCurrency(sourceActor) {
   const targetActor = await promptBetterInvActorTarget(sourceActor, {
     title: "Geld handeln",
     heading: "Münzen übertragen",
-    description: "Die eingegebenen Münzarten werden exakt abgezogen und dem Empfänger gutgeschrieben.",
+    description: "Die Münzen werden als Angebot eingetragen. Der Austausch erfolgt nach Bestätigung beider Seiten.",
     summary,
     confirmLabel: "Handeln",
     icon: "fa-handshake"
   });
   if (!targetActor) return false;
-  return await commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfers);
+  return await openBetterInvTrade(sourceActor, targetActor, { items: [], coins: transfers.map(({ key, amount }) => ({ key, amount })) });
 }
 
 function getBetterInvCurrencyTotalInCopper(currencies, amountProperty = "value") {
@@ -6421,7 +6429,9 @@ function canBetterInvUserModifyActor(actor) {
 function getBetterInvTransferTargetActors(sourceActor) {
   const actors = game.actors?.filter(actor => {
     if (!actor || actor.id === sourceActor?.id) return false;
-    return canBetterInvUserModifyActor(actor);
+    return typeof globalThis.isBetterInvPlayerCharacterActor === "function"
+      ? globalThis.isBetterInvPlayerCharacterActor(actor)
+      : actor.type === "character" && actor.hasPlayerOwner === true;
   }) ?? [];
 
   const typeRank = actor => actor.type === "character" ? 0 : actor.type === "npc" ? 1 : 2;
@@ -6454,7 +6464,7 @@ async function promptBetterInvActorTarget(sourceActor, {
 } = {}) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Kein anderer Spielercharakter innerhalb von 5 ft gefunden. Beide Tokens müssen auf der geöffneten Szene stehen.");
     return null;
   }
 
@@ -6472,6 +6482,8 @@ async function promptBetterInvActorTarget(sourceActor, {
     let settled = false;
     let selectedActorId = "";
     let dialog;
+    const rangeHooks = [];
+    const inRange = actor => !globalThis.getBetterInvTradeTokenPair || Boolean(globalThis.getBetterInvTradeTokenPair(sourceActor, actor));
     const done = value => {
       if (settled) return;
       settled = true;
@@ -6517,7 +6529,7 @@ async function promptBetterInvActorTarget(sourceActor, {
           </footer>
         </div>`,
       buttons: {},
-      close: () => done(null)
+      close: () => { for (const [name,id] of rangeHooks) Hooks.off(name,id); done(null); }
     }, {
       width: 600,
       classes: ["betterinv-transfer-window"]
@@ -6525,6 +6537,7 @@ async function promptBetterInvActorTarget(sourceActor, {
 
     dialog.render(true);
     setTimeout(() => {
+      if (settled) return;
       bringFoundryDialogsToFront({ avoidOverlap: false });
       const dialogElement = dialog.element?.[0] ?? dialog.element ?? document.querySelector('.dialog.app.window-app');
       dialogElement?.classList?.add("betterinv-transfer-window");
@@ -6539,7 +6552,7 @@ async function promptBetterInvActorTarget(sourceActor, {
       const cancel = root.querySelector("[data-transfer-cancel]");
 
       const updateSelection = () => {
-        const target = targets.find(actor => actor.id === selectedActorId) ?? null;
+        const target = targets.find(actor => actor.id === selectedActorId && inRange(actor)) ?? null;
         if (selection) selection.textContent = target ? `Empfänger: ${target.name}` : "Kein Empfänger ausgewählt";
         if (confirm) confirm.disabled = !target;
       };
@@ -6549,7 +6562,7 @@ async function promptBetterInvActorTarget(sourceActor, {
         let visible = 0;
         actorsElement?.querySelectorAll("[data-transfer-actor-id]").forEach(button => {
           const actor = targets.find(entry => entry.id === button.dataset.transferActorId);
-          const matches = actor && (!query || normalizeBetterInvSearchText(`${actor.name} ${getBetterInvActorTypeLabel(actor)} ${actor.type}`).includes(query));
+          const matches = actor && inRange(actor) && (!query || normalizeBetterInvSearchText(`${actor.name} ${getBetterInvActorTypeLabel(actor)} ${actor.type}`).includes(query));
           button.hidden = !matches;
           if (matches) visible += 1;
           const selected = actor?.id === selectedActorId;
@@ -6567,7 +6580,7 @@ async function promptBetterInvActorTarget(sourceActor, {
         });
         button.addEventListener("dblclick", () => {
           const actor = targets.find(entry => entry.id === String(button.dataset.transferActorId ?? ""));
-          if (actor) choose(actor);
+          if (actor && inRange(actor)) choose(actor);
         });
       });
 
@@ -6581,7 +6594,7 @@ async function promptBetterInvActorTarget(sourceActor, {
       cancel?.addEventListener("click", () => choose(null));
       confirm?.addEventListener("click", () => {
         const actor = targets.find(entry => entry.id === selectedActorId);
-        if (actor) choose(actor);
+        if (actor && inRange(actor)) choose(actor);
       });
       root.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
         if (image.dataset.fallbackApplied === "true") return;
@@ -6589,6 +6602,9 @@ async function promptBetterInvActorTarget(sourceActor, {
         image.src = "icons/svg/mystery-man.svg";
       }, { once: true }));
 
+      for (const name of ["updateToken", "deleteToken", "controlToken", "canvasReady"]) {
+        rangeHooks.push([name, Hooks.on(name, () => { renderActors(); updateSelection(); })]);
+      }
       renderActors();
       updateSelection();
       search?.focus();
@@ -6726,7 +6742,7 @@ function prepareBetterInvTransferredItemData(item, quantity) {
 async function promptBetterInvItemTransfer(sourceActor, item) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Kein anderer Spielercharakter innerhalb von 5 ft gefunden. Beide Tokens müssen auf der geöffneten Szene stehen.");
     return null;
   }
 
@@ -7010,9 +7026,13 @@ async function transferBetterInvItem(sourceActor, item) {
     return result;
   }
 
-  const choice = await promptBetterInvItemTransfer(sourceActor, item);
-  if (!choice) return null;
-  return await transferBetterInvItemToActor(sourceActor, item, choice.targetActor, choice.quantity);
+  const targetActor = await promptBetterInvActorTarget(sourceActor, {
+    title: "Handel eröffnen", heading: "Handelspartner auswählen",
+    description: "Wähle einen Spielercharakter innerhalb von 5 ft. Er erhält eine Anfrage; dieses Item wird direkt angeboten.",
+    confirmLabel: "Anfrage senden", icon: "fa-handshake"
+  });
+  if (!targetActor) return null;
+  return await openBetterInvTrade(sourceActor, targetActor, { items: [{ id: item.id, quantity: 1 }], coins: [] });
 }
 
 function getBetterInvDragEventData(event) {

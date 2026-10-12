@@ -17,6 +17,7 @@ assert.equal(manifest.version, packageManifest.version, "Modul- und Paketversion
 assert.ok(fs.existsSync(path.join(root, `RELEASE_NOTES_${manifest.version}.md`)), "Release Notes der aktuellen Version fehlen");
 for (const script of manifest.scripts ?? []) {
   assert.ok(fs.existsSync(path.join(root, script)), `Manifest script fehlt: ${script}`);
+  assert.doesNotThrow(() => new vm.Script(read(script), { filename: script }));
 }
 
 const settingValues = {
