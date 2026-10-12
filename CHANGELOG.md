@@ -1,3 +1,10 @@
+# Unreleased
+
+- Handel mit Spielercharakteren anderer Spieler über die GM-Sitzung.
+- Gemeinsames Handelsfenster mit Items (Drag-and-drop oder Auswahl), Mengen und Münzen auf beiden Seiten.
+- Austausch erst nach beidseitiger Bestätigung derselben Angebotsversion; Änderungen setzen die Bestätigungen zurück.
+- Prüfung von Besitzrechten, GM-Sperren, verfügbaren Mengen und Münzen; Rücklauf bei fehlgeschlagenen Dokumentänderungen.
+
 # Changelog
 
 ## Unveröffentlicht

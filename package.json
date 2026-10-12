@@ -3,6 +3,6 @@
   "private": true,
   "version": "1.6.4",
   "scripts": {
-    "test": "node tests/static-audit.mjs"
+    "test": "node tests/static-audit.mjs && node tests/trading.mjs"
   }
 }

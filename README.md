@@ -43,3 +43,11 @@ Axon’s Inventory überträgt selbst keine Diagnose- oder Nutzerdaten. Exportie
 ## Lizenz
 
 Die Nutzung ist kostenlos, das Modul bleibt jedoch proprietär. Weiterverbreitung, Verkauf, Neuverpackung und Veröffentlichung veränderter Versionen sind ohne ausdrückliche Genehmigung nicht erlaubt. Die vollständigen Bedingungen stehen in [LICENSE](LICENSE).
+
+## Gemeinsames Handelsfenster (unreleased)
+
+Über **Handeln** bei den Münzen oder **Übertragen** im Item-Menü einen anderen Spielercharakter auswählen. Eigene Bearbeitungsrechte am Empfänger sind nicht erforderlich. Eine aktive GM-Sitzung und ein aktiver Besitzer des Empfängercharakters sind erforderlich. Beide Seiten können eigene Items und alle konfigurierten Münzarten anbieten, auch Item gegen Gold oder Geschenke ohne Gegenleistung.
+
+Items ins eigene Angebot ziehen (ein Stück pro Drop) oder mit Menge auswählen. Münzbeträge mit **Angebot speichern** übernehmen. Erst wenn beide Seiten **Handel bestätigen** drücken, wird der Austausch ausgeführt. Jede gespeicherte Änderung hebt beide Bestätigungen auf. Schließen oder **Abbrechen** beendet den offenen Handel. Gefüllte Rucksäcke müssen vorher geleert werden; die GM-Handelssperren gelten weiterhin.
+
+Die GM-Sitzung hält offene Angebote im Arbeitsspeicher. Ein GM-Neuladen verwirft offene Sitzungen; anschließend das Fenster schließen und einen neuen Handel eröffnen. Foundry bietet hier keine atomare Transaktion über mehrere Dokumente: Fehler lösen einen Rücklauf aus. Falls der Rücklauf selbst fehlschlägt, wird der Handel gesperrt und der GM muss beide Charakterbögen prüfen.

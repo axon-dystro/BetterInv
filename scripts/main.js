@@ -4766,7 +4766,7 @@ function betterInvActorCurrencyHtml(currencies, draft = {}, {
           ${showTransfer ? `<button
             type="button"
             class="betterinv-currency-action betterinv-currency-transfer"
-            title="Eingegebene Münzen exakt an einen anderen Charakter übertragen"
+            title="Gemeinsames Handelsfenster für Items und Münzen öffnen"
             ${editable ? "" : "disabled"}
           >
             <i class="fas fa-handshake" aria-hidden="true"></i>
@@ -5147,8 +5147,16 @@ async function commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfe
 async function transferBetterInvCurrency(sourceActor) {
   const transfers = getBetterInvCurrencyAdditionDraft();
   if (!transfers.length) {
-    ui.notifications.warn("Gib zuerst die Münzen ein, die du handeln oder fallen lassen möchtest.");
-    return false;
+    if (!getBetterInvFeaturePlan(getBetterInvUserSettings(), { actor: sourceActor }).currencyTransfer) {
+      ui.notifications.warn("Gib zuerst Münzen zum Fallenlassen ein.");
+      return false;
+    }
+    const target = await promptBetterInvActorTarget(sourceActor, {
+      title: "Handel eröffnen", heading: "Handelspartner auswählen",
+      description: "Items und Münzen werden im gemeinsamen Handelsfenster angeboten.",
+      confirmLabel: "Handelsfenster öffnen", icon: "fa-handshake"
+    });
+    return target ? await openBetterInvTrade(sourceActor, target) : false;
   }
 
   const features = getBetterInvFeaturePlan(getBetterInvUserSettings(), { actor: sourceActor });
@@ -5181,13 +5189,13 @@ async function transferBetterInvCurrency(sourceActor) {
   const targetActor = await promptBetterInvActorTarget(sourceActor, {
     title: "Geld handeln",
     heading: "Münzen übertragen",
-    description: "Die eingegebenen Münzarten werden exakt abgezogen und dem Empfänger gutgeschrieben.",
+    description: "Die Münzen werden als Angebot eingetragen. Der Austausch erfolgt nach Bestätigung beider Seiten.",
     summary,
     confirmLabel: "Handeln",
     icon: "fa-handshake"
   });
   if (!targetActor) return false;
-  return await commitBetterInvCurrencyTransfer(sourceActor, targetActor, transfers);
+  return await openBetterInvTrade(sourceActor, targetActor, { items: [], coins: transfers.map(({ key, amount }) => ({ key, amount })) });
 }
 
 function getBetterInvCurrencyTotalInCopper(currencies, amountProperty = "value") {
@@ -6421,7 +6429,9 @@ function canBetterInvUserModifyActor(actor) {
 function getBetterInvTransferTargetActors(sourceActor) {
   const actors = game.actors?.filter(actor => {
     if (!actor || actor.id === sourceActor?.id) return false;
-    return canBetterInvUserModifyActor(actor);
+    return typeof globalThis.isBetterInvPlayerCharacterActor === "function"
+      ? globalThis.isBetterInvPlayerCharacterActor(actor)
+      : actor.type === "character" && actor.hasPlayerOwner === true;
   }) ?? [];
 
   const typeRank = actor => actor.type === "character" ? 0 : actor.type === "npc" ? 1 : 2;
@@ -6454,7 +6464,7 @@ async function promptBetterInvActorTarget(sourceActor, {
 } = {}) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Es wurde kein anderer Spielercharakter gefunden.");
     return null;
   }
 
@@ -6726,7 +6736,7 @@ function prepareBetterInvTransferredItemData(item, quantity) {
 async function promptBetterInvItemTransfer(sourceActor, item) {
   const targets = getBetterInvTransferTargetActors(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Es wurde kein anderer Charakter gefunden, den du bearbeiten darfst.");
+    ui.notifications.warn("Es wurde kein anderer Spielercharakter gefunden.");
     return null;
   }
 
@@ -7010,9 +7020,13 @@ async function transferBetterInvItem(sourceActor, item) {
     return result;
   }
 
-  const choice = await promptBetterInvItemTransfer(sourceActor, item);
-  if (!choice) return null;
-  return await transferBetterInvItemToActor(sourceActor, item, choice.targetActor, choice.quantity);
+  const targetActor = await promptBetterInvActorTarget(sourceActor, {
+    title: "Handel eröffnen", heading: "Handelspartner auswählen",
+    description: "Beide Spieler können Items und Münzen anbieten und bestätigen den Austausch.",
+    confirmLabel: "Handelsfenster öffnen", icon: "fa-handshake"
+  });
+  if (!targetActor) return null;
+  return await openBetterInvTrade(sourceActor, targetActor, { items: [{ id: item.id, quantity: 1 }], coins: [] });
 }
 
 function getBetterInvDragEventData(event) {

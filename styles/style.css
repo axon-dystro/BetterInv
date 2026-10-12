@@ -8155,3 +8155,17 @@ button.betterinv-category-picker:focus-visible {
   font-size: 9px;
   line-height: 1.4;
 }
+
+/* Two-sided trade window */
+.betterinv-trade-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.betterinv-trade-sides section { min-width: 0; padding: 16px; border: 1px solid #817195; border-radius: 12px; background: rgba(94, 61, 123, .13); }
+.betterinv-trade-drop { min-height: 110px; padding: 12px; border: 2px dashed #a58abd; border-radius: 10px; margin-bottom: 12px; }
+.betterinv-trade-drop div { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.betterinv-trade-drop img { width: 32px; height: 32px; object-fit: contain; }
+.betterinv-trade-add { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.betterinv-trade-add select { flex: 1 1 140px; min-width: 0; }
+.betterinv-trade-add input { width: 65px; }
+.betterinv-trade-coins { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.betterinv-trade-coins label { display: flex; flex-direction: column; flex: 1 1 70px; }
+.betterinv-trade-sides button { margin-top: 6px; }
+@media (max-width: 650px) { .betterinv-trade-sides { grid-template-columns: 1fr; } }
