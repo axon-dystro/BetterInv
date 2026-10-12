@@ -1,5 +1,7 @@
 # Unreleased
 
+- Handelsfenster im bestehenden Inventarstil: dunkle Flächen, Goldlinien, Item-Slots und gemeinsame Münzangebote. Für jeden Teilnehmer steht das eigene Angebot links, das Gegenangebot rechts; beide bleiben auch auf kleinen Displays nebeneinander sichtbar. Münzänderungen werden beim Verlassen des Felds und Itemänderungen direkt synchronisiert.
+
 - Handel nur mit Tokens innerhalb von 5 ft auf derselben Szene; die Empfängerliste wird entsprechend gefiltert. Reichweite wird vom GM bei Anfrage, Annahme und Austausch geprüft; Weggehen beendet offene Anfragen und Handel.
 - Empfänger erhalten zuerst eine annehmbare/ablehnbare Anfrage, auch bei Token-Übergaben. Der ausgewählte Gegenstand ist im Angebot vorbelegt.
 

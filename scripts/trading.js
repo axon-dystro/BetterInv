@@ -308,16 +308,27 @@
   }
   function renderTrade(state) {
     const owned = state.sides.filter(side => side.userId === game.user.id);
-    const content = `<div class="betterinv-trade"><div class="betterinv-trade-heading"><span>Items & Münzen</span><span class="betterinv-trade-range">Reichweite ≤ 5 ft</span></div><p>Beide Seiten bestätigen dasselbe Angebot. Änderungen setzen beide Bestätigungen zurück.</p>
-      ${state.error ? `<p role="alert">${escapeHtml(state.error)}</p>` : ""}<div class="betterinv-trade-sides">${state.sides.map(side => {
-        const editable = owned.includes(side) && state.status === "open";
+    const orderedSides = [...state.sides].sort((a,b) => Number(owned.includes(b)) - Number(owned.includes(a)));
+    const content = `<div class="betterinv-trade">
+      <header class="betterinv-trade-heading"><div><span class="betterinv-trade-kicker">AXON’S INVENTORY</span><h2>Handel</h2></div><span class="betterinv-trade-range">≤ 5 ft · Verbunden</span></header>
+      ${state.error ? `<p class="betterinv-trade-error" role="alert">${escapeHtml(state.error)}</p>` : ""}
+      <div class="betterinv-trade-sides">${orderedSides.map(side => {
+        const mine = owned.includes(side);
+        const editable = mine && state.status === "open";
         const actor = game.actors.get(side.actorId);
-        return `<section data-trade-side="${escapeAttr(side.actorId)}"><h3>${escapeHtml(side.name)} · ${side.ready ? "✓ Bestätigt" : "Wartet"}</h3>
-          <div class="betterinv-trade-drop" data-trade-drop>${side.offer.items.map(item => `<div><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt="">${escapeHtml(item.name)} × ${item.quantity}${editable ? `<button type="button" data-remove-item="${escapeAttr(item.id)}" aria-label="Entfernen">×</button>` : ""}</div>`).join("") || "Items hier hineinziehen"}</div>
-          ${editable ? `<div class="betterinv-trade-add"><select data-trade-item aria-label="Gegenstand">${Array.from(actor.items).filter(item => isBetterInvInventoryItemType(item.type) && getItemQuantityData(item).value > 0).map(item => `<option value="${escapeAttr(item.id)}">${escapeHtml(item.name)} (${getItemQuantityData(item).value})</option>`).join("")}</select><input data-trade-quantity type="number" min="1" step="1" value="1" aria-label="Menge"><button type="button" data-add-item>Hinzufügen</button></div>` : ""}
-          <div class="betterinv-trade-coins">${(editable ? getBetterInvCurrencyWallet(actor) : getBetterInvCurrencies()).map(coin => `<label>${escapeHtml(coin.abbreviation)}${editable ? ` (${coin.value})<input data-trade-coin="${escapeAttr(coin.key)}" type="number" min="0" max="${coin.value}" step="1" value="${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}">` : `<strong>${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}</strong>`}</label>`).join("")}</div>
-          ${editable ? `<button type="button" data-save-offer>Angebot speichern</button><button type="button" data-ready ${side.ready ? "disabled" : ""}>Handel bestätigen</button><button type="button" data-cancel>Abbrechen</button>` : ""}</section>`;
-      }).join("")}</div>${state.status === "committing" ? "Handel wird ausgeführt …" : ""}</div>`;
+        const slots = side.offer.items.map(item => `<article class="betterinv-trade-slot is-filled"><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt=""><span class="betterinv-trade-item-name">${escapeHtml(item.name)}</span><strong class="betterinv-trade-quantity">×${item.quantity}</strong>${editable ? `<button type="button" data-remove-item="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.name)} entfernen">×</button>` : ""}</article>`);
+        while (slots.length < 6) slots.push(`<div class="betterinv-trade-slot is-empty" aria-hidden="true"><span>＋</span></div>`);
+        return `<section data-trade-side="${escapeAttr(side.actorId)}" class="${mine ? "is-own" : "is-partner"}">
+          <header class="betterinv-trade-player"><span class="betterinv-trade-kicker">${mine ? "DEIN ANGEBOT" : "ANGEBOT DEINES HANDELSPARTNERS"}</span><h3>${escapeHtml(side.name)}</h3><span class="betterinv-trade-status ${side.ready ? "is-ready" : ""}">${side.ready ? "✓ Bestätigt" : "Noch nicht bestätigt"}</span></header>
+          <div class="betterinv-trade-section-label"><span>Gegenstände</span><span>${side.offer.items.length} angeboten</span></div>
+          <div class="betterinv-trade-drop" data-trade-drop>${slots.join("")}</div>
+          <div class="betterinv-trade-drop-hint">${editable ? "Items hier hineinziehen" : "Angebot wird gemeinsam angezeigt"}</div>
+          <div class="betterinv-trade-section-label"><span>Münzen</span><span>Im Angebot</span></div>
+          <div class="betterinv-trade-coins">${(editable ? getBetterInvCurrencyWallet(actor) : getBetterInvCurrencies()).map(coin => `<label><span class="betterinv-trade-coin-label"><span class="betterinv-trade-coin-icon" aria-hidden="true">●</span>${escapeHtml(coin.abbreviation)}</span>${editable ? `<input data-trade-coin="${escapeAttr(coin.key)}" aria-label="${escapeAttr(coin.abbreviation)} anbieten" type="number" min="0" max="${coin.value}" step="1" value="${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}"><small>von ${coin.value}</small>` : `<strong>${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}</strong>`}</label>`).join("")}</div>
+          ${editable ? `<details class="betterinv-trade-picker"><summary>Gegenstand hinzufügen</summary><div class="betterinv-trade-add"><select data-trade-item aria-label="Gegenstand">${Array.from(actor.items).filter(item => isBetterInvInventoryItemType(item.type) && getItemQuantityData(item).value > 0).map(item => `<option value="${escapeAttr(item.id)}">${escapeHtml(item.name)} (${getItemQuantityData(item).value})</option>`).join("")}</select><input data-trade-quantity type="number" min="1" step="1" value="1" aria-label="Menge"><button type="button" data-add-item>Hinzufügen</button></div></details><footer class="betterinv-trade-actions"><button type="button" data-save-offer>Angebot speichern</button><button type="button" data-ready ${side.ready ? "disabled" : ""}>${side.ready ? "✓ Bestätigt" : "Handel bestätigen"}</button><button type="button" data-cancel>Abbrechen</button></footer>` : `<footer class="betterinv-trade-partner-status">${side.ready ? "✓ Dein Handelspartner ist bereit" : "Warte auf die Bestätigung deines Handelspartners"}</footer>`}
+        </section>`;
+      }).join("")}</div>
+      <footer class="betterinv-trade-note">${state.status === "committing" ? "Handel wird ausgeführt …" : "Austausch erst, wenn beide bestätigen. Jede Änderung hebt beide Bestätigungen auf."}</footer></div>`;
     let dialog = windows.get(state.id);
     if (dialog?.betterInvTradeStatus === "pending") {
       dialog.betterInvTradeStatus = "accepted"; dialog.close(); windows.delete(state.id); dialog = null;
@@ -333,12 +344,16 @@
         const ready = section.querySelector("[data-ready]");
         const markDirty = () => { dirty = true; ready.disabled = true; };
         const offer = () => ({ items: draft, coins: Array.from(section.querySelectorAll("[data-trade-coin]")).map(input => ({ key: input.dataset.tradeCoin, amount: input.value })) });
-        section.querySelectorAll("[data-trade-coin]").forEach(input => input.addEventListener("input", markDirty));
+        section.querySelectorAll("[data-trade-coin]").forEach(input => {
+          input.addEventListener("input", markDirty);
+          input.addEventListener("change", () => send(state, side, "offer", offer()));
+        });
         section.querySelector("[data-save-offer]").onclick = () => send(state, side, "offer", offer());
         ready.onclick = () => { if (!dirty) send(state, side, "ready"); };
         section.querySelector("[data-cancel]").onclick = () => send(state, side, "cancel");
         section.querySelectorAll("[data-remove-item]").forEach(button => button.onclick = () => {
-          draft = draft.filter(item => item.id !== button.dataset.removeItem); button.parentElement.remove(); markDirty();
+          draft = draft.filter(item => item.id !== button.dataset.removeItem); markDirty();
+          send(state, side, "offer", offer());
         });
         const add = (id, quantity) => {
           try {

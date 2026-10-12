@@ -175,3 +175,30 @@ scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x),Math.a
 assert.ok(context.getBetterInvTradeTokenPair(a,b));
 tb.x = 200; assert.equal(context.getBetterInvTradeTokenPair(a,b),null);
 console.log('Invitation and range tests passed: preloaded item, accept/reject, selected list, distant/elevated tokens, movement cancellation, metric conversion.');
+
+// Each participant sees their own offer first and the counterpart's complete offer second.
+const uiStates = [];
+context.game.socket.on = (channel, fn) => uiStates.push(fn);
+hooks.get('ready')();
+tb.x = 100;
+context.game.user = users.get('gm');
+let shared = await invite([]);
+shared = await action('accept',payload(shared,'b'),'bob');
+let renderedContent = '';
+context.Dialog = class {
+  constructor(data) { this.data = data; }
+  render() { renderedContent = this.data.content; this.data.render(html); }
+  close() { this.data.close(); }
+};
+const show = id => {
+  context.game.user = users.get(id);
+  uiStates.forEach(fn => fn({kind:'betterinvTradeState',gmId:'gm',state:shared}));
+};
+show('bob');
+assert.ok(renderedContent.indexOf('data-trade-side="b"') < renderedContent.indexOf('data-trade-side="a"'));
+assert.match(renderedContent,/DEIN ANGEBOT/);
+assert.match(renderedContent,/ANGEBOT DEINES HANDELSPARTNERS/);
+show('alice');
+assert.ok(renderedContent.indexOf('data-trade-side="a"') < renderedContent.indexOf('data-trade-side="b"'));
+assert.equal((renderedContent.match(/class="betterinv-trade-coins"/g) ?? []).length,2);
+console.log('Trading view tests passed: own offer left for both participants, counterpart right, both coin offers visible.');
