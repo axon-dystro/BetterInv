@@ -23,11 +23,26 @@ const a = actor('a', 'alice', 5), b = actor('b', 'bob', 20), c = actor('c', 'eve
 item(a, 'sword', 3); item(b, 'gem', 2);
 const actors = new Map([a,b,c].map(actor => [actor.id, actor]));
 const emissions = [];
+const hooks = new Map();
+const ta = {id:'ta',actor:a,actorLink:true,x:0,y:0,width:1,height:1,elevation:0};
+const tb = {id:'tb',actor:b,actorLink:true,x:100,y:0,width:1,height:1,elevation:0};
+const tc = {id:'tc',actor:c,actorLink:true,x:300,y:0,width:1,height:1,elevation:0};
+const tokens = new Map([ta,tb,tc].map(token => [token.id,token]));
+tokens[Symbol.iterator] = function* () { yield* this.values(); };
+const scene = {id:'scene',tokens,grid:{size:100,distance:5,units:'ft',isSquare:true,
+  measurePath: ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x)/100*5,Math.abs(a.y-b.y)/100*5,Math.abs(a.elevation-b.elevation))})
+}};
 const permissions = (actor, user) => Boolean(actor && user && (user.isGM || actor.owner === user.id));
 const wallet = actor => [{ key: 'gp', value: actor.gold, abbreviation: 'GP', storage: { updatePath: 'gold' } }];
 const context = vm.createContext({ console, JSON, Map, Set, Array, Number, String,
-  game: { user: users.get('gm'), actors, users, socket: { emit: (channel, message) => emissions.push(message), on() {} } },
-  Hooks: { once() {}, on() {} }, ui: { notifications: { info() {}, error() {} } },
+  game: { user: users.get('gm'), actors, users, scenes:new Map([[scene.id,scene]]), socket: { emit: (channel, message) => emissions.push(message), on() {} } },
+  canvas:{scene,tokens:{controlled:[]}},
+  Hooks: { once(name,fn) { hooks.set(name,fn); }, on(name,fn) { hooks.set(name,fn); } },
+  getBetterInvTransferTargetActors: source => [...actors.values()].filter(target => target.id !== source.id),
+  isBetterInvValidTokenTransferTarget: (token,id) => token.actor.id !== id,
+  transferBetterInvItemToActor: async () => 'old-transfer',
+  commitBetterInvCurrencyTransfer: async () => 'old-coins',
+  convertBetterInvSceneDistanceToFeet: (distance,scene) => scene.grid.units === 'm' ? distance * 3.280839895 : distance, ui: { notifications: { info() {}, error() {} } },
   executeBetterInvGmGroundAction: async () => 'delegated',
   canBetterInvUserModifyActorAs: permissions,
   isBetterInvPlayerCharacterActor: actor => actor?.type === 'character',
@@ -52,7 +67,28 @@ const context = vm.createContext({ console, JSON, Map, Set, Array, Number, Strin
 vm.runInContext(fs.readFileSync(new URL('../scripts/trading.js', import.meta.url), 'utf8'), context);
 const action = (name, payload, user = 'alice') => context.executeBetterInvGmGroundAction(`trade:${name}`, payload, user);
 const offer = (items = [], coins = []) => ({items, coins});
-const open = () => action('open', {sourceActorId: 'a', targetActorId: 'b', offer: offer([{id:'sword', quantity:1}])});
+const invite = (items = [{id:'sword',quantity:1}]) => action('open', {sourceActorId:'a',targetActorId:'b',sceneId:'scene',sourceTokenId:'ta',targetTokenId:'tb',offer:offer(items)});
+const open = async () => {
+  const pending = await invite();
+  return action('accept',{id:pending.id,actorId:'b',revision:pending.revision},'bob');
+};
+let pending = await invite();
+assert.equal(pending.status,'pending');
+assert.equal(pending.sides[0].offer.items[0].id,'sword','Item is preloaded before invitation acceptance');
+await assert.rejects(action('ready',{id:pending.id,actorId:'a',revision:0}),/zuerst annehmen/);
+await assert.rejects(action('accept',{id:pending.id,actorId:'a',revision:0}),/zuerst annehmen/);
+await action('cancel',{id:pending.id,actorId:'b'},'bob');
+assert.equal(a.items.get('sword').quantity,3,'Declining leaves assets untouched');
+assert.deepEqual(Array.from(context.getBetterInvTransferTargetActors(a),actor=>actor.id),['b']);
+tb.x = 200;
+assert.equal(context.getBetterInvTransferTargetActors(a).length,0,'Distant characters are omitted');
+await assert.rejects(invite(),/5 ft/);
+tb.x = 100; tb.elevation = 10;
+await assert.rejects(invite(),/5 ft/);
+tb.elevation = 0;
+pending = await invite(); tb.x = 200;
+await assert.rejects(action('accept',{id:pending.id,actorId:'b',revision:0},'bob'),/5 ft/);
+await action('cancel',{id:pending.id,actorId:'a'}); tb.x = 100;
 let state = await open();
 assert.equal(state.sides[1].userId, 'bob', 'An unowned player character is a valid trade target');
 assert.equal(state.sides[0].offer.items[0].snapshot, undefined, 'Public state must omit full item data');
@@ -93,7 +129,8 @@ assert.equal(a.items.get('sword').quantity,2); assert.equal([...b.items].length,
 assert.equal(context.betterInvCurrencyTransactions.size, 0);
 await action('cancel', payload(state,'a'));
 // Fully consumed source stacks are removed only once the trade succeeds.
-state = await action('open', {sourceActorId:'a', targetActorId:'b', offer:offer([{id:'sword',quantity:2}])});
+state = await invite([{id:'sword',quantity:2}]);
+state = await action('accept',payload(state,'b'),'bob');
 state = await action('ready',payload(state,'a'));
 state = await action('ready',payload(state,'b'),'bob');
 assert.equal(state.status,'completed'); assert.equal(a.items.has('sword'),false);
@@ -103,7 +140,7 @@ console.log('Trading tests passed: foreign player target, ownership, amounts, tw
 // Exercise the Dialog callback using its Foundry html argument, not an Application.
 let rendered = 0;
 const html = { tag: 'foundry-dialog-html' };
-context.decorateBetterInvDialog = app => { assert.equal(app.element, html); rendered++; return {querySelector: () => null}; };
+context.decorateBetterInvDialog = app => { assert.equal(app.element, html); rendered++; return {querySelector: () => null, querySelectorAll:()=>[]}; };
 context.escapeHtml = value => String(value ?? '');
 context.escapeAttr = context.escapeHtml;
 context.getBetterInvCurrencies = () => [{key:'gp',abbreviation:'GP'}];
@@ -122,3 +159,19 @@ context.game.user = users.get('alice');
 await context.openBetterInvTrade(a,b);
 assert.equal(rendered,1);
 console.log('Trading Dialog callback test passed.');
+
+// Pending requests and open trades are cancelled when a token leaves range.
+context.game.user = users.get('gm');
+await context.executeBetterInvGmGroundAction('trade:cancel',{id:emissions.at(-1).state.id,actorId:'a'},'alice');
+hooks.get('ready')();
+pending = await invite([]);
+tb.x = 200; hooks.get('updateToken')(tb,{x:200});
+assert.equal(emissions.at(-1).state.status,'cancelled');
+assert.match(emissions.at(-1).state.error,/5 ft/);
+tb.x = 100;
+// Metric scenes are converted to feet, not treated as a five-metre radius.
+scene.grid.units = 'm';
+scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y))/100*1.5});
+assert.ok(context.getBetterInvTradeTokenPair(a,b));
+tb.x = 200; assert.equal(context.getBetterInvTradeTokenPair(a,b),null);
+console.log('Invitation and range tests passed: preloaded item, accept/reject, selected list, distant/elevated tokens, movement cancellation, metric conversion.');

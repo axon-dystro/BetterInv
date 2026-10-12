@@ -1,5 +1,8 @@
 # Unreleased
 
+- Handel nur mit Tokens innerhalb von 5 ft auf derselben Szene; die Empfängerliste wird entsprechend gefiltert. Reichweite wird vom GM bei Anfrage, Annahme und Austausch geprüft; Weggehen beendet offene Anfragen und Handel.
+- Empfänger erhalten zuerst eine annehmbare/ablehnbare Anfrage, auch bei Token-Übergaben. Der ausgewählte Gegenstand ist im Angebot vorbelegt.
+
 - Handel mit Spielercharakteren anderer Spieler über die GM-Sitzung.
 - Gemeinsames Handelsfenster mit Items (Drag-and-drop oder Auswahl), Mengen und Münzen auf beiden Seiten.
 - Austausch erst nach beidseitiger Bestätigung derselben Angebotsversion; Änderungen setzen die Bestätigungen zurück.

@@ -8169,3 +8169,14 @@ button.betterinv-category-picker:focus-visible {
 .betterinv-trade-coins label { display: flex; flex-direction: column; flex: 1 1 70px; }
 .betterinv-trade-sides button { margin-top: 6px; }
 @media (max-width: 650px) { .betterinv-trade-sides { grid-template-columns: 1fr; } }
+.betterinv-trade-window .window-content { background: #131318; color: #efe8d8; padding: 16px; }
+.betterinv-trade-window .dialog-content { color: inherit; }
+.betterinv-trade-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.betterinv-trade-range { color: #dfcb91; font-size: 12px; }
+.betterinv-trade-window :is(input, select) { color: #efe8d8; background: #22212b; border: 1px solid #71677e; border-radius: 5px; padding: 4px 6px; }
+.betterinv-trade-window button { color: #f4ead3; background: #292430; border: 1px solid #817195; border-radius: 5px; padding: 6px 9px; }
+.betterinv-trade-window button:disabled { opacity: .5; }
+.betterinv-trade-window button:hover:not(:disabled) { background: #3a3045; }
+.betterinv-trade-window [data-ready] { border-color: #b7a476; background: #3b3240; }
+.betterinv-trade-invitation h3 { margin: 12px 0; }
+.betterinv-trade-window [data-trade-side] h3 { overflow-wrap: anywhere; }

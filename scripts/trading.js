@@ -12,6 +12,80 @@
     if (!Number.isSafeInteger(n) || n < 0) throw new Error("Mengen müssen ganze, nicht negative Zahlen sein.");
     return n;
   };
+  const originalTargets = globalThis.getBetterInvTransferTargetActors;
+  const originalTokenTarget = globalThis.isBetterInvValidTokenTransferTarget;
+  const originalItemTransfer = globalThis.transferBetterInvItemToActor;
+  const originalCoinTransfer = globalThis.commitBetterInvCurrencyTransfer;
+  function tokenActorMatches(token, actor) {
+    return token?.actor?.id === actor?.id && token.actorLink !== false;
+  }
+  function tokenPoints(token, scene) {
+    const grid = scene.grid;
+    const size = Number(grid.size);
+    if (!Number.isFinite(size) || size <= 0) return [];
+    const center = token.getCenterPoint?.() ?? {
+      x: Number(token.x) + Number(token.width ?? 1) * size / 2,
+      y: Number(token.y) + Number(token.height ?? 1) * size / 2,
+      elevation: Number(token.elevation ?? 0)
+    };
+    if (!grid.isSquare) return [center];
+    const cols = Math.min(8, Math.max(1, Math.ceil(Number(token.width ?? 1))));
+    const rows = Math.min(8, Math.max(1, Math.ceil(Number(token.height ?? 1))));
+    const points = [];
+    for (let col = 0; col < cols; col++) for (let row = 0; row < rows; row++) points.push({
+      x: Number(token.x) + (col + .5) * Number(token.width ?? 1) * size / cols,
+      y: Number(token.y) + (row + .5) * Number(token.height ?? 1) * size / rows,
+      elevation: Number(token.elevation ?? 0)
+    });
+    return points;
+  }
+  function tokenDistance(source, target, scene) {
+    if (!source || !target || !scene?.grid?.measurePath || source.hidden || target.hidden) return Infinity;
+    // v14 levels can overlap in x/y without sharing physical space.
+    if (source.level?.id && target.level?.id && source.level.id !== target.level.id) return Infinity;
+    let distance = Infinity;
+    for (const from of tokenPoints(source, scene)) for (const to of tokenPoints(target, scene)) {
+      const measured = Number(scene.grid.measurePath([from, to]).distance);
+      if (Number.isFinite(measured)) distance = Math.min(distance, convertBetterInvSceneDistanceToFeet(measured, scene));
+    }
+    return distance;
+  }
+  function findPair(sourceActor, targetActor, scene = canvas?.scene, sourceTokenId = null, targetTokenId = null) {
+    const tokens = Array.from(scene?.tokens ?? []);
+    let sources = tokens.filter(token => tokenActorMatches(token, sourceActor) && (!sourceTokenId || token.id === sourceTokenId));
+    if (!sourceTokenId && scene?.id === canvas?.scene?.id) {
+      const controlled = canvas?.tokens?.controlled?.map(token => token.document.id) ?? [];
+      const selected = sources.filter(token => controlled.includes(token.id));
+      if (selected.length) sources = selected;
+    }
+    const targets = tokens.filter(token => tokenActorMatches(token, targetActor) && (!targetTokenId || token.id === targetTokenId));
+    let pair = null;
+    for (const source of sources) for (const target of targets) {
+      const distance = tokenDistance(source, target, scene);
+      if (distance <= 5 + 1e-6 && (!pair || distance < pair.distance)) pair = {sourceTokenId:source.id, targetTokenId:target.id, sceneId:scene.id, distance};
+    }
+    return pair;
+  }
+  function assertRange(session) {
+    const scene = game.scenes.get(session.sceneId);
+    const source = scene?.tokens?.get(session.sourceTokenId), target = scene?.tokens?.get(session.targetTokenId);
+    if (!tokenActorMatches(source, game.actors.get(session.sides[0].actorId)) || !tokenActorMatches(target, game.actors.get(session.sides[1].actorId)) || tokenDistance(source,target,scene) > 5 + 1e-6) {
+      throw new Error("Die Handelspartner müssen auf derselben Szene innerhalb von 5 ft stehen.");
+    }
+  }
+  globalThis.getBetterInvTradeTokenPair = findPair;
+  globalThis.getBetterInvTransferTargetActors = sourceActor => originalTargets(sourceActor).filter(target => findPair(sourceActor,target));
+  globalThis.isBetterInvValidTokenTransferTarget = (token, sourceActorId = null) =>
+    originalTokenTarget(token,sourceActorId) && Boolean(findPair(game.actors.get(sourceActorId), token.actor, canvas?.scene, null, token.document?.id ?? token.id));
+  // All direct handoffs to a character become invitations, including canvas drops.
+  globalThis.transferBetterInvItemToActor = async (sourceActor,item,targetActor,quantity = 1,options = {}) => {
+    if (!isBetterInvPlayerCharacterActor(targetActor)) return originalItemTransfer(sourceActor,item,targetActor,quantity,options);
+    return openBetterInvTrade(sourceActor,targetActor,{items:[{id:item.id,quantity:quantity ?? 1}],coins:[]});
+  };
+  globalThis.commitBetterInvCurrencyTransfer = async (sourceActor,targetActor,transfers) => {
+    if (!isBetterInvPlayerCharacterActor(targetActor)) return originalCoinTransfer(sourceActor,targetActor,transfers);
+    return openBetterInvTrade(sourceActor,targetActor,{items:[],coins:transfers.map(({key,amount}) => ({key,amount}))});
+  };
   function validateOffer(actor, user, offer) {
     if (!canBetterInvUserModifyActorAs(actor, user)) throw new Error("Du darfst nur eigene Angebote bearbeiten.");
     if (!Array.isArray(offer?.items) || !Array.isArray(offer?.coins)) throw new Error("Ungültiges Angebot.");
@@ -43,6 +117,7 @@
   }
   function publicState(session) {
     return { id: session.id, revision: session.revision, status: session.status, error: session.error,
+      sceneId: session.sceneId, sourceTokenId: session.sourceTokenId, targetTokenId: session.targetTokenId,
       sides: session.sides.map(side => ({ actorId: side.actorId, userId: side.userId, name: game.actors.get(side.actorId)?.name,
         ready: side.ready, offer: { items: side.offer.items.map(({ snapshot, ...item }) => item), coins: side.offer.coins } })) };
   }
@@ -53,6 +128,7 @@
     return message.state;
   }
   async function commit(session) {
+    assertRange(session);
     const actors = session.sides.map(side => game.actors.get(side.actorId));
     if (actors.some(actor => actorLocks.has(actor.id) || betterInvCurrencyTransactions.has(getBetterInvCurrencyActorKey(actor)))) throw new Error("Für einen Charakter läuft bereits eine Übertragung.");
     const offers = session.sides.map((side, i) => validateOffer(actors[i], game.users.get(side.userId), side.offer));
@@ -81,12 +157,14 @@
         undo.push(() => created.delete({ betterInventoryRollback: true }));
         if (getItemQuantityData(created).value !== entry.quantity) await setItemQuantity(created, entry.quantity, operation);
         await setItemCategory(created, "__unsorted", null);
+        assertRange(session);
         const oldQuantity = getItemQuantityData(item).value;
         if (JSON.stringify(item.toObject()) !== entry.snapshot) throw new Error("Ein Gegenstand wurde während des Handels geändert.");
         undo.push(() => setItemQuantity(actors[i].items.get(entry.id), oldQuantity, { betterInventoryRollback: true }));
         await setItemQuantity(item, oldQuantity - entry.quantity, operation);
       }
       for (let i = 0; i < 2; i++) {
+        assertRange(session);
         const { updateData } = buildBetterInvCurrencyUpdateData(wallets[i], balances[i]);
         if (!Object.keys(updateData).length) continue;
         const fresh = getBetterInvCurrencyWallet(actors[i]);
@@ -104,8 +182,10 @@
         undo.push(async () => {
           if (!actors[i].items.get(entry.id)) await actors[i].createEmbeddedDocuments("Item", [saved], { keepId: true, betterInventoryRollback: true });
         });
+        assertRange(session);
         await item.delete({ betterInventoryTransfer: true });
       }
+      assertRange(session);
     } catch (error) {
       let rollbackFailed = false;
       for (const revert of undo.reverse()) { try { await revert(); } catch (failure) { rollbackFailed = true; console.error("BetterInv trade rollback", failure); } }
@@ -133,8 +213,10 @@
         .sort((a,b) => Number(b.character?.id === target.id) - Number(a.character?.id === target.id) || String(a.id).localeCompare(String(b.id)))[0]
         ?? (canBetterInvUserModifyActorAs(target, user) ? user : null);
       if (!owner) throw new Error("Der Besitzer dieses Charakters muss für den Handel online sein.");
-      for (const session of sessions.values()) if (session.status === "open" && session.sides.some(s => [actor.id, target.id].includes(s.actorId))) throw new Error("Ein Charakter hat bereits ein offenes Handelsfenster.");
-      const session = { id: createBetterInvRequestId(), revision: 0, status: "open", sides: [
+      const pair = findPair(actor,target,game.scenes.get(payload.sceneId),payload.sourceTokenId,payload.targetTokenId);
+      if (!pair) throw new Error("Die Handelspartner müssen auf derselben Szene innerhalb von 5 ft stehen.");
+      for (const session of sessions.values()) if (["pending", "open", "committing"].includes(session.status) && session.sides.some(s => [actor.id, target.id].includes(s.actorId))) throw new Error("Ein Charakter hat bereits ein offenes Handelsfenster.");
+      const session = { id: createBetterInvRequestId(), revision: 0, status: "pending", ...pair, sides: [
         { actorId: actor.id, userId: user.id, ready: false, offer: validateOffer(actor, user, payload.offer ?? emptyOffer()) },
         { actorId: target.id, userId: owner.id, ready: false, offer: emptyOffer() }
       ] };
@@ -142,10 +224,18 @@
       return publish(session);
     }
     const session = sessions.get(payload.id);
-    if (!session || session.status !== "open") throw new Error("Dieser Handel ist nicht mehr offen.");
+    if (!session || !["pending", "open"].includes(session.status)) throw new Error("Dieser Handel ist nicht mehr offen.");
     const side = session.sides.find(s => s.userId === userId && s.actorId === payload.actorId);
     if (!side) throw new Error("Du bist kein Teilnehmer dieses Handels.");
     if (action === "trade:cancel") { session.status = "cancelled"; const state = publish(session); sessions.delete(session.id); return state; }
+    if (session.status === "pending") {
+      if (action !== "trade:accept" || side !== session.sides[1]) throw new Error("Der Empfänger muss die Handelsanfrage zuerst annehmen.");
+      assertRange(session);
+      if (!session.sides.every(s => game.users.get(s.userId)?.active && canBetterInvUserModifyActorAs(game.actors.get(s.actorId), game.users.get(s.userId)))) throw new Error("Ein Handelspartner ist offline oder hat keine Besitzrechte mehr.");
+      session.status = "open"; session.revision++;
+      return publish(session);
+    }
+    assertRange(session);
     if (payload.revision !== session.revision) throw new Error("Das Angebot wurde geändert. Prüfe die aktuelle Version.");
     if (!session.sides.every(s => game.users.get(s.userId)?.active && canBetterInvUserModifyActorAs(game.actors.get(s.actorId), game.users.get(s.userId)))) throw new Error("Ein Handelspartner ist offline oder hat keine Besitzrechte mehr.");
     if (action === "trade:offer") {
@@ -177,16 +267,48 @@
       ui.notifications[state.status === "failed" ? "error" : "info"](state.error || (state.status === "completed" ? "Handel abgeschlossen." : "Handel abgebrochen."));
       return;
     }
-    renderTrade(state);
+    if (state.status === "pending") renderInvitation(state);
+    else renderTrade(state);
   }
   async function send(state, side, action, offer) {
     try {
       await requestBetterInvGmGroundAction(`trade:${action}`, { id: state.id, actorId: side.actorId, revision: state.revision, offer });
-    } catch (error) { ui.notifications.error(error.message); }
+      return true;
+    } catch (error) { ui.notifications.error(error.message); return false; }
+  }
+  function renderInvitation(state) {
+    const recipient = state.sides[1];
+    const isRecipient = recipient.userId === game.user.id;
+    const side = isRecipient ? recipient : state.sides[0];
+    const offered = state.sides[0].offer;
+    const summary = [...offered.items.map(item => `${item.quantity} × ${item.name}`), ...offered.coins.map(coin => `${coin.amount} ${coin.abbreviation}`)].join(" · ");
+    const content = `<div class="betterinv-trade-invitation"><span class="betterinv-trade-range">Innerhalb von 5 ft</span>
+      <h3>${escapeHtml(state.sides[0].name)} möchte mit ${escapeHtml(recipient.name)} handeln</h3>
+      <p>${escapeHtml(summary || "Items & Münzen im gemeinsamen Handelsfenster")}</p>
+      <p>${isRecipient ? "Möchtest du die Handelsanfrage annehmen?" : "Warte auf die Antwort des anderen Spielers …"}</p>
+      <p>Bis zum beidseitig bestätigten Austausch bleibt alles im ursprünglichen Inventar.</p></div>`;
+    let dialog = windows.get(state.id);
+    if (dialog) return;
+    dialog = new Dialog({ title: isRecipient ? "Handelsanfrage" : "Handelsanfrage gesendet", content,
+      buttons: isRecipient ? {
+        accept: {label:"Annehmen",callback:async () => { dialog.betterInvTradeButton = true; if (!await send(state,side,"accept")) dialog.betterInvTradeButton = false; }},
+        decline: {label:"Ablehnen",callback:() => { dialog.betterInvTradeButton = true; return send(state,side,"cancel"); }}
+      } : {cancel:{label:"Anfrage zurückziehen",callback:() => { dialog.betterInvTradeButton = true; return send(state,side,"cancel"); }}},
+      // Foundry closes button dialogs after callback; only the close X cancels a pending request.
+      render: html => {
+        const root = decorateBetterInvDialog({element:html},{classes:["betterinv-trade-window"]});
+        root?.querySelectorAll(".dialog-button").forEach(button => button.addEventListener("click", () => { dialog.betterInvTradeButton = true; }, {capture:true}));
+      },
+      close: () => {
+        if (windows.get(state.id) === dialog) windows.delete(state.id);
+        if (dialog.betterInvTradeStatus === "pending" && !dialog.betterInvTradeButton) send(state,side,"cancel");
+      }
+    }, {width:480,height:"auto"});
+    dialog.betterInvTradeStatus = "pending"; windows.set(state.id,dialog); dialog.render(true);
   }
   function renderTrade(state) {
     const owned = state.sides.filter(side => side.userId === game.user.id);
-    const content = `<div class="betterinv-trade"><p>Beide Seiten bestätigen dasselbe Angebot. Änderungen setzen beide Bestätigungen zurück.</p>
+    const content = `<div class="betterinv-trade"><div class="betterinv-trade-heading"><span>Items & Münzen</span><span class="betterinv-trade-range">Reichweite ≤ 5 ft</span></div><p>Beide Seiten bestätigen dasselbe Angebot. Änderungen setzen beide Bestätigungen zurück.</p>
       ${state.error ? `<p role="alert">${escapeHtml(state.error)}</p>` : ""}<div class="betterinv-trade-sides">${state.sides.map(side => {
         const editable = owned.includes(side) && state.status === "open";
         const actor = game.actors.get(side.actorId);
@@ -197,6 +319,9 @@
           ${editable ? `<button type="button" data-save-offer>Angebot speichern</button><button type="button" data-ready ${side.ready ? "disabled" : ""}>Handel bestätigen</button><button type="button" data-cancel>Abbrechen</button>` : ""}</section>`;
       }).join("")}</div>${state.status === "committing" ? "Handel wird ausgeführt …" : ""}</div>`;
     let dialog = windows.get(state.id);
+    if (dialog?.betterInvTradeStatus === "pending") {
+      dialog.betterInvTradeStatus = "accepted"; dialog.close(); windows.delete(state.id); dialog = null;
+    }
     const bind = html => {
       const root = decorateBetterInvDialog({ element: html }, { classes: ["betterinv-trade-window"] });
       if (!root) return;
@@ -255,15 +380,28 @@
   }
   globalThis.openBetterInvTrade = async function(sourceActor, targetActor, offer = emptyOffer()) {
     if (!getBetterInvPrimaryActiveGm()) throw new Error("Für den Handel muss ein GM online sein.");
-    const state = await requestBetterInvGmGroundAction("trade:open", { sourceActorId: sourceActor.id, targetActorId: targetActor.id, offer });
+    const pair = findPair(sourceActor,targetActor);
+    if (!pair) throw new Error("Zum Handeln müssen beide Tokens innerhalb von 5 ft auf der Szene stehen.");
+    const state = await requestBetterInvGmGroundAction("trade:open", { sourceActorId: sourceActor.id, targetActorId: targetActor.id, ...pair, offer });
     receive({ kind: "betterinvTradeState", gmId: getBetterInvPrimaryActiveGm().id, state });
     return state;
   };
   Hooks.once("ready", () => {
     game.socket.on(channel, receive);
+    const checkSessions = () => {
+      if (game.user.id !== getBetterInvPrimaryActiveGm()?.id) return;
+      for (const session of sessions.values()) if (["pending","open"].includes(session.status)) {
+        try { assertRange(session); } catch (error) {
+          session.status = "cancelled"; session.error = error.message; publish(session); sessions.delete(session.id);
+        }
+      }
+    };
+    Hooks.on("updateToken", checkSessions);
+    Hooks.on("deleteToken", checkSessions);
+    Hooks.on("deleteScene", checkSessions);
     Hooks.on("updateUser", (user, changes) => {
       if (game.user.id !== getBetterInvPrimaryActiveGm()?.id || changes.active !== false) return;
-      for (const session of sessions.values()) if (session.status === "open" && session.sides.some(s => s.userId === user.id)) {
+      for (const session of sessions.values()) if (["pending", "open"].includes(session.status) && session.sides.some(s => s.userId === user.id)) {
         session.status = "cancelled"; publish(session); sessions.delete(session.id);
       }
     });
