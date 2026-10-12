@@ -44,7 +44,7 @@ Axon’s Inventory überträgt selbst keine Diagnose- oder Nutzerdaten. Exportie
 
 Die Nutzung ist kostenlos, das Modul bleibt jedoch proprietär. Weiterverbreitung, Verkauf, Neuverpackung und Veröffentlichung veränderter Versionen sind ohne ausdrückliche Genehmigung nicht erlaubt. Die vollständigen Bedingungen stehen in [LICENSE](LICENSE).
 
-## Gemeinsames Handelsfenster (unreleased)
+## Gemeinsames Handelsfenster (ab 1.7.0)
 
 Über **Handeln** bei den Münzen oder **Übertragen** im Item-Menü einen anderen Spielercharakter auswählen. Eigene Bearbeitungsrechte am Empfänger sind nicht erforderlich. Eine aktive GM-Sitzung und ein aktiver Besitzer des Empfängercharakters sind erforderlich. Beide verknüpften, sichtbaren Tokens müssen auf derselben geöffneten Szene innerhalb von **5 ft** stehen. Nur solche Spielercharaktere erscheinen in der Auswahl; bei mehreren eigenen Tokens wird ein kontrollierter Token bevorzugt. Entfernung wird mit dem Foundry-Szenenraster gemessen, einschließlich Höhe und Umrechnung von Metern in Fuß. Bei quadratischen Rastern wird zwischen den nächstliegenden belegten Feldern gemessen; bei Hex-/rasterlosen Szenen zwischen den Token-Zentren. Beide Seiten können eigene Items und alle konfigurierten Münzarten anbieten, auch Item gegen Gold oder Geschenke ohne Gegenleistung.
 

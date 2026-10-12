@@ -1,4 +1,4 @@
-# Unreleased
+# 1.7.0 — 2026-10-12
 
 - Handelsfenster im bestehenden Inventarstil: dunkle Flächen, Goldlinien, Item-Slots und gemeinsame Münzangebote. Für jeden Teilnehmer steht das eigene Angebot links, das Gegenangebot rechts; beide bleiben auch auf kleinen Displays nebeneinander sichtbar. Münzänderungen werden beim Verlassen des Felds und Itemänderungen direkt synchronisiert.
 
