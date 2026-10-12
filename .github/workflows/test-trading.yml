@@ -1,0 +1,29 @@
+name: BetterInv checks
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/**'
+      - 'styles/**'
+      - 'tests/**'
+      - 'module.json'
+      - 'package.json'
+      - '.github/workflows/test-trading.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and trading tests
+        run: npm test
