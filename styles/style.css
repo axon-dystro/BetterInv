@@ -8221,3 +8221,75 @@ button.betterinv-category-picker:focus-visible {
   .betterinv-trade-actions { grid-template-columns: 1fr; }
   .betterinv-trade-heading { padding: 12px; }
 }
+
+
+/* Foundry v14 can place dialog HTML in a wrapper before the render hook applies classes.
+   :has scopes this theme to our trade dialogs even when that hook targets the content node. */
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation),
+:is(.dialog,.window-app,.application):has(.betterinv-trade-sides),
+.betterinv-trade-window {
+  --color-text-primary: #efe6cf;
+  --color-text-light-primary: #efe6cf;
+  --color-border-light-primary: #6d5f38;
+  color: #efe6cf !important;
+  background: #0c0b10 !important;
+  border: 1px solid rgba(200,168,90,.62) !important;
+  box-shadow: 0 14px 65px #000b,0 0 26px #35204150 !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) :is(.window-header,.app-header,.window-title),
+:is(.dialog,.window-app,.application):has(.betterinv-trade-sides) :is(.window-header,.app-header,.window-title),
+.betterinv-trade-window :is(.window-header,.app-header,.window-title) {
+  background: #111015 !important;color: #f2e5c8 !important;
+  border-color: rgba(200,168,90,.48) !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .window-content,
+:is(.dialog,.window-app,.application):has(.betterinv-trade-sides) .window-content,
+.betterinv-trade-window .window-content {
+  background: linear-gradient(145deg,#141218,#0b0a0e 65%,#1b1222) !important;
+  color:#efe6cf !important;
+  border:0 !important;
+  padding:0 !important;
+  overflow:auto !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) :is(.dialog-content,.dialog-buttons,.standard-form,.form-footer),
+.betterinv-trade-window :is(.dialog-content,.dialog-buttons,.form-footer) {
+  background: transparent !important; color:#efe6cf !important;
+}
+.betterinv-trade-invitation {
+  display:flex;flex-direction:column;gap:12px;min-height:0;max-height:none;
+  padding:22px 22px 12px;
+  background:transparent;color:#efe6cf;
+}
+.betterinv-trade-invitation .betterinv-trade-range {
+  display:inline-flex;align-self:flex-start;align-items:center;gap:8px;
+  padding:6px 11px;border:1px solid #6d5f38;border-radius:4px;
+  color:#d4b976;background:#231e1b;font-size:11px;font-weight:700;
+}
+.betterinv-trade-invitation h3 {
+  margin:0;color:#f1e7d2;font-family:Signika,Georgia,serif;
+  font-size:18px;line-height:1.35;overflow-wrap:anywhere;font-weight:700;
+}
+.betterinv-trade-invitation p {margin:0;color:#bdb29d;font-size:13px;line-height:1.48;white-space:normal;overflow-wrap:anywhere}
+.betterinv-trade-invitation p:first-of-type {
+  padding:12px 14px;border:1px solid #665531;border-radius:5px;
+  color:#e7d4a9;background:#1d1920;font-weight:650;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons,
+.betterinv-trade-window .dialog-buttons {
+  display:flex !important;gap:10px !important;
+  padding:13px 20px 20px !important;border-top:1px solid #51462d !important;
+  background:#0e0d12 !important;min-height:0 !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button,
+.betterinv-trade-window .dialog-buttons button {
+  flex:1;min-height:41px !important;white-space:normal;
+  color:#e9dbbe !important;background:#222027 !important;
+  border:1px solid #766443 !important;border-radius:5px !important;
+  font-size:13px;font-weight:700;box-shadow:none !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button:first-child {
+  background:linear-gradient(180deg,#594b2b,#322a1d) !important;border-color:#c8a85a !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button:hover {
+  background:#453822 !important;border-color:#e2c77c !important;
+}
