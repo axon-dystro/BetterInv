@@ -7699,8 +7699,8 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
     features.itemTransfer
     && targetActor
     && targetActor.id !== sourceActor.id
-    && isBetterInvPlayerCharacterActor(targetActor)
-    && canBetterInvUserModifyActor(targetActor)
+    && (targetActor.type === "npc" || isBetterInvPlayerCharacterActor(targetActor))
+    && globalThis.isBetterInvValidTokenTransferTarget?.(token, sourceActor.id)
   );
 
   const quantity = getItemQuantityData(sourceItem).value;
