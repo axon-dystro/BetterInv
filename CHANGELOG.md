@@ -1,3 +1,10 @@
+# 1.7.2 — 2026-10-12
+
+- Die Handels- und Item-Übertragungsfenster rufen ausdrücklich die aktive NSC- und Token-fähige 5-ft-Suche auf.
+- Spieler und Spielleiter sehen eine konkrete Diagnose, wenn dem Quellcharakter auf der Szene ein Token fehlt.
+- Die irreführende alte Meldung, nur andere Spielercharaktere seien zulässig, wurde entfernt.
+- Zusätzlicher Regressionstest prüft beide tatsächlichen Aufrufstellen, das Erkennen naher NSCs und den Fall ohne eigenen Token.
+
 # 1.7.1 — 2026-10-12
 
 - Handelsauswahl erfasst nun sichtbare NSCs und Spielercharaktere mit Tokens in 5 ft Reichweite, auch wenn die Tokens nicht verknüpft sind.
