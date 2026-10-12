@@ -5153,7 +5153,7 @@ async function transferBetterInvCurrency(sourceActor) {
     }
     const target = await promptBetterInvActorTarget(sourceActor, {
       title: "Handel eröffnen", heading: "Handelspartner auswählen",
-      description: "Wähle einen Spielercharakter innerhalb von 5 ft und sende ihm eine Handelsanfrage.",
+      description: "Wähle einen Charakter oder NSC innerhalb von 5 ft und sende eine Handelsanfrage.",
       confirmLabel: "Anfrage senden", icon: "fa-handshake"
     });
     return target ? await openBetterInvTrade(sourceActor, target) : false;
@@ -6454,6 +6454,32 @@ function getBetterInvActorTypeLabel(actor) {
 }
 
 
+function getBetterInvNearbyTradeTargets(sourceActor) {
+  // Always use the final override installed by scripts/trading.js. In particular,
+  // the main.js function only enumerates player-owned world Actors and is not
+  // suitable for NPCs or unlinked token Actors.
+  if (typeof globalThis.getBetterInvTradeTokenPair !== "function"
+      || typeof globalThis.getBetterInvTransferTargetActors !== "function") {
+    ui.notifications.error("Das BetterInv-Handelssystem wurde noch nicht vollständig geladen. Bitte die Foundry-Welt neu laden.");
+    return [];
+  }
+  const scene = canvas?.scene;
+  if (!scene) {
+    ui.notifications.warn("Bitte zuerst eine Szene mit den beteiligten Tokens öffnen.");
+    return [];
+  }
+  const sourceToken = Array.from(scene.tokens ?? []).find(token => token.actor?.id === sourceActor?.id);
+  if (!sourceToken) {
+    ui.notifications.warn("Für " + (sourceActor?.name || "deinen Charakter") + " steht auf dieser Szene kein Token. Bitte den richtigen Charakter auswählen oder seinen Token platzieren.");
+    return [];
+  }
+  const targets = globalThis.getBetterInvTransferTargetActors(sourceActor);
+  if (!targets.length) {
+    ui.notifications.warn("Kein anderer sichtbarer Charakter oder NSC innerhalb von 5 ft gefunden. Prüfe die Token-Positionen auf der aktuellen Szene.");
+  }
+  return targets;
+}
+
 async function promptBetterInvActorTarget(sourceActor, {
   title = "Empfänger auswählen",
   heading = "Übertragen",
@@ -6462,9 +6488,8 @@ async function promptBetterInvActorTarget(sourceActor, {
   confirmLabel = "Übertragen",
   icon = "fa-right-left"
 } = {}) {
-  const targets = getBetterInvTransferTargetActors(sourceActor);
+  const targets = getBetterInvNearbyTradeTargets(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Kein anderer Spielercharakter innerhalb von 5 ft gefunden. Beide Tokens müssen auf der geöffneten Szene stehen.");
     return null;
   }
 
@@ -6740,9 +6765,8 @@ function prepareBetterInvTransferredItemData(item, quantity) {
 }
 
 async function promptBetterInvItemTransfer(sourceActor, item) {
-  const targets = getBetterInvTransferTargetActors(sourceActor);
+  const targets = getBetterInvNearbyTradeTargets(sourceActor);
   if (!targets.length) {
-    ui.notifications.warn("Kein anderer Spielercharakter innerhalb von 5 ft gefunden. Beide Tokens müssen auf der geöffneten Szene stehen.");
     return null;
   }
 
@@ -7028,7 +7052,7 @@ async function transferBetterInvItem(sourceActor, item) {
 
   const targetActor = await promptBetterInvActorTarget(sourceActor, {
     title: "Handel eröffnen", heading: "Handelspartner auswählen",
-    description: "Wähle einen Spielercharakter innerhalb von 5 ft. Er erhält eine Anfrage; dieses Item wird direkt angeboten.",
+    description: "Wähle einen Charakter oder NSC innerhalb von 5 ft. Die Gegenpartei erhält eine Anfrage; das Item wird direkt angeboten.",
     confirmLabel: "Anfrage senden", icon: "fa-handshake"
   });
   if (!targetActor) return null;
