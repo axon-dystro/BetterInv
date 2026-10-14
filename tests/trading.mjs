@@ -235,6 +235,7 @@ item(npc,'potion',2);
 actors.set(npc.id,npc);
 const tn={id:'tn',actor:npc,actorLink:false,x:100,y:0,width:1,height:1,elevation:0};
 tokens.set(tn.id,tn);
+placeables.push({document:tn,isVisible:true,visible:true});
 context.game.user=users.get('gm');
 assert.ok(Array.from(context.getBetterInvTransferTargetActors(a),target=>target.id).includes('innkeeper'),
   'Nearby unlinked NPC must appear as a trade partner');
