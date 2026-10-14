@@ -12,8 +12,6 @@
     if (!Number.isSafeInteger(n) || n < 0) throw new Error("Mengen müssen ganze, nicht negative Zahlen sein.");
     return n;
   };
-  const originalTargets = globalThis.getBetterInvTransferTargetActors;
-  const originalTokenTarget = globalThis.isBetterInvValidTokenTransferTarget;
   const originalItemTransfer = globalThis.transferBetterInvItemToActor;
   const originalCoinTransfer = globalThis.commitBetterInvCurrencyTransfer;
   function tokenActorMatches(token, actor) {
@@ -83,21 +81,64 @@
     }
   }
   globalThis.getBetterInvTradeTokenPair = findPair;
+  function visibleTradeDocuments() {
+    const scene = canvas?.scene;
+    if (!scene) return [];
+    // Use the visible canvas placeables rather than the unfiltered scene token collection.
+    // A player must never learn about enemies that are hidden or beyond their vision.
+    const placeables = canvas?.tokens?.placeables;
+    if (Array.isArray(placeables)) return placeables
+      .filter(token => token?.document && token.document.hidden !== true
+        && token.isVisible !== false && token.visible !== false)
+      .map(token => token.document);
+    // GM-only fallback for a canvas without a rendered token layer (also used in tests).
+    return game.user?.isGM ? Array.from(scene.tokens ?? []).filter(token => token.hidden !== true) : [];
+  }
+  function tradeTargetForToken(token) {
+    const actorId = token?.actor?.id ?? token?.actorId;
+    if (!actorId) return null;
+    const actor = token.actor ?? game.actors?.get?.(actorId);
+    // A regular player may not have permissions to read the target Actor. The
+    // visible TokenDocument still has a name and an actorId; the GM resolves
+    // the actual Actor from the requested token when opening the trade.
+    const type = actor?.type ?? "npc";
+    if (actor && !tradeableTarget(actor)) return null;
+    return actor ?? { id: actorId, name: token.name || "Unbekanntes Wesen",
+      img: token.texture?.src || "icons/svg/mystery-man.svg", type };
+  }
   globalThis.getBetterInvTransferTargetActors = sourceActor => {
-    const candidates = new Map();
-    for (const token of canvas?.scene?.tokens ?? []) {
-      const target = token.actor;
-      if (!tradeableTarget(target) || target.id === sourceActor?.id || !findPair(sourceActor,target)) continue;
-      if (!candidates.has(target.id)) candidates.set(target.id,target);
+    if (!sourceActor?.id) return [];
+    const candidates = [];
+    for (const token of visibleTradeDocuments()) {
+      const target = tradeTargetForToken(token);
+      if (!target || target.id === sourceActor.id) continue;
+      const pair = findPair(sourceActor,target,canvas.scene,null,token.id);
+      if (!pair) continue;
+      // Keep the concrete token to distinguish several identical unlinked NPCs.
+      candidates.push({ ...{id: target.id,name:token.name || target.name,
+        img: token.texture?.src || target.img,type:target.type},betterInvTokenId:token.id });
     }
-    return [...candidates.values()].sort((a,b) => String(a.name).localeCompare(String(b.name),game.i18n?.lang ?? undefined));
+    return candidates.sort((a,b) => String(a.name).localeCompare(String(b.name),game.i18n?.lang ?? undefined));
   };
   globalThis.isBetterInvValidTokenTransferTarget = (token, sourceActorId = null) => {
-    const target = token?.actor;
+    const targetToken = token?.document ?? token;
     const source = game.actors.get(sourceActorId)
       ?? Array.from(canvas?.scene?.tokens ?? []).find(doc => doc.actor?.id === sourceActorId)?.actor;
-    return Boolean(tradeableTarget(target) && source && target.id !== source.id
-      && findPair(source,target,canvas?.scene,null,token?.document?.id ?? token?.id));
+    const target = tradeTargetForToken(targetToken);
+    return Boolean(target && source && target.id !== source.id
+      && visibleTradeDocuments().some(doc => doc.id === targetToken?.id)
+      && findPair(source,target,canvas?.scene,null,targetToken.id));
+  };
+  globalThis.openBetterInvTradeWithToken = async token => {
+    const targetDoc = token?.document ?? token;
+    const source = game.user?.character
+      ?? game.actors.get(globalThis.getBetterInvInventoryActorId?.())
+      ?? canvas?.tokens?.controlled?.[0]?.actor;
+    const target = tradeTargetForToken(targetDoc);
+    if (!source || !target || source.id === target.id) throw new Error("Wähle einen eigenen Charakter und ein anderes Wesen.");
+    if (!visibleTradeDocuments().some(doc => doc.id === targetDoc.id)) throw new Error("Das Ziel ist nicht sichtbar.");
+    if (!canBetterInvUserModifyActorAs(source,game.user)) throw new Error("Du darfst diesen Charakter nicht handeln lassen.");
+    return globalThis.openBetterInvTrade(source,{...target,betterInvTokenId:targetDoc.id});
   };
   // All direct handoffs to a character become invitations, including canvas drops.
   globalThis.transferBetterInvItemToActor = async (sourceActor,item,targetActor,quantity = 1,options = {}) => {
@@ -423,8 +464,9 @@
   }
   globalThis.openBetterInvTrade = async function(sourceActor, targetActor, offer = emptyOffer()) {
     if (!getBetterInvPrimaryActiveGm()) throw new Error("Für den Handel muss ein GM online sein.");
-    const pair = findPair(sourceActor,targetActor);
+    const pair = findPair(sourceActor,targetActor,canvas?.scene,null,targetActor?.betterInvTokenId ?? null);
     if (!pair) throw new Error("Zum Handeln müssen beide Tokens innerhalb von 5 ft auf der Szene stehen.");
+    if (!game.user?.isGM && !visibleTradeDocuments().some(token => token.id === pair.targetTokenId)) throw new Error("Der Zieltoken ist nicht sichtbar.");
     const state = await requestBetterInvGmGroundAction("trade:open", { sourceActorId: sourceActor.id, targetActorId: targetActor.id, ...pair, offer });
     receive({ kind: "betterinvTradeState", gmId: getBetterInvPrimaryActiveGm().id, state });
     return state;
