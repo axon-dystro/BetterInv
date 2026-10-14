@@ -8413,3 +8413,23 @@ button.betterinv-category-picker:focus-visible {
   .betterinv-trade-actions [data-ready] {grid-column:1/-1;grid-row:1;}
   .betterinv-trade-slot {min-height: 58px;}
 }
+
+/* Tight, readable invitation dialogs without oversized inherited Foundry button rows. */
+:is(.dialog,.window-app,.application).betterinv-trade-window:has(.betterinv-trade-invitation) {
+  height: auto !important; max-height: min(510px,88vh) !important; min-height: 0 !important;
+  width: min(530px,calc(100vw - 32px)) !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons,
+.betterinv-trade-window:has(.betterinv-trade-invitation) .dialog-buttons {
+  flex: 0 0 auto !important; height: auto !important; min-height: 0 !important;
+  display: flex !important; align-items: center !important;
+  padding: 12px 16px 15px !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button,
+.betterinv-trade-window:has(.betterinv-trade-invitation) .dialog-buttons button {
+  height: 42px !important; min-height: 42px !important; max-height: 42px !important;
+  flex: 1 1 0 !important; line-height: 1.2 !important;
+}
+:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-content {
+  flex: 0 1 auto !important; min-height: 0 !important;
+}
