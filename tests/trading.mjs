@@ -174,6 +174,7 @@ context.requestBetterInvGmGroundAction = async (action, payload) => {
   finally { context.game.user = users.get(requester); }
 };
 context.game.user = users.get('alice');
+assert.ok(context.getBetterInvTransferTargetActors(a).some(entry => entry.id === 'b'), 'Target must remain visible before opening trade');
 await context.openBetterInvTrade(a,b);
 assert.equal(rendered,1);
 console.log('Trading Dialog callback test passed.');
