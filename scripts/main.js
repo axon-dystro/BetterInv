@@ -2462,6 +2462,22 @@ async function sortItemsBySavedOrder(actor, items, containerId = null) {
   });
 }
 
+globalThis.getBetterInvInventoryActorId = () => betterInvState.actorId;
+globalThis.openBetterInvInventoryForTrade = actor => {
+  if (!actor || !canBetterInvUserModifyActor(actor)) {
+    ui.notifications.warn("Du darfst dieses Inventar nicht öffnen.");
+    return;
+  }
+  betterInvState.actorId = actor.id;
+  betterInvState.containerId = null;
+  if (!isBetterInvWindowOpen()) renderBetterInvWindow();
+  const window = document.getElementById("betterinv-window");
+  if (window) {
+    window.style.zIndex = "26001";
+    window.scrollIntoView?.({block:"nearest"});
+  }
+};
+
 function toggleBetterInvWindow() {
   const existing = document.getElementById("betterinv-window");
   if (existing) {
