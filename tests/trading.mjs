@@ -68,6 +68,24 @@ vm.runInContext(fs.readFileSync(new URL('../scripts/trading.js', import.meta.url
 const action = (name, payload, user = 'alice') => context.executeBetterInvGmGroundAction(`trade:${name}`, payload, user);
 const offer = (items = [], coins = []) => ({items, coins});
 const invite = (items = [{id:'sword',quantity:1}]) => action('open', {sourceActorId:'a',targetActorId:'b',sceneId:'scene',sourceTokenId:'ta',targetTokenId:'tb',offer:offer(items)});
+
+const placeables = [
+  {document:ta,isVisible:true,visible:true},
+  {document:tb,isVisible:true,visible:true},
+  {document:tc,isVisible:false,visible:true}
+];
+context.canvas.tokens.placeables = placeables;
+context.game.user = users.get('alice');
+const oldTargetActor = tb.actor;
+tb.actor = null; tb.actorId = 'b'; // the unowned token is still visually present to Alice
+const visibleForeign = context.getBetterInvTransferTargetActors(a);
+assert.equal(visibleForeign.length,1,'Player sees only the nearby visible token');
+assert.equal(visibleForeign[0].betterInvTokenId,'tb','Concrete target token is retained');
+assert.equal(visibleForeign[0].id,'b','Recipient ID comes from visible token.actorId');
+assert.ok(!visibleForeign.some(x => x.id === 'c'),'Out-of-range actors are not exposed');
+tb.actor = oldTargetActor;
+context.game.user = users.get('gm');
+
 const open = async () => {
   const pending = await invite();
   return action('accept',{id:pending.id,actorId:'b',revision:pending.revision},'bob');
