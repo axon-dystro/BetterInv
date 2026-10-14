@@ -8293,3 +8293,123 @@ button.betterinv-category-picker:focus-visible {
 :is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button:hover {
   background:#453822 !important;border-color:#e2c77c !important;
 }
+
+
+/* v1.7.3 compact trading workspace: currency first, item slots second. */
+:is(.dialog,.window-app,.application).betterinv-trade-window:has(.betterinv-trade-sides) {
+  width: min(870px, calc(100vw - 32px)) !important;
+  height: min(610px, calc(100vh - 40px)) !important;
+  min-height: 0 !important;
+  max-height: calc(100vh - 40px) !important;
+}
+.betterinv-trade-window:has(.betterinv-trade-sides) .window-content {
+  height: auto !important;
+  min-height: 0 !important;
+  overflow-y: auto !important;
+  scrollbar-color: #70613e #111015;
+}
+.betterinv-trade { min-height: 0 !important; display: flex; flex-direction: column; }
+.betterinv-trade-heading { padding: 11px 16px; }
+.betterinv-trade-heading h2 { font-size: 20px; margin-top: 1px; }
+.betterinv-trade-player { min-height: 0; padding: 0 0 7px; }
+.betterinv-trade-player h3 { font-size: 16px; margin: 3px 0 4px; }
+.betterinv-trade-status { font-size: 11px; }
+.betterinv-trade-sides > section { padding: 12px 13px 11px; }
+.betterinv-trade-sides > section + section { border-left: 1px solid rgba(200,168,90,.25); }
+.betterinv-trade-section-label { padding: 7px 0 5px; font-weight: 700; }
+.betterinv-trade-money { margin: 0 0 5px; }
+.betterinv-trade-coins {
+  display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px;
+  border: 0; padding: 0;
+}
+.betterinv-trade-coins .betterinv-trade-money-card {
+  min-width: 0; margin: 0; padding: 7px 5px;
+  border: 1px solid rgba(200,168,90,.32) !important; border-radius: 4px;
+  display: grid; grid-template-columns: minmax(0,1fr);
+  gap: 3px; align-content: start; background: #101014;
+}
+.betterinv-trade-money-card .betterinv-trade-money-name {
+  display: block; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 9px; font-weight: 850;
+  text-transform: uppercase; color: #ab9970;
+}
+.betterinv-trade-money-card .betterinv-trade-money-abbr {
+  color: #c9b37d; font-size: 10px; font-weight: 800;
+}
+.betterinv-trade-money-card .betterinv-trade-balance {
+  color: #d7d0be; font-size: 10px; font-weight: 650;
+}
+.betterinv-trade-money-card .betterinv-trade-other-amount {
+  color: #efdda3; font-size: 17px; font-weight: 850;
+}
+.betterinv-trade-money-card small {font-size: 9px;color: #9b8e77;}
+.betterinv-trade-window .betterinv-trade-money-card input[data-trade-coin] {
+  width: 100%; min-width: 0; height: 30px; box-sizing: border-box;
+  padding: 3px 5px; text-align: center; font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: #f5e9ce; background: #08080b; border: 1px solid #6d5f38;
+}
+.betterinv-trade-drop { min-height: 0; gap: 5px; }
+.betterinv-trade-slot { min-height: 67px; padding: 4px; }
+.betterinv-trade-slot img {width: 28px;height: 28px;}
+.betterinv-trade-slot.is-add {
+  cursor: pointer; border-style: dashed; background: #17141b;
+}
+.betterinv-trade-slot.is-add:hover,
+.betterinv-trade-slot.is-add:focus-visible {
+  outline: none; background: #25202b; border-color: #c8a85a;
+}
+.betterinv-trade-slot.is-add small {font-size: 10px;color: #cfb97e;}
+.betterinv-trade-drop-hint { padding: 5px 0; min-height: 0; font-size: 10px; }
+.betterinv-trade-picker { margin: 6px 0; }
+.betterinv-trade-picker summary { cursor: pointer; }
+.betterinv-trade-actions {
+  display: grid; grid-template-columns: repeat(3,minmax(0,1fr));
+  gap: 6px; padding-top: 8px;
+}
+.betterinv-trade-actions [data-ready] {
+  grid-column: auto;grid-row:auto; font-size: 12px;min-height: 32px;
+}
+.betterinv-trade-actions button {min-height: 32px;padding: 6px;}
+.betterinv-trade-partner-status {padding: 12px 0;color: #b6a987;}
+.betterinv-trade-note {padding: 9px 12px;font-size: 11px;}
+/* No huge minimum height on the source/recipient choice dialogs. */
+.betterinv-transfer-dialog {
+  min-height: 340px;
+  max-height: min(640px,82vh);
+  grid-template-rows: auto auto auto minmax(95px,1fr) auto;
+}
+.betterinv-transfer-window .window-content { background: #0d0c10 !important; }
+.betterinv-transfer-footer { background: #0e0d13; }
+/* Token quick trade appears in the existing Foundry HUD without replacing it. */
+.betterinv-token-hud-trade {
+  border: 1px solid #ae9150 !important;
+  background: #1a1720 !important;
+  color: #e5cf93 !important;
+  cursor: pointer !important;
+}
+.betterinv-token-hud-trade:hover { background: #3d3429 !important; }
+.betterinv-token-trade-menu {
+  position: fixed; z-index: 30000;
+  width: 218px; padding: 5px;
+  background: linear-gradient(145deg,#1d1a21,#100e12);
+  border: 1px solid #bc9f61; border-radius: 5px;
+  box-shadow: 0 12px 36px #000a;
+}
+.betterinv-token-trade-menu button {
+  display: flex; width: 100%; align-items: center; gap: 8px;
+  padding: 9px 12px; background: transparent; border: 0;
+  text-align: left; color: #f0e4c7; cursor:pointer;
+  font: 700 12px Signika,Georgia,serif;
+}
+.betterinv-token-trade-menu button:hover {background: #373023;}
+.betterinv-token-trade-menu small {margin-left:auto;color: #bdab7b;font-size:10px;}
+@media(max-width:760px){
+  .betterinv-trade-coins {grid-template-columns: repeat(5,minmax(0,1fr));gap:3px;}
+  .betterinv-trade-sides > section {padding:8px;}
+  .betterinv-trade-money-card .betterinv-trade-money-name {font-size:8px;}
+  .betterinv-trade-money-card .betterinv-trade-balance {font-size:9px;}
+  .betterinv-trade-actions {grid-template-columns:1fr 1fr;}
+  .betterinv-trade-actions [data-ready] {grid-column:1/-1;grid-row:1;}
+  .betterinv-trade-slot {min-height: 58px;}
+}
