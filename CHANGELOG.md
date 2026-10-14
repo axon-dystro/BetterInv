@@ -1,3 +1,13 @@
+# 1.7.3 — 2026-10-14
+
+- Handelspartner-Suche basiert nun auf tatsächlich für den Client sichtbaren Tokens statt auf Leserechten an fremden Akteuren. Unbesessene NSCs innerhalb von 5 ft können damit im Spielerclient angeboten werden, ohne unbekannte weit entfernte Gegner zu verraten.
+- Die Auswahl übergibt die konkrete Token-ID für die spätere Überprüfung durch den GM. Die Reichweitenprüfung bleibt beim Start, der Zustimmung und dem endgültigen Austausch aktiv.
+- Handelsfenster kompakter aufgebaut: Währungen (fünf Felder) samt Bestand und Angebotsmenge stehen vor den Gegenständen. Beide Parteien sehen ihr jeweiliges Angebot nebeneinander.
+- Klick auf einen freien Plus-Slot öffnet das eigene Axon’s Inventory zum Drag-and-Drop. Die bisherige Gegenstandsauswahl bleibt zusätzlich vorhanden.
+- Token-Rechtsklick und Token-HUD bekommen einen kurzen Handel-Befehl für nahe Wesen, sofern die Foundry-Hooks verfügbar sind.
+- Handelsanfragen mit kompakten Schaltflächen; überflüssige große Fensterbereiche reduziert.
+- Tests für die Sichtbarkeit fremder Tokens im Spielerclient und die bisherigen Handelsregeln erweitert.
+
 # 1.7.2 — 2026-10-12
 
 - Die Handels- und Item-Übertragungsfenster rufen ausdrücklich die aktive NSC- und Token-fähige 5-ft-Suche auf.
