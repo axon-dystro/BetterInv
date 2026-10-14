@@ -444,6 +444,7 @@ function installBetterInvOperationalHooks() {
   if (betterInvOperationalHooks.size) return;
 
   registerBetterInvOperationalHook("controlToken", () => {
+    betterInvState.tradeActor = null;
     scheduleBetterInvGroundVisibilityRefresh();
     if (!isBetterInvWindowOpen()) return;
     scheduleBetterInvRefresh({ preserveScroll: false });
@@ -1365,6 +1366,7 @@ function ensureBetterInvButton() {
 }
 
 function getCurrentActor() {
+  if (betterInvState.tradeActor?.id === betterInvState.actorId) return betterInvState.tradeActor;
   const selected = canvas?.tokens?.controlled?.[0]?.actor;
   if (selected) return selected;
   if (betterInvState.actorId) return game.actors?.get(betterInvState.actorId) ?? null;
@@ -2463,14 +2465,15 @@ async function sortItemsBySavedOrder(actor, items, containerId = null) {
 }
 
 globalThis.getBetterInvInventoryActorId = () => betterInvState.actorId;
-globalThis.openBetterInvInventoryForTrade = actor => {
+globalThis.openBetterInvInventoryForTrade = async actor => {
   if (!actor || !canBetterInvUserModifyActor(actor)) {
     ui.notifications.warn("Du darfst dieses Inventar nicht öffnen.");
     return;
   }
   betterInvState.actorId = actor.id;
+  betterInvState.tradeActor = actor;
   betterInvState.containerId = null;
-  if (!isBetterInvWindowOpen()) renderBetterInvWindow();
+  await renderBetterInvWindow();
   const window = document.getElementById("betterinv-window");
   if (window) {
     window.style.zIndex = "26001";
@@ -2479,6 +2482,7 @@ globalThis.openBetterInvInventoryForTrade = actor => {
 };
 
 function toggleBetterInvWindow() {
+  betterInvState.tradeActor = null;
   const existing = document.getElementById("betterinv-window");
   if (existing) {
     closeBetterInvItemActionMenu();
@@ -6442,23 +6446,6 @@ function canBetterInvUserModifyActor(actor) {
   }
 }
 
-function getBetterInvTransferTargetActors(sourceActor) {
-  const actors = game.actors?.filter(actor => {
-    if (!actor || actor.id === sourceActor?.id) return false;
-    return typeof globalThis.isBetterInvPlayerCharacterActor === "function"
-      ? globalThis.isBetterInvPlayerCharacterActor(actor)
-      : actor.type === "character" && actor.hasPlayerOwner === true;
-  }) ?? [];
-
-  const typeRank = actor => actor.type === "character" ? 0 : actor.type === "npc" ? 1 : 2;
-  actors.sort((left, right) => {
-    const rank = typeRank(left) - typeRank(right);
-    if (rank) return rank;
-    return String(left.name ?? "").localeCompare(String(right.name ?? ""), game.i18n?.lang ?? undefined, { sensitivity: "base" });
-  });
-  return actors;
-}
-
 function getBetterInvActorTypeLabel(actor) {
   const raw = CONFIG?.Actor?.typeLabels?.[actor?.type];
   if (raw) {
@@ -6471,9 +6458,7 @@ function getBetterInvActorTypeLabel(actor) {
 
 
 function getBetterInvNearbyTradeTargets(sourceActor) {
-  // Always use the final override installed by scripts/trading.js. In particular,
-  // the main.js function only enumerates player-owned world Actors and is not
-  // suitable for NPCs or unlinked token Actors.
+  // Trading owns the one authoritative visible-token selector.
   if (typeof globalThis.getBetterInvTradeTokenPair !== "function"
       || typeof globalThis.getBetterInvTransferTargetActors !== "function") {
     ui.notifications.error("Das BetterInv-Handelssystem wurde noch nicht vollständig geladen. Bitte die Foundry-Welt neu laden.");
@@ -6510,7 +6495,7 @@ async function promptBetterInvActorTarget(sourceActor, {
   }
 
   const actorCards = targets.map(actor => `
-    <button type="button" class="betterinv-transfer-actor" data-transfer-actor-id="${escapeAttr(actor.id)}" role="option" aria-selected="false">
+    <button type="button" class="betterinv-transfer-actor" data-transfer-actor-id="${escapeAttr(actor.betterInvTokenId ?? actor.id)}" role="option" aria-selected="false">
       <img src="${escapeAttr(actor.img || "icons/svg/mystery-man.svg")}" alt="">
       <span class="betterinv-transfer-actor-copy">
         <strong>${escapeHtml(actor.name)}</strong>
@@ -6572,7 +6557,8 @@ async function promptBetterInvActorTarget(sourceActor, {
       buttons: {},
       close: () => { for (const [name,id] of rangeHooks) Hooks.off(name,id); done(null); }
     }, {
-      width: 600,
+      width: 540,
+      height: "auto",
       classes: ["betterinv-transfer-window"]
     });
 
@@ -6593,7 +6579,7 @@ async function promptBetterInvActorTarget(sourceActor, {
       const cancel = root.querySelector("[data-transfer-cancel]");
 
       const updateSelection = () => {
-        const target = targets.find(actor => actor.id === selectedActorId && inRange(actor)) ?? null;
+        const target = targets.find(actor => (actor.betterInvTokenId ?? actor.id) === selectedActorId && inRange(actor)) ?? null;
         if (selection) selection.textContent = target ? `Empfänger: ${target.name}` : "Kein Empfänger ausgewählt";
         if (confirm) confirm.disabled = !target;
       };
@@ -6602,11 +6588,11 @@ async function promptBetterInvActorTarget(sourceActor, {
         const query = normalizeBetterInvSearchText(search?.value ?? "").trim();
         let visible = 0;
         actorsElement?.querySelectorAll("[data-transfer-actor-id]").forEach(button => {
-          const actor = targets.find(entry => entry.id === button.dataset.transferActorId);
+          const actor = targets.find(entry => (entry.betterInvTokenId ?? entry.id) === button.dataset.transferActorId);
           const matches = actor && inRange(actor) && (!query || normalizeBetterInvSearchText(`${actor.name} ${getBetterInvActorTypeLabel(actor)} ${actor.type}`).includes(query));
           button.hidden = !matches;
           if (matches) visible += 1;
-          const selected = actor?.id === selectedActorId;
+          const selected = (actor?.betterInvTokenId ?? actor?.id) === selectedActorId;
           button.classList.toggle("is-selected", selected);
           button.setAttribute("aria-selected", selected ? "true" : "false");
         });
@@ -6620,7 +6606,7 @@ async function promptBetterInvActorTarget(sourceActor, {
           updateSelection();
         });
         button.addEventListener("dblclick", () => {
-          const actor = targets.find(entry => entry.id === String(button.dataset.transferActorId ?? ""));
+          const actor = targets.find(entry => (entry.betterInvTokenId ?? entry.id) === String(button.dataset.transferActorId ?? ""));
           if (actor && inRange(actor)) choose(actor);
         });
       });
@@ -6634,7 +6620,7 @@ async function promptBetterInvActorTarget(sourceActor, {
       });
       cancel?.addEventListener("click", () => choose(null));
       confirm?.addEventListener("click", () => {
-        const actor = targets.find(entry => entry.id === selectedActorId);
+        const actor = targets.find(entry => (entry.betterInvTokenId ?? entry.id) === selectedActorId);
         if (actor && inRange(actor)) choose(actor);
       });
       root.querySelectorAll("img").forEach(image => image.addEventListener("error", () => {
@@ -6789,7 +6775,7 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
   const currentQuantity = getItemQuantityData(item).value;
   const itemImage = item.img || "icons/svg/item-bag.svg";
   const actorCards = targets.map(actor => `
-    <button type="button" class="betterinv-transfer-actor" data-transfer-actor-id="${escapeAttr(actor.id)}" role="option" aria-selected="false">
+    <button type="button" class="betterinv-transfer-actor" data-transfer-actor-id="${escapeAttr(actor.betterInvTokenId ?? actor.id)}" role="option" aria-selected="false">
       <img src="${escapeAttr(actor.img || "icons/svg/mystery-man.svg")}" alt="">
       <span class="betterinv-transfer-actor-copy">
         <strong>${escapeHtml(actor.name)}</strong>
@@ -6892,7 +6878,7 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
       };
 
       const updateSelection = () => {
-        const target = targets.find(actor => actor.id === selectedActorId) ?? null;
+        const target = targets.find(actor => (actor.betterInvTokenId ?? actor.id) === selectedActorId) ?? null;
         const quantity = normalizedQuantity();
         if (selection) selection.textContent = target
           ? `${formatBetterInvNumber(quantity)} × ${item.name} → ${target.name}`
@@ -6904,11 +6890,11 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
         const query = normalizeBetterInvSearchText(search?.value ?? "").trim();
         let visible = 0;
         actorsElement?.querySelectorAll("[data-transfer-actor-id]").forEach(button => {
-          const actor = targets.find(entry => entry.id === button.dataset.transferActorId);
+          const actor = targets.find(entry => (entry.betterInvTokenId ?? entry.id) === button.dataset.transferActorId);
           const matches = actor && (!query || normalizeBetterInvSearchText(`${actor.name} ${getBetterInvActorTypeLabel(actor)} ${actor.type}`).includes(query));
           button.hidden = !matches;
           if (matches) visible += 1;
-          const selected = actor?.id === selectedActorId;
+          const selected = (actor?.betterInvTokenId ?? actor?.id) === selectedActorId;
           button.classList.toggle("is-selected", selected);
           button.setAttribute("aria-selected", selected ? "true" : "false");
         });
@@ -6923,7 +6909,7 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
         });
         button.addEventListener("dblclick", () => {
           selectedActorId = String(button.dataset.transferActorId ?? "");
-          const targetActor = targets.find(actor => actor.id === selectedActorId);
+          const targetActor = targets.find(actor => (actor.betterInvTokenId ?? actor.id) === selectedActorId);
           if (targetActor) choose({ targetActor, quantity: normalizedQuantity() });
         });
       });
@@ -6948,7 +6934,7 @@ async function promptBetterInvItemTransfer(sourceActor, item) {
       });
       cancel?.addEventListener("click", () => choose(null));
       confirm?.addEventListener("click", () => {
-        const targetActor = targets.find(actor => actor.id === selectedActorId);
+        const targetActor = targets.find(actor => (actor.betterInvTokenId ?? actor.id) === selectedActorId);
         if (targetActor) choose({ targetActor, quantity: normalizedQuantity() });
       });
 
@@ -7519,13 +7505,6 @@ function isBetterInvPlayerCharacterActor(actor) {
   return actor.hasPlayerOwner === true;
 }
 
-function isBetterInvValidTokenTransferTarget(token, sourceActorId = null) {
-  const actor = token?.actor;
-  if (!actor || actor.id === sourceActorId) return false;
-  if (!isBetterInvPlayerCharacterActor(actor)) return false;
-  return canBetterInvUserModifyActor(actor);
-}
-
 function getBetterInvTokenScreenRect(token) {
   const view = getBetterInvCanvasView();
   const rect = view?.getBoundingClientRect?.();
@@ -7739,18 +7718,21 @@ async function handleBetterInvCanvasItemDrop(canvasInstance, data, event) {
     features.itemTransfer
     && targetActor
     && targetActor.id !== sourceActor.id
-    && (targetActor.type === "npc" || isBetterInvPlayerCharacterActor(targetActor))
     && globalThis.isBetterInvValidTokenTransferTarget?.(token, sourceActor.id)
   );
 
   const quantity = getItemQuantityData(sourceItem).value;
   clearBetterInvTokenDropFeedback();
 
+  if (targetActor && targetActor.id !== sourceActor.id && !validTokenTransfer) {
+    ui.notifications.warn("Dieses Wesen ist nicht sichtbar, nicht in 5 ft Reichweite oder der Handel ist gesperrt.");
+    return;
+  }
   if (validTokenTransfer) {
     const confirmed = await confirmBetterInvTokenItemTransfer(sourceItem, targetActor, quantity);
     if (!confirmed) return;
     await withBetterInvRefreshBatch(
-      () => transferBetterInvItemToActor(sourceActor, sourceItem, targetActor, quantity),
+      () => globalThis.openBetterInvTrade(sourceActor, {id:targetActor.id,betterInvTokenId:token.document?.id ?? token.id}, {items:[{id:sourceItem.id,quantity}],coins:[]}),
       { forceRefresh: true }
     );
     return;
@@ -9909,7 +9891,7 @@ async function promptBetterInvTransferRoute({ title = "Übertragen", description
         <div class="betterinv-transfer-route-dialog">
           <p>${escapeHtml(description)}</p>
           <div class="betterinv-transfer-route-options">
-            <button type="button" data-route="actor"><i class="fas fa-right-left"></i><strong>An Spieler übertragen</strong><small>Empfänger auswählen</small></button>
+            <button type="button" data-route="actor"><i class="fas fa-right-left"></i><strong>Mit Wesen handeln</strong><small>Anfrage mit diesem Gegenstand senden</small></button>
             <button type="button" data-route="ground"><i class="fas fa-hand-sparkles"></i><strong>Auf den Boden legen</strong><small>Am ausgewählten Token oder Mauszeiger</small></button>
           </div>
         </div>`,
@@ -9921,7 +9903,8 @@ async function promptBetterInvTransferRoute({ title = "Übertragen", description
         }
       }
     }, {
-      width: 510,
+      width: 470,
+      height: "auto",
       classes: ["betterinv-standard-dialog", "betterinv-transfer-window", "betterinv-transfer-route-window"]
     });
     dialog.render(true);
@@ -11396,6 +11379,7 @@ function installBetterInvDelegatedWindowControls(windowEl, actor, activeContaine
     if (gmActorButton) {
       event.preventDefault();
       event.stopPropagation();
+      betterInvState.tradeActor = null;
       betterInvState.actorId = gmActorButton.dataset.actorId;
       betterInvState.containerId = null;
       betterInvState.gmRestrictionScope = "";

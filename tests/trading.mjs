@@ -189,7 +189,7 @@ assert.equal(emissions.at(-1).state.status,'cancelled');
 assert.match(emissions.at(-1).state.error,/5 ft/);
 tb.x = 100;
 // Metric scenes are converted to feet, not treated as a five-metre radius.
-scene.grid.units = 'm';
+scene.grid.units = 'm'; scene.grid.distance = 1.5;
 scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x),Math.abs(a.y-b.y))/100*1.5});
 assert.ok(context.getBetterInvTradeTokenPair(a,b));
 tb.x = 200; assert.equal(context.getBetterInvTradeTokenPair(a,b),null);
@@ -227,7 +227,7 @@ context.game.user=users.get('gm');
 await action('cancel',{id:shared.id,actorId:'a'},'alice');
 
 // Nearby NPC tokens must be eligible even when unlinked. The GM is their accepting participant.
-scene.grid.units = 'ft';
+scene.grid.units = 'ft'; scene.grid.distance = 5;
 scene.grid.measurePath = ([a,b]) => ({distance:Math.max(Math.abs(a.x-b.x)/100*5,Math.abs(a.y-b.y)/100*5,Math.abs(a.elevation-b.elevation))});
 const npc = actor('innkeeper','gm',8);
 npc.type = 'npc';
@@ -256,3 +256,58 @@ await assert.rejects(action('open',{
   sourceActorId:'a',targetActorId:'innkeeper',sourceTokenId:'ta',targetTokenId:'tn',sceneId:'scene',offer:offer()
 }),/5 ft/);
 console.log('Unlinked NPC trading tests passed: visibility, GM approval, mutual confirmation, transfer, five-foot gate.');
+
+// Regression: eligibility is independent of the old player-owner helper.
+context.isBetterInvPlayerCharacterActor = () => false;
+context.game.user = users.get('alice');
+assert.ok(context.getBetterInvTransferTargetActors(a).some(t => t.id === 'b'));
+b.owner = null;
+assert.ok(context.getBetterInvTransferTargetActors(a).some(t => t.id === 'b'));
+context.game.user = users.get('gm');
+let unowned = await invite([]);
+assert.equal(unowned.sides[1].userId,'gm');
+await action('cancel',payload(unowned,'a'));
+b.owner = 'bob';
+let gmInvite = await action('open',{sourceActorId:'a',targetActorId:'b',sourceTokenId:'ta',targetTokenId:'tb',sceneId:'scene',offer:offer()},'gm');
+assert.equal(gmInvite.sides[1].userId,'bob');
+await action('cancel',payload(gmInvite,'a'),'gm');
+context.game.user = users.get('alice');
+assert.equal(context.getBetterInvTransferTargetActors(b).length,0,'Only the source requires ownership');
+tb.y = 100;
+assert.ok(context.getBetterInvTradeTokenPair(a,b),'Diagonal neighbour is in range');
+tb.y = 0; ta.width = 2; tb.x = 200;
+assert.ok(context.getBetterInvTradeTokenPair(a,b),'Large tokens use their nearest occupied square');
+ta.width = 1; tb.x = 100;
+ta.level={id:'ground'}; tb.level={id:'upper'};
+assert.equal(context.getBetterInvTradeTokenPair(a,b),null,'Different levels cannot trade');
+delete ta.level; delete tb.level;
+tb.hidden=true;
+assert.ok(!context.getBetterInvTransferTargetActors(a).some(t=>t.id==='b'));
+tb.hidden=false; placeables[1].isVisible=false;
+assert.ok(!context.getBetterInvTransferTargetActors(a).some(t=>t.id==='b'),'Fog visibility is required');
+placeables[1].isVisible=true;
+const primaryGm=context.getBetterInvPrimaryActiveGm;
+context.getBetterInvPrimaryActiveGm=()=>null;
+await assert.rejects(context.openBetterInvTrade(a,b),/GM online/);
+context.getBetterInvPrimaryActiveGm=primaryGm;
+await assert.rejects(context.executeBetterInvGmGroundAction('transferItem',{},'alice'),/beidseitig/);
+context.game.user=users.get('gm');
+const currentItem=[...a.items][0];
+let invalid = await invite([]);
+invalid = await action('accept',payload(invalid,'b'),'bob');
+await assert.rejects(action('offer',payload(invalid,'a',{offer:offer([{id:currentItem.id,quantity:999}])})),/Menge/);
+await action('cancel',payload(invalid,'a'));
+
+// Configured labels are read from the same wallet/currency provider on both sides.
+const customCoins=[['pp','Platin','PP'],['gp','Redinium','RD'],['ep','Elektrum','EP'],['sp','Silber','SP'],['cp','Kupfer','CP']].map(([key,name,abbreviation])=>({key,name,abbreviation}));
+context.getBetterInvCurrencies=()=>customCoins;
+context.getBetterInvCurrencyWallet=actor=>customCoins.map(c=>({...c,value:c.key==='gp'?actor.gold:12,storage:{updatePath:c.key==='gp'?'gold':c.key}}));
+shared=await invite([]);
+shared=await action('accept',payload(shared,'b'),'bob');
+shared.sides[0].offer.items=[{id:currentItem.id,quantity:1,name:'Trank der außergewöhnlichen Heilung',img:'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22%3E%3Crect x=%2210%22 y=%2210%22 width=%2220%22 height=%2228%22 rx=%226%22 fill=%22purple%22/%3E%3C/svg%3E'}];
+shared.sides[1].offer.coins=[{key:'gp',amount:3}];
+show('alice');
+assert.equal((renderedContent.match(/Redinium/g)??[]).length,3,'Both sides and own input use configured currency name');
+assert.ok(!renderedContent.includes('>Gold<'));
+if (process.env.BETTERINV_UI_FIXTURE) fs.writeFileSync(process.env.BETTERINV_UI_FIXTURE,renderedContent);
+console.log('1.7.4 regressions passed: owner-independent targets, GM/player routing, source permissions, diagonal/large/hidden/level tokens, no GM, legacy bypass rejected, excessive item quantity, configured labels.');

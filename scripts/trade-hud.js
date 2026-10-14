@@ -3,9 +3,7 @@
   let menu = null;
   function closeMenu() { menu?.remove(); menu = null; }
   function sourceActor() {
-    const actorId = globalThis.getBetterInvInventoryActorId?.();
-    return game.user?.character ?? game.actors?.get?.(actorId)
-      ?? canvas?.tokens?.controlled?.[0]?.actor ?? null;
+    return globalThis.getBetterInvTradeSourceActor?.() ?? null;
   }
   function canTradeWith(token) {
     const source = sourceActor();
@@ -40,10 +38,30 @@
     const dismiss = e => {if (menu && !menu.contains(e.target)) closeMenu();};
     setTimeout(() => document.addEventListener("pointerdown",dismiss,{once:true,capture:true}),0);
   }
-  Hooks.on("rightClickToken",(token,event) => {
-    if (!canTradeWith(token)) return;
-    showMenu(token,event);
-  });
+  // rightClickToken is not a Foundry v14 hook. Observe the canvas DOM gesture
+  // without replacing core handlers or requiring HUD ownership on the target.
+  let controller;
+  function installCanvasMenu() {
+    closeMenu();
+    controller?.abort();
+    controller = new AbortController();
+    const view = globalThis.getBetterInvCanvasView?.();
+    if (!view) return;
+    let start = null;
+    view.addEventListener("pointerdown", event => {
+      start = event.button === 2 ? {x:event.clientX,y:event.clientY} : null;
+    }, {capture:true,signal:controller.signal});
+    view.addEventListener("pointerup", event => {
+      const origin = start; start = null;
+      if (event.button !== 2 || !origin || Math.hypot(event.clientX-origin.x,event.clientY-origin.y) > 6) return;
+      const point = globalThis.getBetterInvCanvasPointFromPointerEvent?.(event);
+      if (!point) return;
+      const token = globalThis.findBetterInvTokenAtCanvasPoint?.(canvas,point.x,point.y);
+      if (canTradeWith(token)) showMenu(token,event);
+    }, {capture:true,signal:controller.signal});
+  }
+  Hooks.on("canvasReady", installCanvasMenu);
+  Hooks.on("canvasTearDown", () => {controller?.abort();closeMenu();});
   Hooks.on("renderTokenHUD",(hud,html) => {
     const token = hud?.object ?? canvas?.tokens?.hud?.object;
     if (!canTradeWith(token)) return;
@@ -60,5 +78,4 @@
     button.addEventListener("keydown",e => {if(e.key==="Enter"||e.key===" "){e.preventDefault();void tradeWith(token);}});
     col.prepend(button);
   });
-  Hooks.on("canvasReady",closeMenu);
 })();

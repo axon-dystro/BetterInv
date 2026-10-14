@@ -1,8 +1,8 @@
 {
   "name": "axons-inventory",
   "private": true,
-  "version": "1.7.3",
+  "version": "1.7.4",
   "scripts": {
-    "test": "node tests/static-audit.mjs && node tests/trading.mjs && node tests/target-picker.mjs"
+    "test": "node tests/static-audit.mjs && node tests/trading.mjs && node tests/target-picker.mjs && node tests/trade-hud.mjs"
   }
 }
