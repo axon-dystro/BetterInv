@@ -280,7 +280,7 @@
       if (!features.itemTransfer && !features.currencyTransfer) throw new Error("Handel ist für diesen Spieler gesperrt.");
       const owner = getBetterInvUsersArray().filter(u => u.active && !u.isGM && canBetterInvUserModifyActorAs(target, u))
         .sort((a,b) => Number(b.character?.id === target.id) - Number(a.character?.id === target.id) || String(a.id).localeCompare(String(b.id)))[0]
-        ?? (target.type === "npc" ? getBetterInvPrimaryActiveGm() : (canBetterInvUserModifyActorAs(target, user) ? user : null));
+        ?? (canBetterInvUserModifyActorAs(target, user) ? user : getBetterInvPrimaryActiveGm());
       if (!owner) throw new Error("Der Besitzer dieses Charakters muss für den Handel online sein.");
       const pair = findPair(actor,target,game.scenes.get(payload.sceneId),payload.sourceTokenId,payload.targetTokenId);
       if (!pair) throw new Error("Die Handelspartner müssen auf derselben Szene innerhalb von 5 ft stehen.");
@@ -386,14 +386,20 @@
         const editable = mine && state.status === "open";
         const actor = actorForSide(state,state.sides.indexOf(side));
         const slots = side.offer.items.map(item => `<article class="betterinv-trade-slot is-filled"><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt=""><span class="betterinv-trade-item-name">${escapeHtml(item.name)}</span><strong class="betterinv-trade-quantity">×${item.quantity}</strong>${editable ? `<button type="button" data-remove-item="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.name)} entfernen">×</button>` : ""}</article>`);
-        while (slots.length < 6) slots.push(`<div class="betterinv-trade-slot is-empty" aria-hidden="true"><span>＋</span></div>`);
+        while (slots.length < 6) slots.push(editable && slots.length === side.offer.items.length ? `<button type="button" class="betterinv-trade-slot is-empty is-add" data-open-inventory title="Eigenes Inventar öffnen und Gegenstände hineinziehen"><span>＋</span><small>Inventar</small></button>` : `<div class="betterinv-trade-slot is-empty" aria-hidden="true"><span>＋</span></div>`);
         return `<section data-trade-side="${escapeAttr(side.actorId)}" class="${mine ? "is-own" : "is-partner"}">
           <header class="betterinv-trade-player"><span class="betterinv-trade-kicker">${mine ? "DEIN ANGEBOT" : "ANGEBOT DEINES HANDELSPARTNERS"}</span><h3>${escapeHtml(side.name)}</h3><span class="betterinv-trade-status ${side.ready ? "is-ready" : ""}">${side.ready ? "✓ Bestätigt" : "Noch nicht bestätigt"}</span></header>
+          <div class="betterinv-trade-money">
+            <div class="betterinv-trade-section-label"><span>Münzen anbieten</span><span>${editable ? "Dein Bestand" : "Gegenangebot"}</span></div>
+            <div class="betterinv-trade-coins">${(editable ? getBetterInvCurrencyWallet(actor) : getBetterInvCurrencies()).map(coin => `<label class="betterinv-trade-money-card">
+              <span class="betterinv-trade-money-name">${escapeHtml(coin.name || coin.abbreviation)}</span>
+              <span class="betterinv-trade-money-abbr">${escapeHtml(coin.abbreviation)}</span>
+              ${editable ? `<strong class="betterinv-trade-balance">Besitz: ${coin.value}</strong><input data-trade-coin="${escapeAttr(coin.key)}" aria-label="${escapeAttr(coin.name || coin.abbreviation)} anbieten" type="number" min="0" max="${coin.value}" step="1" value="${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}">` : `<strong class="betterinv-trade-other-amount">${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}</strong><small>Angeboten</small>`}
+              </label>`).join("")}</div>
+          </div>
           <div class="betterinv-trade-section-label"><span>Gegenstände</span><span>${side.offer.items.length} angeboten</span></div>
           <div class="betterinv-trade-drop" data-trade-drop>${slots.join("")}</div>
-          <div class="betterinv-trade-drop-hint">${editable ? "Items hier hineinziehen" : "Angebot wird gemeinsam angezeigt"}</div>
-          <div class="betterinv-trade-section-label"><span>Münzen</span><span>Im Angebot</span></div>
-          <div class="betterinv-trade-coins">${(editable ? getBetterInvCurrencyWallet(actor) : getBetterInvCurrencies()).map(coin => `<label><span class="betterinv-trade-coin-label"><span class="betterinv-trade-coin-icon" aria-hidden="true">●</span>${escapeHtml(coin.abbreviation)}</span>${editable ? `<input data-trade-coin="${escapeAttr(coin.key)}" aria-label="${escapeAttr(coin.abbreviation)} anbieten" type="number" min="0" max="${coin.value}" step="1" value="${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}"><small>von ${coin.value}</small>` : `<strong>${side.offer.coins.find(c => c.key === coin.key)?.amount ?? 0}</strong>`}</label>`).join("")}</div>
+          <div class="betterinv-trade-drop-hint">${editable ? "Mit + das Inventar öffnen oder Gegenstände hierher ziehen" : "Angebot des Handelspartners"}</div>
           ${editable ? `<details class="betterinv-trade-picker"><summary>Gegenstand hinzufügen</summary><div class="betterinv-trade-add"><select data-trade-item aria-label="Gegenstand">${Array.from(actor.items).filter(item => isBetterInvInventoryItemType(item.type) && getItemQuantityData(item).value > 0).map(item => `<option value="${escapeAttr(item.id)}">${escapeHtml(item.name)} (${getItemQuantityData(item).value})</option>`).join("")}</select><input data-trade-quantity type="number" min="1" step="1" value="1" aria-label="Menge"><button type="button" data-add-item>Hinzufügen</button></div></details><footer class="betterinv-trade-actions"><button type="button" data-save-offer>Angebot speichern</button><button type="button" data-ready ${side.ready ? "disabled" : ""}>${side.ready ? "✓ Bestätigt" : "Handel bestätigen"}</button><button type="button" data-cancel>Abbrechen</button></footer>` : `<footer class="betterinv-trade-partner-status">${side.ready ? "✓ Dein Handelspartner ist bereit" : "Warte auf die Bestätigung deines Handelspartners"}</footer>`}
         </section>`;
       }).join("")}</div>
@@ -416,6 +422,9 @@
         section.querySelectorAll("[data-trade-coin]").forEach(input => {
           input.addEventListener("input", markDirty);
           input.addEventListener("change", () => send(state, side, "offer", offer()));
+        });
+        section.querySelector("[data-open-inventory]")?.addEventListener("click", () => {
+          globalThis.openBetterInvInventoryForTrade?.(actorForSide(state,state.sides.indexOf(side)));
         });
         section.querySelector("[data-save-offer]").onclick = () => send(state, side, "offer", offer());
         ready.onclick = () => { if (!dirty) send(state, side, "ready"); };
@@ -457,7 +466,7 @@
     else {
       dialog = new Dialog({ title: "Handel · Items & Gold", content, buttons: {}, render: bind,
         close: () => { windows.delete(state.id); if (dialog.betterInvTradeStatus === "open") send(dialog.betterInvTradeState, owned[0], "cancel"); }
-      }, { width: 760, height: "auto", resizable: true, classes:["betterinv-trade-window","betterinv-dialog-theme"] });
+      }, { width: 870, height: 610, resizable: true, classes:["betterinv-trade-window","betterinv-dialog-theme"] });
       dialog.betterInvTradeStatus = state.status; dialog.betterInvTradeState = state;
       windows.set(state.id, dialog); dialog.render(true);
     }
