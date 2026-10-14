@@ -36,6 +36,7 @@
     "scripts/v14-compat.js",
     "scripts/peer-transfers.js",
     "scripts/trading.js",
+    "scripts/trade-hud.js",
     "scripts/ground-effects.js"
   ],
   "styles": [
