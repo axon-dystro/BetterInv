@@ -1,3 +1,7 @@
+# 1.7.4
+
+Handelsziele unabhängig von fremder Ownership, alten Peer-Transfer-Patch entfernt, kompakte Handels-/Empfängerdialoge, zentrale Währungsnamen und echte Canvas-Rechtsklick-Geste. Erweiterte Regressionstests; Details in RELEASE_NOTES_1.7.4.md.
+
 # 1.7.3 — 2026-10-14
 
 - Handelspartner-Suche basiert nun auf tatsächlich für den Client sichtbaren Tokens statt auf Leserechten an fremden Akteuren. Unbesessene NSCs innerhalb von 5 ft können damit im Spielerclient angeboten werden, ohne unbekannte weit entfernte Gegner zu verraten.

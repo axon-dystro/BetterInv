@@ -12,14 +12,13 @@
     if (!Number.isSafeInteger(n) || n < 0) throw new Error("Mengen müssen ganze, nicht negative Zahlen sein.");
     return n;
   };
-  const originalItemTransfer = globalThis.transferBetterInvItemToActor;
-  const originalCoinTransfer = globalThis.commitBetterInvCurrencyTransfer;
   function tokenActorMatches(token, actor) {
     // Unlinked Foundry token documents expose synthetic actors. Those must not disappear
     // merely because actorLink is false, and the token's own actor must be used for writes.
-    return Boolean(token && actor && (token.actor?.id === actor.id || token.actorId === actor.id));
+    return Boolean(token && actor && (!actor.isToken || !actor.token?.id || actor.token.id === token.id)
+      && (token.actor?.id === actor.id || token.actorId === actor.id));
   }
-  const tradeableTarget = actor => Boolean(actor && (actor.type === "npc" || isBetterInvPlayerCharacterActor(actor)));
+  const tradeableTarget = actor => Boolean(actor?.id);
   function actorForSide(session, index) {
     const scene = game.scenes.get(session.sceneId);
     const tokenId = index ? session.targetTokenId : session.sourceTokenId;
@@ -50,14 +49,17 @@
     if (!source || !target || !scene?.grid?.measurePath || source.hidden || target.hidden) return Infinity;
     // v14 levels can overlap in x/y without sharing physical space.
     if (source.level?.id && target.level?.id && source.level.id !== target.level.id) return Infinity;
+    const elevation = convertBetterInvSceneDistanceToFeet(Math.abs(Number(source.elevation ?? 0) - Number(target.elevation ?? 0)),scene);
     let distance = Infinity;
     for (const from of tokenPoints(source, scene)) for (const to of tokenPoints(target, scene)) {
-      const measured = Number(scene.grid.measurePath([from, to]).distance);
+      const measured = scene.grid.isSquare
+        ? Math.max(Math.abs(from.x-to.x),Math.abs(from.y-to.y)) / Number(scene.grid.size) * Number(scene.grid.distance)
+        : Number(scene.grid.measurePath([from, to]).distance);
       if (Number.isFinite(measured)) distance = Math.min(distance, convertBetterInvSceneDistanceToFeet(measured, scene));
     }
-    return distance;
+    return Math.max(distance,elevation);
   }
-  function findPair(sourceActor, targetActor, scene = canvas?.scene, sourceTokenId = null, targetTokenId = null) {
+  function findPair(sourceActor, targetActor, scene = canvas?.scene, sourceTokenId = sourceActor?.token?.id ?? null, targetTokenId = targetActor?.betterInvTokenId ?? targetActor?.token?.id ?? null) {
     const tokens = Array.from(scene?.tokens ?? []);
     let sources = tokens.filter(token => tokenActorMatches(token, sourceActor) && (!sourceTokenId || token.id === sourceTokenId));
     if (!sourceTokenId && scene?.id === canvas?.scene?.id) {
@@ -68,6 +70,7 @@
     const targets = tokens.filter(token => tokenActorMatches(token, targetActor) && (!targetTokenId || token.id === targetTokenId));
     let pair = null;
     for (const source of sources) for (const target of targets) {
+      if (source.id === target.id || (source.actorLink && target.actorLink && source.actorId === target.actorId && source.actorId)) continue;
       const distance = tokenDistance(source, target, scene);
       if (distance <= 5 + 1e-6 && (!pair || distance < pair.distance)) pair = {sourceTokenId:source.id, targetTokenId:target.id, sceneId:scene.id, distance};
     }
@@ -107,7 +110,7 @@
       img: token.texture?.src || "icons/svg/mystery-man.svg", type };
   }
   globalThis.getBetterInvTransferTargetActors = sourceActor => {
-    if (!sourceActor?.id) return [];
+    if (!sourceActor?.id || !canBetterInvUserModifyActorAs(sourceActor,game.user)) return [];
     const candidates = [];
     for (const token of visibleTradeDocuments()) {
       const target = tradeTargetForToken(token);
@@ -129,24 +132,24 @@
       && visibleTradeDocuments().some(doc => doc.id === targetToken?.id)
       && findPair(source,target,canvas?.scene,null,targetToken.id));
   };
+  globalThis.getBetterInvTradeSourceActor = () => [
+    canvas?.tokens?.controlled?.[0]?.actor,
+    game.actors.get(globalThis.getBetterInvInventoryActorId?.()), game.user?.character
+  ].find(actor => actor && canBetterInvUserModifyActorAs(actor,game.user)) ?? null;
   globalThis.openBetterInvTradeWithToken = async token => {
     const targetDoc = token?.document ?? token;
-    const source = game.user?.character
-      ?? game.actors.get(globalThis.getBetterInvInventoryActorId?.())
-      ?? canvas?.tokens?.controlled?.[0]?.actor;
+    const source = globalThis.getBetterInvTradeSourceActor();
     const target = tradeTargetForToken(targetDoc);
     if (!source || !target || source.id === target.id) throw new Error("Wähle einen eigenen Charakter und ein anderes Wesen.");
     if (!visibleTradeDocuments().some(doc => doc.id === targetDoc.id)) throw new Error("Das Ziel ist nicht sichtbar.");
     if (!canBetterInvUserModifyActorAs(source,game.user)) throw new Error("Du darfst diesen Charakter nicht handeln lassen.");
-    return globalThis.openBetterInvTrade(source,{...target,betterInvTokenId:targetDoc.id});
+    return globalThis.openBetterInvTrade(source,{id:target.id,name:targetDoc.name || target.name,type:target.type,betterInvTokenId:targetDoc.id});
   };
   // All direct handoffs to a character become invitations, including canvas drops.
   globalThis.transferBetterInvItemToActor = async (sourceActor,item,targetActor,quantity = 1,options = {}) => {
-    if (!tradeableTarget(targetActor)) return originalItemTransfer(sourceActor,item,targetActor,quantity,options);
     return openBetterInvTrade(sourceActor,targetActor,{items:[{id:item.id,quantity:quantity ?? 1}],coins:[]});
   };
   globalThis.commitBetterInvCurrencyTransfer = async (sourceActor,targetActor,transfers) => {
-    if (!tradeableTarget(targetActor)) return originalCoinTransfer(sourceActor,targetActor,transfers);
     return openBetterInvTrade(sourceActor,targetActor,{items:[],coins:transfers.map(({key,amount}) => ({key,amount}))});
   };
   function validateOffer(actor, user, offer) {
@@ -263,6 +266,7 @@
     }
   }
   globalThis.executeBetterInvGmGroundAction = async function(action, payload = {}, userId = null) {
+    if (["transferItem","transferCurrency"].includes(action)) throw new Error("Übergaben erfordern eine beidseitig bestätigte Handelsanfrage.");
     if (!String(action).startsWith("trade:")) return originalAction(action, payload, userId);
     if (!game.user.isGM || game.user.id !== getBetterInvPrimaryActiveGm()?.id) throw new Error("Handel benötigt den aktiven Haupt-GM.");
     const user = game.users.get(userId);
@@ -350,7 +354,7 @@
     const isRecipient = recipient.userId === game.user.id;
     const side = isRecipient ? recipient : state.sides[0];
     const offered = state.sides[0].offer;
-    const summary = [...offered.items.map(item => `${item.quantity} × ${item.name}`), ...offered.coins.map(coin => `${coin.amount} ${coin.abbreviation}`)].join(" · ");
+    const summary = [...offered.items.map(item => `${item.quantity} × ${item.name}`), ...offered.coins.map(coin => `${coin.amount} ${getBetterInvCurrencies().find(c => c.key === coin.key)?.name || coin.abbreviation}`)].join(" · ");
     const content = `<div class="betterinv-trade-invitation"><span class="betterinv-trade-range">Innerhalb von 5 ft</span>
       <h3>${escapeHtml(state.sides[0].name)} möchte mit ${escapeHtml(recipient.name)} handeln</h3>
       <p>${escapeHtml(summary || "Items & Münzen im gemeinsamen Handelsfenster")}</p>
@@ -385,8 +389,8 @@
         const mine = owned.includes(side);
         const editable = mine && state.status === "open";
         const actor = actorForSide(state,state.sides.indexOf(side));
-        const slots = side.offer.items.map(item => `<article class="betterinv-trade-slot is-filled"><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt=""><span class="betterinv-trade-item-name">${escapeHtml(item.name)}</span><strong class="betterinv-trade-quantity">×${item.quantity}</strong>${editable ? `<button type="button" data-remove-item="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.name)} entfernen">×</button>` : ""}</article>`);
-        while (slots.length < 6) slots.push(editable && slots.length === side.offer.items.length ? `<button type="button" class="betterinv-trade-slot is-empty is-add" data-open-inventory title="Eigenes Inventar öffnen und Gegenstände hineinziehen"><span>＋</span><small>Inventar</small></button>` : `<div class="betterinv-trade-slot is-empty" aria-hidden="true"><span>＋</span></div>`);
+        const slots = side.offer.items.map(item => `<article class="betterinv-trade-slot is-filled" title="${escapeAttr(item.name)} · ×${item.quantity}"><img src="${escapeAttr(item.img || "icons/svg/item-bag.svg")}" alt=""><span class="betterinv-trade-item-name">${escapeHtml(item.name)}</span><strong class="betterinv-trade-quantity">×${item.quantity}</strong>${editable ? `<button type="button" data-remove-item="${escapeAttr(item.id)}" aria-label="${escapeAttr(item.name)} entfernen">×</button>` : ""}</article>`);
+        while (slots.length < 6) slots.push(editable && slots.length === side.offer.items.length ? `<button type="button" class="betterinv-trade-slot is-empty is-add" data-open-inventory title="Eigenes Inventar öffnen und Gegenstände hineinziehen"><span>+</span><small>Inventar</small></button>` : `<div class="betterinv-trade-slot is-empty" aria-hidden="true"><span>+</span></div>`);
         return `<section data-trade-side="${escapeAttr(side.actorId)}" class="${mine ? "is-own" : "is-partner"}">
           <header class="betterinv-trade-player"><span class="betterinv-trade-kicker">${mine ? "DEIN ANGEBOT" : "ANGEBOT DEINES HANDELSPARTNERS"}</span><h3>${escapeHtml(side.name)}</h3><span class="betterinv-trade-status ${side.ready ? "is-ready" : ""}">${side.ready ? "✓ Bestätigt" : "Noch nicht bestätigt"}</span></header>
           <div class="betterinv-trade-money">
@@ -423,8 +427,9 @@
           input.addEventListener("input", markDirty);
           input.addEventListener("change", () => send(state, side, "offer", offer()));
         });
-        section.querySelector("[data-open-inventory]")?.addEventListener("click", () => {
-          globalThis.openBetterInvInventoryForTrade?.(actorForSide(state,state.sides.indexOf(side)));
+        section.querySelector("[data-open-inventory]")?.addEventListener("click", async () => {
+          try { await globalThis.openBetterInvInventoryForTrade?.(actorForSide(state,state.sides.indexOf(side))); }
+          catch (error) { ui.notifications.error(error.message); }
         });
         section.querySelector("[data-save-offer]").onclick = () => send(state, side, "offer", offer());
         ready.onclick = () => { if (!dirty) send(state, side, "ready"); };
@@ -464,16 +469,17 @@
     };
     if (dialog) { dialog.betterInvTradeStatus = state.status; dialog.betterInvTradeState = state; dialog.data.content = content; dialog.data.render = bind; dialog.render(true); }
     else {
-      dialog = new Dialog({ title: "Handel · Items & Gold", content, buttons: {}, render: bind,
+      dialog = new Dialog({ title: "Handel · Gegenstände & Münzen", content, buttons: {}, render: bind,
         close: () => { windows.delete(state.id); if (dialog.betterInvTradeStatus === "open") send(dialog.betterInvTradeState, owned[0], "cancel"); }
-      }, { width: 870, height: 610, resizable: true, classes:["betterinv-trade-window","betterinv-dialog-theme"] });
+      }, { width: 900, height: "auto", resizable: true, classes:["betterinv-trade-window","betterinv-dialog-theme"] });
       dialog.betterInvTradeStatus = state.status; dialog.betterInvTradeState = state;
       windows.set(state.id, dialog); dialog.render(true);
     }
   }
   globalThis.openBetterInvTrade = async function(sourceActor, targetActor, offer = emptyOffer()) {
+    if (!canBetterInvUserModifyActorAs(sourceActor,game.user)) throw new Error("Du darfst nur mit deinem eigenen Charakter handeln.");
     if (!getBetterInvPrimaryActiveGm()) throw new Error("Für den Handel muss ein GM online sein.");
-    const pair = findPair(sourceActor,targetActor,canvas?.scene,null,targetActor?.betterInvTokenId ?? null);
+    const pair = findPair(sourceActor,targetActor,canvas?.scene,sourceActor?.token?.id ?? null,targetActor?.betterInvTokenId ?? targetActor?.token?.id ?? null);
     if (!pair) throw new Error("Zum Handeln müssen beide Tokens innerhalb von 5 ft auf der Szene stehen.");
     if (!game.user?.isGM && !visibleTradeDocuments().some(token => token.id === pair.targetTokenId)) throw new Error("Der Zieltoken ist nicht sichtbar.");
     const state = await requestBetterInvGmGroundAction("trade:open", { sourceActorId: sourceActor.id, targetActorId: targetActor.id, ...pair, offer });
@@ -490,6 +496,10 @@
         }
       }
     };
+    Hooks.on("updateSetting", setting => {
+      if (setting?.key !== "betterinv.currencyLabels") return;
+      for (const state of receivedStates.values()) if (state.status === "open") renderTrade(state);
+    });
     Hooks.on("updateToken", checkSessions);
     Hooks.on("deleteToken", checkSessions);
     Hooks.on("deleteScene", checkSessions);

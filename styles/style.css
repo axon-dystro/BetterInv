@@ -8157,279 +8157,94 @@ button.betterinv-category-picker:focus-visible {
 }
 
 /* Two-sided trading uses the inventory's own charcoal, gold and violet tokens. */
-.betterinv-trade-window .window-content { padding: 0; background: var(--bi-bg); color: var(--bi-text); }
-.betterinv-trade-window .dialog-content { padding: 0; color: inherit; }
-.betterinv-trade { color: var(--bi-text); font-family: Signika, Georgia, serif; background: linear-gradient(180deg, var(--bi-bg), #16101f); }
-.betterinv-trade-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--bi-border-soft); background: linear-gradient(180deg, var(--bi-header), #15101c); }
-.betterinv-trade-kicker { display: block; color: var(--bi-gold); font-size: 11px; letter-spacing: .06em; }
-.betterinv-trade-heading h2 { margin: 4px 0 0; border: 0; color: var(--bi-text); font-size: 22px; }
-.betterinv-trade-range { color: var(--bi-muted); font-size: 12px; white-space: nowrap; }
-.betterinv-trade-sides { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0; }
-.betterinv-trade-sides > section { min-width: 0; padding: 16px; background: linear-gradient(180deg, rgba(255,255,255,.015), transparent); }
-.betterinv-trade-sides > section + section { border-left: 1px solid var(--bi-border-soft); }
-.betterinv-trade-player { min-height: 91px; padding-bottom: 12px; }
-.betterinv-trade-player h3 { margin: 6px 0 8px; border: 0; color: var(--bi-text); font-size: 17px; overflow-wrap: anywhere; }
-.betterinv-trade-status { display: inline-block; color: var(--bi-muted); font-size: 12px; }
-.betterinv-trade-status.is-ready { color: var(--bi-gold); }
-.betterinv-trade-section-label { display: flex; justify-content: space-between; gap: 6px; padding: 8px 0; color: var(--bi-text); font-size: 12px; }
-.betterinv-trade-section-label span + span { color: var(--bi-muted); font-size: 11px; }
-.betterinv-trade-drop { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; min-height: 188px; }
-.betterinv-trade-slot { position: relative; min-width: 0; min-height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; padding: 7px 4px; border: 1px solid var(--bi-border-soft); border-radius: 3px; background: linear-gradient(180deg, var(--bi-panel-2), #0c0c0f); box-shadow: 0 0 0 1px #0008 inset; }
-.betterinv-trade-slot.is-filled { border-color: var(--bi-border); background: linear-gradient(180deg, #25202b, #121016); }
-.betterinv-trade-slot.is-empty { color: var(--bi-border); background: #0b0b0e; }
-.betterinv-trade-slot.is-empty span { font-size: 22px; }
-.betterinv-trade-slot img { width: 36px; height: 36px; object-fit: contain; border: 0; }
-.betterinv-trade-item-name { max-width: 100%; text-align: center; overflow-wrap: anywhere; font-size: 11px; color: var(--bi-text); }
-.betterinv-trade-quantity { position: absolute; top: 5px; left: 6px; color: var(--bi-gold); font-size: 12px; }
-.betterinv-trade-window [data-remove-item] { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; min-height: 0; padding: 0; margin: 0; border: 0; color: var(--bi-muted); background: transparent; box-shadow: none; }
-.betterinv-trade-drop-hint { padding: 8px 0 14px; color: var(--bi-muted); font-size: 11px; min-height: 36px; }
-.betterinv-trade-coins { border-top: 1px solid var(--bi-border-soft); border-bottom: 1px solid var(--bi-border-soft); }
-.betterinv-trade-coins label { display: grid; grid-template-columns: 52px minmax(0, 1fr) 55px; align-items: center; gap: 8px; min-height: 39px; padding: 5px 8px; margin: 0; border-bottom: 1px solid rgba(158,139,83,.13); background: var(--bi-panel); }
-.betterinv-trade-coins label:last-child { border-bottom: 0; }
-.betterinv-trade-coins label:nth-child(even) { background: var(--bi-panel-2); }
-.betterinv-trade-coin-label { display: flex; align-items: center; gap: 7px; color: var(--bi-text); font-size: 12px; }
-.betterinv-trade-coin-icon { color: var(--bi-gold); font-size: 15px; }
-.betterinv-trade-coins label strong { grid-column: 2 / 4; text-align: right; color: var(--bi-gold); font-size: 16px; padding-right: 4px; }
-.betterinv-trade-coins small { text-align: right; color: var(--bi-muted); font-size: 11px; }
-.betterinv-trade-window :is(input, select) { box-sizing: border-box; min-width: 0; width: 100%; height: 30px; padding: 4px 7px; border: 1px solid var(--bi-border-soft); border-radius: 3px; background: #09090c; color: var(--bi-text); font: inherit; color-scheme: dark; }
-.betterinv-trade-coins input { text-align: right; }
-.betterinv-trade-window button { box-sizing: border-box; min-height: 32px; padding: 6px 10px; margin: 0; border: 1px solid var(--bi-border-soft); border-radius: 3px; background: linear-gradient(180deg, var(--bi-panel-3), var(--bi-panel)); color: var(--bi-text); font: inherit; font-size: 12px; box-shadow: 0 1px 0 #ffffff08 inset, 0 2px 5px #0006; }
-.betterinv-trade-window button:hover:not(:disabled) { border-color: var(--bi-gold); background: linear-gradient(180deg, #33322f, #1d1c1a); }
-.betterinv-trade-window button:disabled { opacity: .5; }
-.betterinv-trade-picker { margin-top: 12px; color: var(--bi-muted); font-size: 12px; }
-.betterinv-trade-picker summary { padding: 6px 0; }
-.betterinv-trade-add { display: grid; grid-template-columns: minmax(0, 1fr) 50px; gap: 6px; margin: 8px 0; }
-.betterinv-trade-add button { grid-column: 1 / -1; }
-.betterinv-trade-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px; padding-top: 12px; }
-.betterinv-trade-actions [data-ready] { grid-column: 1 / -1; grid-row: 1; min-height: 38px; border-color: var(--bi-border); background: linear-gradient(180deg, #352b3d, #201625); color: #f4e5bb; }
-.betterinv-trade-partner-status { padding-top: 26px; color: var(--bi-muted); font-size: 12px; }
-.betterinv-trade-note { padding: 12px 16px; border-top: 1px solid var(--bi-border-soft); color: var(--bi-muted); background: var(--bi-header); font-size: 12px; text-align: center; }
-.betterinv-trade-error { margin: 12px 16px; color: #e6a39d; }
-.betterinv-trade-invitation { padding: 16px; color: var(--bi-text); }
-.betterinv-trade-invitation h3 { margin: 12px 0; border: 0; }
-.betterinv-trade-window .dialog-buttons { gap: 6px; padding: 0 16px 16px; background: var(--bi-bg); }
-.betterinv-trade-window .dialog-buttons:empty { display: none; }
-@media (max-width: 520px) {
-  .betterinv-trade-sides > section { padding: 10px 8px; }
-  .betterinv-trade-player { min-height: 120px; }
-  .betterinv-trade-player h3 { font-size: 15px; }
-  .betterinv-trade-kicker { font-size: 10px; letter-spacing: .015em; }
-  .betterinv-trade-drop { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .betterinv-trade-coins label { grid-template-columns: 33px minmax(0, 1fr); gap: 4px; padding: 6px 4px; min-height: 47px; }
-  .betterinv-trade-coins small { grid-column: 2; }
-  .betterinv-trade-coins label strong { grid-column: 2; }
-  .betterinv-trade-actions { grid-template-columns: 1fr; }
-  .betterinv-trade-heading { padding: 12px; }
-}
-
-
-/* Foundry v14 can place dialog HTML in a wrapper before the render hook applies classes.
-   :has scopes this theme to our trade dialogs even when that hook targets the content node. */
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation),
-:is(.dialog,.window-app,.application):has(.betterinv-trade-sides),
+/* Trading: one scoped layout for legacy Dialog shells in Foundry v14. */
 .betterinv-trade-window {
-  --color-text-primary: #efe6cf;
-  --color-text-light-primary: #efe6cf;
-  --color-border-light-primary: #6d5f38;
-  color: #efe6cf !important;
-  background: #0c0b10 !important;
-  border: 1px solid rgba(200,168,90,.62) !important;
-  box-shadow: 0 14px 65px #000b,0 0 26px #35204150 !important;
+  --bi-bg:#100e14; --bi-text:#eee5d1; --bi-muted:#b5aa94; --bi-gold:#d0b36f;
+  --bi-border-soft:#574a32; --bi-border:#a38b54;
+  background:var(--bi-bg); color:var(--bi-text); border:1px solid var(--bi-border);
+  min-height:0 !important; max-height:calc(100vh - 40px) !important;
+  max-width:calc(100vw - 24px); height:auto;
 }
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) :is(.window-header,.app-header,.window-title),
-:is(.dialog,.window-app,.application):has(.betterinv-trade-sides) :is(.window-header,.app-header,.window-title),
-.betterinv-trade-window :is(.window-header,.app-header,.window-title) {
-  background: #111015 !important;color: #f2e5c8 !important;
-  border-color: rgba(200,168,90,.48) !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .window-content,
-:is(.dialog,.window-app,.application):has(.betterinv-trade-sides) .window-content,
+.betterinv-trade-window .window-header {background:#151219;color:var(--bi-text);border-bottom:1px solid var(--bi-border-soft);flex:0 0 auto;}
 .betterinv-trade-window .window-content {
-  background: linear-gradient(145deg,#141218,#0b0a0e 65%,#1b1222) !important;
-  color:#efe6cf !important;
-  border:0 !important;
-  padding:0 !important;
-  overflow:auto !important;
+  display:flex !important; flex-direction:column; flex:1 1 auto; min-height:0 !important;
+  padding:0 !important; overflow:auto !important; background:var(--bi-bg); color:var(--bi-text);
 }
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) :is(.dialog-content,.dialog-buttons,.standard-form,.form-footer),
-.betterinv-trade-window :is(.dialog-content,.dialog-buttons,.form-footer) {
-  background: transparent !important; color:#efe6cf !important;
+.betterinv-trade-window .dialog-content {
+  flex:0 0 auto !important; height:auto !important; min-height:0 !important; overflow:visible !important; padding:0;
 }
-.betterinv-trade-invitation {
-  display:flex;flex-direction:column;gap:12px;min-height:0;max-height:none;
-  padding:22px 22px 12px;
-  background:transparent;color:#efe6cf;
-}
-.betterinv-trade-invitation .betterinv-trade-range {
-  display:inline-flex;align-self:flex-start;align-items:center;gap:8px;
-  padding:6px 11px;border:1px solid #6d5f38;border-radius:4px;
-  color:#d4b976;background:#231e1b;font-size:11px;font-weight:700;
-}
-.betterinv-trade-invitation h3 {
-  margin:0;color:#f1e7d2;font-family:Signika,Georgia,serif;
-  font-size:18px;line-height:1.35;overflow-wrap:anywhere;font-weight:700;
-}
-.betterinv-trade-invitation p {margin:0;color:#bdb29d;font-size:13px;line-height:1.48;white-space:normal;overflow-wrap:anywhere}
-.betterinv-trade-invitation p:first-of-type {
-  padding:12px 14px;border:1px solid #665531;border-radius:5px;
-  color:#e7d4a9;background:#1d1920;font-weight:650;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons,
-.betterinv-trade-window .dialog-buttons {
-  display:flex !important;gap:10px !important;
-  padding:13px 20px 20px !important;border-top:1px solid #51462d !important;
-  background:#0e0d12 !important;min-height:0 !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button,
-.betterinv-trade-window .dialog-buttons button {
-  flex:1;min-height:41px !important;white-space:normal;
-  color:#e9dbbe !important;background:#222027 !important;
-  border:1px solid #766443 !important;border-radius:5px !important;
-  font-size:13px;font-weight:700;box-shadow:none !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button:first-child {
-  background:linear-gradient(180deg,#594b2b,#322a1d) !important;border-color:#c8a85a !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button:hover {
-  background:#453822 !important;border-color:#e2c77c !important;
-}
-
-
-/* v1.7.3 compact trading workspace: currency first, item slots second. */
-:is(.dialog,.window-app,.application).betterinv-trade-window:has(.betterinv-trade-sides) {
-  width: min(870px, calc(100vw - 32px)) !important;
-  height: min(610px, calc(100vh - 40px)) !important;
-  min-height: 0 !important;
-  max-height: calc(100vh - 40px) !important;
-}
-.betterinv-trade-window:has(.betterinv-trade-sides) .window-content {
-  height: auto !important;
-  min-height: 0 !important;
-  overflow-y: auto !important;
-  scrollbar-color: #70613e #111015;
-}
-.betterinv-trade { min-height: 0 !important; display: flex; flex-direction: column; }
-.betterinv-trade-heading { padding: 11px 16px; }
-.betterinv-trade-heading h2 { font-size: 20px; margin-top: 1px; }
-.betterinv-trade-player { min-height: 0; padding: 0 0 7px; }
-.betterinv-trade-player h3 { font-size: 16px; margin: 3px 0 4px; }
-.betterinv-trade-status { font-size: 11px; }
-.betterinv-trade-sides > section { padding: 12px 13px 11px; }
-.betterinv-trade-sides > section + section { border-left: 1px solid rgba(200,168,90,.25); }
-.betterinv-trade-section-label { padding: 7px 0 5px; font-weight: 700; }
-.betterinv-trade-money { margin: 0 0 5px; }
-.betterinv-trade-coins {
-  display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 5px;
-  border: 0; padding: 0;
-}
-.betterinv-trade-coins .betterinv-trade-money-card {
-  min-width: 0; margin: 0; padding: 7px 5px;
-  border: 1px solid rgba(200,168,90,.32) !important; border-radius: 4px;
-  display: grid; grid-template-columns: minmax(0,1fr);
-  gap: 3px; align-content: start; background: #101014;
-}
-.betterinv-trade-money-card .betterinv-trade-money-name {
-  display: block; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; font-size: 9px; font-weight: 850;
-  text-transform: uppercase; color: #ab9970;
-}
-.betterinv-trade-money-card .betterinv-trade-money-abbr {
-  color: #c9b37d; font-size: 10px; font-weight: 800;
-}
-.betterinv-trade-money-card .betterinv-trade-balance {
-  color: #d7d0be; font-size: 10px; font-weight: 650;
-}
-.betterinv-trade-money-card .betterinv-trade-other-amount {
-  color: #efdda3; font-size: 17px; font-weight: 850;
-}
-.betterinv-trade-money-card small {font-size: 9px;color: #9b8e77;}
-.betterinv-trade-window .betterinv-trade-money-card input[data-trade-coin] {
-  width: 100%; min-width: 0; height: 30px; box-sizing: border-box;
-  padding: 3px 5px; text-align: center; font-size: 14px;
-  font-variant-numeric: tabular-nums;
-  color: #f5e9ce; background: #08080b; border: 1px solid #6d5f38;
-}
-.betterinv-trade-drop { min-height: 0; gap: 5px; }
-.betterinv-trade-slot { min-height: 67px; padding: 4px; }
-.betterinv-trade-slot img {width: 28px;height: 28px;}
-.betterinv-trade-slot.is-add {
-  cursor: pointer; border-style: dashed; background: #17141b;
-}
-.betterinv-trade-slot.is-add:hover,
-.betterinv-trade-slot.is-add:focus-visible {
-  outline: none; background: #25202b; border-color: #c8a85a;
-}
-.betterinv-trade-slot.is-add small {font-size: 10px;color: #cfb97e;}
-.betterinv-trade-drop-hint { padding: 5px 0; min-height: 0; font-size: 10px; }
-.betterinv-trade-picker { margin: 6px 0; }
-.betterinv-trade-picker summary { cursor: pointer; }
-.betterinv-trade-actions {
-  display: grid; grid-template-columns: repeat(3,minmax(0,1fr));
-  gap: 6px; padding-top: 8px;
-}
-.betterinv-trade-actions [data-ready] {
-  grid-column: auto;grid-row:auto; font-size: 12px;min-height: 32px;
-}
-.betterinv-trade-actions button {min-height: 32px;padding: 6px;}
-.betterinv-trade-partner-status {padding: 12px 0;color: #b6a987;}
-.betterinv-trade-note {padding: 9px 12px;font-size: 11px;}
-/* No huge minimum height on the source/recipient choice dialogs. */
-.betterinv-transfer-dialog {
-  min-height: 340px;
-  max-height: min(640px,82vh);
-  grid-template-rows: auto auto auto minmax(95px,1fr) auto;
-}
-.betterinv-transfer-window .window-content { background: #0d0c10 !important; }
-.betterinv-transfer-footer { background: #0e0d13; }
-/* Token quick trade appears in the existing Foundry HUD without replacing it. */
-.betterinv-token-hud-trade {
-  border: 1px solid #ae9150 !important;
-  background: #1a1720 !important;
-  color: #e5cf93 !important;
-  cursor: pointer !important;
-}
-.betterinv-token-hud-trade:hover { background: #3d3429 !important; }
-.betterinv-token-trade-menu {
-  position: fixed; z-index: 30000;
-  width: 218px; padding: 5px;
-  background: linear-gradient(145deg,#1d1a21,#100e12);
-  border: 1px solid #bc9f61; border-radius: 5px;
-  box-shadow: 0 12px 36px #000a;
-}
-.betterinv-token-trade-menu button {
-  display: flex; width: 100%; align-items: center; gap: 8px;
-  padding: 9px 12px; background: transparent; border: 0;
-  text-align: left; color: #f0e4c7; cursor:pointer;
-  font: 700 12px Signika,Georgia,serif;
-}
-.betterinv-token-trade-menu button:hover {background: #373023;}
-.betterinv-token-trade-menu small {margin-left:auto;color: #bdab7b;font-size:10px;}
-@media(max-width:760px){
-  .betterinv-trade-coins {grid-template-columns: repeat(5,minmax(0,1fr));gap:3px;}
-  .betterinv-trade-sides > section {padding:8px;}
-  .betterinv-trade-money-card .betterinv-trade-money-name {font-size:8px;}
-  .betterinv-trade-money-card .betterinv-trade-balance {font-size:9px;}
-  .betterinv-trade-actions {grid-template-columns:1fr 1fr;}
-  .betterinv-trade-actions [data-ready] {grid-column:1/-1;grid-row:1;}
-  .betterinv-trade-slot {min-height: 58px;}
-}
-
-/* Tight, readable invitation dialogs without oversized inherited Foundry button rows. */
-:is(.dialog,.window-app,.application).betterinv-trade-window:has(.betterinv-trade-invitation) {
-  height: auto !important; max-height: min(510px,88vh) !important; min-height: 0 !important;
-  width: min(530px,calc(100vw - 32px)) !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons,
-.betterinv-trade-window:has(.betterinv-trade-invitation) .dialog-buttons {
-  flex: 0 0 auto !important; height: auto !important; min-height: 0 !important;
-  display: flex !important; align-items: center !important;
-  padding: 12px 16px 15px !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-buttons button,
-.betterinv-trade-window:has(.betterinv-trade-invitation) .dialog-buttons button {
-  height: 42px !important; min-height: 42px !important; max-height: 42px !important;
-  flex: 1 1 0 !important; line-height: 1.2 !important;
-}
-:is(.dialog,.window-app,.application):has(.betterinv-trade-invitation) .dialog-content {
-  flex: 0 1 auto !important; min-height: 0 !important;
+.betterinv-trade-window .dialog-buttons {flex:0 0 auto !important;display:flex;gap:8px;padding:12px 16px;}
+.betterinv-trade-window .dialog-buttons:empty {display:none !important;padding:0 !important;height:0 !important;}
+.betterinv-trade-window button {box-sizing:border-box; height:auto; min-height:32px; line-height:1.25; padding:7px 10px; margin:0; border:1px solid var(--bi-border-soft); border-radius:4px; background:#252029; color:var(--bi-text); font:inherit; font-size:12px; cursor:pointer;}
+.betterinv-trade-window button:hover:not(:disabled) {border-color:var(--bi-gold);background:#352b3d;}
+.betterinv-trade-window button:disabled {opacity:.55;cursor:default;}
+.betterinv-trade-window :is(input,select) {box-sizing:border-box; min-width:0; width:100%; height:32px; padding:4px 6px; border:1px solid #74603c; border-radius:3px; background:#0b090f; color:#f4e6c6; font:inherit; color-scheme:dark;}
+.betterinv-trade {color:var(--bi-text);font-family:Signika,Georgia,serif;background:linear-gradient(145deg,#131016,#1a1421);}
+.betterinv-trade-heading {display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--bi-border-soft);}
+.betterinv-trade-kicker {display:block;font-size:10px;color:var(--bi-gold);letter-spacing:.05em;}
+.betterinv-trade-heading h2 {margin:2px 0 0;border:0;font-size:20px;}
+.betterinv-trade-range {font-size:11px;color:var(--bi-muted);white-space:nowrap;}
+.betterinv-trade-sides {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));}
+.betterinv-trade-sides > section {min-width:0;padding:12px;}
+.betterinv-trade-sides > section + section {border-left:1px solid var(--bi-border-soft);}
+.betterinv-trade-player h3 {margin:4px 0;border:0;font-size:17px;overflow-wrap:anywhere;}
+.betterinv-trade-status {font-size:11px;color:var(--bi-muted);}
+.betterinv-trade-status.is-ready {color:#c5d798;}
+.betterinv-trade-section-label {display:flex;justify-content:space-between;gap:8px;padding:10px 0 6px;font-size:12px;}
+.betterinv-trade-section-label span + span {color:var(--bi-muted);}
+.betterinv-trade-coins {display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:5px;}
+.betterinv-trade-coins .betterinv-trade-money-card {display:flex;flex-direction:column;gap:4px;min-width:0;padding:7px 5px;margin:0;border:1px solid var(--bi-border-soft);border-radius:4px;background:#19151d;text-align:center;}
+.betterinv-trade-money-name {min-height:28px;overflow-wrap:anywhere;white-space:normal;font-size:11px;line-height:1.3;color:var(--bi-text);}
+.betterinv-trade-money-abbr {font-size:10px;color:var(--bi-gold);}
+.betterinv-trade-balance {font-size:10px;color:var(--bi-muted);overflow-wrap:anywhere;font-variant-numeric:tabular-nums;}
+.betterinv-trade-money-card input[data-trade-coin] {width:100%;text-align:center;font-size:14px;font-variant-numeric:tabular-nums;}
+.betterinv-trade-other-amount {font-size:20px;color:var(--bi-gold);}
+.betterinv-trade-money-card small {font-size:10px;color:var(--bi-muted);}
+.betterinv-trade-drop {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;max-height:260px;overflow-y:auto;align-content:start;}
+.betterinv-trade-slot {box-sizing:border-box;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-width:0;min-height:94px;padding:8px 6px;border:1px solid var(--bi-border-soft);border-radius:4px;background:#110e16;}
+.betterinv-trade-slot img {width:38px;height:38px;object-fit:contain;border:0;}
+.betterinv-trade-item-name {width:100%;overflow-wrap:anywhere;white-space:normal;text-align:center;font-size:12px;line-height:1.3;}
+.betterinv-trade-quantity {position:absolute;top:4px;left:5px;font-size:11px;color:var(--bi-gold);}
+.betterinv-trade-window [data-remove-item] {position:absolute;top:2px;right:2px;min-height:22px;width:22px;height:22px;padding:0;background:#251923;color:#e5c0bb;}
+.betterinv-trade-window .betterinv-trade-slot.is-add {min-height:94px;border-style:dashed;background:#201826;}
+.betterinv-trade-slot.is-empty > span {font-size:23px;color:var(--bi-gold);}
+.betterinv-trade-slot.is-empty:not(.is-add) > span {opacity:.25;}
+.betterinv-trade-slot small {font-size:11px;}
+.betterinv-trade-drop-hint {font-size:11px;color:var(--bi-muted);padding:6px 0;}
+.betterinv-trade-picker {font-size:12px;margin:4px 0;color:var(--bi-muted);}
+.betterinv-trade-picker summary {cursor:pointer;padding:4px 0;}
+.betterinv-trade-add {display:grid;grid-template-columns:minmax(0,1fr) 55px;gap:5px;padding:6px 0;}
+.betterinv-trade-add button {grid-column:1/-1;}
+.betterinv-trade-actions {display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.betterinv-trade-actions button {flex:1 1 auto;}
+.betterinv-trade-actions [data-ready] {background:#433722;border-color:#a38b54;}
+.betterinv-trade-actions [data-cancel] {flex:0 0 auto;}
+.betterinv-trade-partner-status {font-size:12px;color:var(--bi-muted);padding:12px 0;}
+.betterinv-trade-note {font-size:11px;text-align:center;color:var(--bi-muted);padding:10px;border-top:1px solid var(--bi-border-soft);}
+.betterinv-trade-error {color:#e6a39d;padding:10px;}
+.betterinv-trade-invitation {padding:16px;display:grid;gap:10px;}
+.betterinv-trade-invitation h3 {font-size:18px;margin:0;border:0;line-height:1.4;}
+.betterinv-trade-invitation p {font-size:13px;margin:0;color:var(--bi-muted);line-height:1.4;}
+.betterinv-trade-window:has(.betterinv-trade-invitation) .dialog-buttons button {flex:1 1 0;min-height:36px;}
+/* Recipient and route dialogs share the existing inventory theme. */
+.betterinv-transfer-window .window-content {flex:1 1 auto;min-height:0;overflow-y:auto !important;}
+.betterinv-transfer-window .dialog-content {flex:0 0 auto !important;height:auto !important;overflow:visible !important;}
+.betterinv-transfer-dialog {min-height:0;max-height:none;grid-template-rows:auto auto auto minmax(65px,auto) auto;}
+.betterinv-transfer-actors {max-height:240px;overflow-y:auto;}
+.betterinv-transfer-footer {gap:8px;padding:10px 12px;background:#100d15;}
+.betterinv-transfer-footer > div {display:flex;gap:6px;flex:0 0 auto;}
+.betterinv-transfer-footer button {display:inline-flex !important;align-items:center;justify-content:center;gap:6px;width:auto !important;min-width:0 !important;height:34px !important;min-height:34px !important;padding:6px 10px !important;line-height:1.2 !important;white-space:nowrap;font-size:11px;}
+.betterinv-transfer-footer > span {min-width:0;white-space:normal;overflow-wrap:anywhere;}
+.betterinv-transfer-confirm {background:linear-gradient(180deg,#443923,#251e2e);border-color:#a68d51;color:#f1deb0;}
+.betterinv-transfer-route-dialog {padding:12px;gap:10px;}
+.betterinv-transfer-route-options {grid-template-columns:1fr;gap:8px;}
+.betterinv-transfer-route-options button {min-height:60px;height:auto;line-height:1.3;padding:10px;gap:4px 10px;}
+.betterinv-token-hud-trade {border:1px solid #ae9150 !important;background:#1a1720 !important;color:#e5cf93 !important;cursor:pointer;}
+.betterinv-token-trade-menu {position:fixed;z-index:30000;width:230px;padding:5px;background:#1a1520;border:1px solid #bc9f61;border-radius:5px;box-shadow:0 10px 30px #000a;}
+.betterinv-token-trade-menu button {display:flex;width:100%;align-items:center;gap:8px;padding:9px;background:transparent;border:0;color:#eee3c7;font-size:12px;cursor:pointer;}
+.betterinv-token-trade-menu small {margin-left:auto;font-size:10px;color:#c3ad76;}
+@media(max-width:650px) {
+  .betterinv-trade-sides {grid-template-columns:1fr;}
+  .betterinv-trade-sides > section + section {border-left:0;border-top:1px solid var(--bi-border-soft);}
+  .betterinv-transfer-footer {flex-wrap:wrap;}
 }
